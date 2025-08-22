@@ -1,4 +1,3 @@
-
 from core import Mahjong16Env, Ruleset
 
 def test_reset_and_deal():
@@ -16,17 +15,21 @@ def test_reset_and_deal():
     # 合法動作應包含丟 drawn
     assert any(a["type"]=="DISCARD" and a.get("from")=="drawn" for a in obs["legal_actions"])
 
-def test_step_discard_and_turn():
+def test_discard_then_reaction_window_and_pass_all():
     env = Mahjong16Env(Ruleset(), seed=123)
     obs = env.reset()
     discards = [a for a in obs["legal_actions"] if a["type"] == "DISCARD"]
     assert discards, "必須要有可丟牌的動作"
     a0 = discards[0]
+    # 丟牌 -> 進入 REACTION（輪到 P1 回應）
     obs2, rew, done, info = env.step(a0)
-    # 輪轉至 P1，且 P1 應該已經摸到 drawn
-    assert obs2["player"] == 1
+    assert obs2["phase"] == "REACTION"
+    assert obs2["player"] == 1, "丟牌後應由下家先回應"
+    # 三家都 PASS -> 輪到 P1 摸到 drawn，phase 回到 TURN
+    obs3, _, _, _ = env.step({"type":"PASS"})
+    obs4, _, _, _ = env.step({"type":"PASS"})
+    obs5, _, _, _ = env.step({"type":"PASS"})
+    assert obs5["phase"] == "TURN"
+    assert obs5["player"] == 1
     assert env.players[1]["drawn"] is not None
     assert len(env.players[1]["hand"]) == env.rules.initial_hand
-    # P0 丟牌後不應有 drawn，且仍維持 16 張手牌
-    assert env.players[0]["drawn"] is None
-    assert len(env.players[0]["hand"]) == env.rules.initial_hand

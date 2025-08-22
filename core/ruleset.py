@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from dataclasses import dataclass
 
@@ -8,9 +7,16 @@ class Ruleset:
     n_players: int = 4
     initial_hand: int = 16
     max_rounds: int = 1
+
+    # 動作開關
     allow_chi: bool = True
-    allow_pon: bool = True
-    allow_kan: bool = True
-    allow_ron: bool = True
-    allow_tsumo: bool = True
-    # TODO: 台/番與結算、搶槓、三家付、連莊、風圈等
+    allow_pong: bool = True
+    allow_gang: bool = True
+    allow_hu: bool = True
+    allow_zimo: bool = True
+
+    # 尾牌留置（流局）設定
+    # - fixed: 固定留 N 張（預設 16）
+    # - gang_plus_one: 以 base 為底，每有 1 次槓增加 1 張留置（俗稱「一槓一」）
+    dead_wall_mode: str = "fixed"   # "fixed" | "gang_plus_one"
+    dead_wall_base: int = 16        # 台灣常見：尾牌留 16 張
