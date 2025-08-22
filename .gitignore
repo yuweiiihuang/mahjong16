@@ -1,0 +1,86 @@
+# --- OS / 編輯器 ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.orig
+
+# VS Code / JetBrains（如無需忽略可移除）
+.vscode/
+*.code-workspace
+.idea/
+
+# --- Python 基本 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+
+# 封裝/建置
+build/
+dist/
+site/
+*.egg
+*.egg-info/
+pip-wheel-metadata/
+
+# 虛擬環境
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 文件產出 / 文件站台
+/site
+
+# 測試 / 型別 / 工具快取
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.mypy_cache/
+.pyre/
+.pytype/
+dmypy.json
+.pyright/
+
+# Cython
+cython_debug/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# --- 機器學習 / 訓練產物 ---
+# 一般訓練紀錄與檢查點
+runs/
+logs/
+checkpoints/
+outputs/
+artifacts/
+wandb/
+mlruns/
+
+# 常見模型檔
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.tflite
+*.pb
+
+# 暫存資料與資料集（若需版本控管，改用 .gitattributes LFS 或將特定檔案移除於忽略清單）
+data/
+datasets/
+.tmp/
+.cache/
+**/.ipynb_checkpoints/
+
+# 其他可能的機密/設定
+.env
+.env.*
+*.secret
+*.key
