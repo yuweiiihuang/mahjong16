@@ -99,6 +99,8 @@ class Mahjong16Env:
         return self._obs(self.turn)
 
     def legal_actions(self, pid: Optional[int]=None) -> List[Dict[str, Any]]:
+        if getattr(self, "done", False):
+            return []
         if self.phase == "TURN":
             pid = self.turn if pid is None else pid
             me = self.players[pid]
@@ -110,6 +112,8 @@ class Mahjong16Env:
             # TODO：自摸胡、加槓/暗槓等
             return acts
         else:  # REACTION
+            if not self.reaction_queue or not (0 <= self.reaction_idx < len(self.reaction_queue)):
+                return []
             # 當前要回應的玩家
             pid = self.reaction_queue[self.reaction_idx]
             acts: List[Dict[str, Any]] = [{"type":"PASS"}]
@@ -248,6 +252,9 @@ class Mahjong16Env:
                     else:  # HU
                         # 判胡：目前 judge.is_win_16 未實作，此分支暫不會觸發
                         self.winner = claimer
+                        self.phase = "DONE"
+                        self.reaction_queue = []
+                        self.reaction_idx = 0
                         self.done = True
                         rewards = settle_scores_stub(self)
                         return self._obs(self.turn), rewards, True, {}
@@ -297,6 +304,7 @@ class Mahjong16Env:
 
     def _obs(self, pid: int) -> Dict[str, Any]:
         me = self.players[pid]
+        is_done = getattr(self, "done", False)
         obs = {
             "player": pid,
             "phase": self.phase,
@@ -307,6 +315,7 @@ class Mahjong16Env:
             "rivers": [list(p["river"]) for p in self.players],
             "n_remaining": len(self.wall),
             "last_discard": dict(self.last_discard) if self.last_discard else None,
-            "legal_actions": self.legal_actions(pid=None if self.phase=="TURN" else pid),
+            "legal_actions": ([] if is_done else
+                          self.legal_actions(pid=None if self.phase == "TURN" else pid)),
         }
         return obs
