@@ -1,59 +1,62 @@
+# mahjong16 — 台灣 16 張麻將環境骨架
 
-# mahjong16 — 台灣 16 張麻將（可訓練 AI 專案骨架）
+`mahjong16` 提供可擴充的台灣 16 張麻將模擬環境，適合作為 AI 對局與強化學習的基礎。
 
-此版本已加入 **`drawn`（本巡摸到的一張，臨時第 17 張）** 的正確流程：
+## 功能特色
 
-- 起手每家 16 張，**莊家多摸一張至 `drawn`**（開門 17 張）。
-- 每巡開始先摸到 `drawn`（遇花自動補），然後從 `drawn` 或 `hand` 丟回 1 張。
-
-目前提供：
-
-- `core/`：環境與規則介面（已含 `drawn`、補花、丟牌；吃/碰/槓/胡與結算留 TODO）。
-- `bots/`：隨機與啟發式範例。
-- `rl/`：自我對弈與網路骨架（訓練需自行安裝 PyTorch）。
-- `tests/`：基礎測試（含莊家 17 張與回合輪轉檢查）。
+- **drawn 模式**：每位玩家固定 16 張手牌，輪到自己時先摸成 `drawn` 再決定棄牌，莊家開局即持有 `drawn`。
+- **反應視窗與優先權**：棄牌後依距離與「胡>槓>碰>吃」排序，允許其他玩家插入行動。
+- **尾牌留置**：支援固定留牌或「一槓一」模式，若牆剩餘牌不足則流局。
+- **胡牌判定**：`judge.is_win_16` 實作「五面子一眼」檢查供自摸/榮和使用，結算目前以樣板函式佔位。
+- **範例對局 bot**：提供隨機策略與簡單啟發式兩種 bot 供測試或自我對弈。
+- **強化學習骨架**：包含 policy‑value 網路、Replay Buffer 與自我對弈資料產生（需自行安裝 PyTorch）。
 
 ## 快速開始
 
 ```bash
 pip install -r requirements.txt
-python main.py
-pytest -q
+python main.py      # CLI 範例
+pytest -q           # 執行測試
 ```
 
 ## 設計重點
 
-- 狀態欄位：`hand`（16 張）、`drawn`（本巡摸到的一張或 `None`）、`flowers`、`melds`、`rivers`。
-- API：`reset()` / `step(action)` / `legal_actions()`。
-- 動作：目前僅 `DISCARD`（`from: "drawn"|"hand"`）與保留用的 `PASS`（在簡化版中不可於自己回合使用）。
+- 核心規則與模擬位於 `core/`，與 bots、RL 模組解耦。
+- 環境 API：`reset()` 初始化；`legal_actions()` 產生合法動作；`step(action)` 進行棄牌或反應並回傳新狀態。
+- 狀態欄位包含 `hand`、`drawn`、`flowers`、`melds`、`river` 等，方便後續擴充計算。
 
-## 專案目錄架構
+## 專案架構
 
 ```text
 mahjong16/
-├─ core/                  # 純規則與模擬（與 ML 解耦）
-│  ├─ tiles.py            # 牌編碼／花處理／洗牌
-│  ├─ ruleset.py          # 台麻 16 規則設定（是否含花、張數等）
-│  ├─ env.py              # 單桌環境：reset/step/observation/legal_actions（含 drawn 流程）
-│  └─ judge.py            # 合法性檢查、胡牌（五面子或刻子 + 眼睛）、結算（TODO）
-├─ bots/
-│  ├─ random_bot.py       # 隨機（測試用）
-│  ├─ rulebot.py          # 規則／啟發式 Bot（baseline）
-│  └─ mcts_bot.py         # IS-MCTS（預留；未來擴充）
-├─ rl/
-│  ├─ net.py              # Policy-Value Network（PyTorch，可選）
-│  ├─ selfplay.py         # 產生自我對弈資料（可多進程）
-│  ├─ buffer.py           # 重播佇列（Replay Buffer）
-│  └─ train.py            # AlphaZero 式訓練循環（樣板）
-├─ service/               # （可選）部署推論與模型匯出
-│  ├─ infer_server.py     # gRPC／WebSocket 推論服務（預留）
-│  └─ exporter.py         # 匯出 ONNX／TensorRT（預留）
-├─ scripts/
-│  ├─ eval_league.py      # 天梯／TrueSkill 評估（樣板）
-│  └─ bench_sim.py        # 模擬吞吐量壓測
-├─ tests/
-│  └─ test_env_basic.py   # 基本不變式測試（含莊家 17 張與 drawn 輪轉）
-├─ main.py                # CLI Demo：印出手牌與 drawn
-├─ README.md
+├─ core/                  # 規則與模擬
+│  ├─ tiles.py            # 牌編碼與洗牌
+│  ├─ ruleset.py          # 規則設定（含尾牌留置模式）
+│  ├─ judge.py            # 胡牌判定與結算佔位
+│  └─ env.py              # 單桌環境：reset/step/legal_actions
+├─ bots/                  # 範例對局 bot
+│  ├─ random_bot.py       # 隨機策略
+│  └─ rulebot.py          # 極簡啟發式
+├─ rl/                    # 自我對弈與訓練骨架
+│  ├─ net.py              # Policy-Value Network
+│  ├─ selfplay.py         # 產生對弈資料
+│  ├─ buffer.py           # Replay Buffer
+│  └─ train.py            # 訓練流程（尚未實作）
+├─ scripts/               # 評估與壓測（樣板）
+│  ├─ eval_league.py
+│  └─ bench_sim.py
+├─ tests/                 # 單元測試
+│  ├─ test_env_basic.py
+│  ├─ test_reaction_basic.py
+│  ├─ test_deadwall.py
+│  ├─ test_tsumo.py
+│  └─ test_win_basic.py
+├─ main.py                # CLI Demo
 └─ requirements.txt
 ```
+
+## 待辦事項
+
+- 加槓 / 暗槓、計分與結算、服務部署與模型匯出。
+- 擴充 bot 與搜尋／策略演算法。
+- 完成 `train.py` 強化學習流程。
