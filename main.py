@@ -131,6 +131,8 @@ def human_choose_action(obs: Dict[str, Any]) -> Dict[str, Any]:
         # --- 橫向列出可丟的牌：按牌型排序；drawn 置後並加 * ---
         hand: List[int] = list(obs.get("hand") or [])
         drawn: Optional[int] = obs.get("drawn")
+         # 是否可自摸
+        hu_action = next((a for a in acts if a.get("type")=="HU"), None)
         # 收集所有合法丟牌動作
         discards_all: List[Dict[str, Any]] = [a for a in acts if a.get("type")=="DISCARD"]
         # 以（來源、花色、點數、牌面字串）排序；來源 hand=0、drawn=1 以確保 drawn 在最後
@@ -158,13 +160,19 @@ def human_choose_action(obs: Dict[str, Any]) -> Dict[str, Any]:
         print(f"Hand: {hand_s}   Drawn: {fmt_tile(drawn)}")
         # 顯示已公開的吃／碰／槓
         print(f"Melds: {render_melds(obs.get('melds') or [])}")
-
+        
+        # 若可自摸，先提供動作列
+        if hu_action is not None:
+            print("ACTIONS → [H] HU")
         line = "  ".join(f"[{i}] {lbl}" for i, lbl in enumerate(display_labels))
         print(f"DISCARD → {line}")
 
         # 讀取輸入：索引或牌面字串
         while True:
             raw = input("Discard index or tile: ").strip().upper()
+            # 自摸快捷鍵
+            if hu_action is not None and raw in ("H", "HU"):
+                return {k: v for k, v in hu_action.items()}
             # 先嘗試索引
             if raw.isdigit():
                 idx = int(raw)

@@ -106,10 +106,13 @@ class Mahjong16Env:
             me = self.players[pid]
             acts: List[Dict[str, Any]] = []
             if me["drawn"] is not None:
+                # 自摸（TSUMO）
+                if self.rules.allow_hu and is_win_16(me["hand"] + [me["drawn"]], me["melds"], self.rules):
+                    acts.append({"type":"HU", "source":"TSUMO"})
                 acts.append({"type":"DISCARD", "tile": me["drawn"], "from":"drawn"})
             for t in self._legal_discards(pid):
                 acts.append({"type":"DISCARD", "tile": t, "from":"hand"})
-            # TODO：自摸胡、加槓/暗槓等
+            # TODO：加槓/暗槓等
             return acts
         else:  # REACTION
             if not self.reaction_queue or not (0 <= self.reaction_idx < len(self.reaction_queue)):
@@ -142,8 +145,18 @@ class Mahjong16Env:
         if self.phase == "TURN":
             pid = self.turn
             a_type = action.get("type")
+            # 支援自摸結束
+            if a_type == "HU":
+                self.winner = pid
+                self.phase = "DONE"
+                self.reaction_queue = []
+                self.reaction_idx = 0
+                self.last_discard = None
+                self.done = True
+                rewards = settle_scores_stub(self)
+                return self._obs(self.turn), rewards, True, {}
             if a_type != "DISCARD":
-                raise AssertionError("本階段僅能丟牌（DISCARD）")
+                raise AssertionError("本階段僅能丟牌（DISCARD）或自摸（ZIMO）")
             src = action.get("from", "hand")
             tile = action["tile"]
 
