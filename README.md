@@ -1,17 +1,14 @@
+# mahjong16 — 台灣 16 張麻將 AI 專案骨架
 
-# mahjong16 — 台灣 16 張麻將（可訓練 AI 專案骨架）
+`mahjong16` 提供一個可用於訓練與測試 AI 的台灣 16 張麻將環境。本專案著重於 **drawn** 流程與回合輪轉，方便未來擴充吃、碰、槓與胡牌邏輯。
 
-此版本已加入 **`drawn`（本巡摸到的一張，臨時第 17 張）** 的正確流程：
+## 功能特色
 
-- 起手每家 16 張，**莊家多摸一張至 `drawn`**（開門 17 張）。
-- 每巡開始先摸到 `drawn`（遇花自動補），然後從 `drawn` 或 `hand` 丟回 1 張。
-
-目前提供：
-
-- `core/`：環境與規則介面（已含 `drawn`、補花、丟牌；吃/碰/槓/胡與結算留 TODO）。
-- `bots/`：隨機與啟發式範例。
-- `rl/`：自我對弈與網路骨架（訓練需自行安裝 PyTorch）。
-- `tests/`：基礎測試（含莊家 17 張與回合輪轉檢查）。
+- 起手每家 16 張，莊家額外摸一張成為 **`drawn`**。
+- 每巡先摸至 `drawn`（自動補花），再從 `drawn` 或 `hand` 棄一張。
+- 環境 API：`reset()` / `step(action)` / `legal_actions()`。
+- 目前支援動作：`DISCARD` 與保留用 `PASS`（自己回合不可使用）。
+- 提供隨機與規則 bot，以及 RL 訓練骨架。
 
 ## 快速開始
 
@@ -24,36 +21,39 @@ pytest -q
 ## 設計重點
 
 - 狀態欄位：`hand`（16 張）、`drawn`（本巡摸到的一張或 `None`）、`flowers`、`melds`、`rivers`。
-- API：`reset()` / `step(action)` / `legal_actions()`。
-- 動作：目前僅 `DISCARD`（`from: "drawn"|"hand"`）與保留用的 `PASS`（在簡化版中不可於自己回合使用）。
+- 將規則與 ML 解耦，核心環境位於 `core/`。
+- `core/env.py` 實作 `drawn` 流程與回合輪轉；`judge.py` 預留胡牌與結算。
 
-## 專案目錄架構
+## 專案架構
 
 ```text
 mahjong16/
-├─ core/                  # 純規則與模擬（與 ML 解耦）
+├─ core/                  # 規則與模擬
 │  ├─ tiles.py            # 牌編碼／花處理／洗牌
-│  ├─ ruleset.py          # 台麻 16 規則設定（是否含花、張數等）
-│  ├─ env.py              # 單桌環境：reset/step/observation/legal_actions（含 drawn 流程）
-│  └─ judge.py            # 合法性檢查、胡牌（五面子或刻子 + 眼睛）、結算（TODO）
-├─ bots/
-│  ├─ random_bot.py       # 隨機（測試用）
-│  ├─ rulebot.py          # 規則／啟發式 Bot（baseline）
-│  └─ mcts_bot.py         # IS-MCTS（預留；未來擴充）
-├─ rl/
-│  ├─ net.py              # Policy-Value Network（PyTorch，可選）
-│  ├─ selfplay.py         # 產生自我對弈資料（可多進程）
-│  ├─ buffer.py           # 重播佇列（Replay Buffer）
-│  └─ train.py            # AlphaZero 式訓練循環（樣板）
-├─ service/               # （可選）部署推論與模型匯出
-│  ├─ infer_server.py     # gRPC／WebSocket 推論服務（預留）
-│  └─ exporter.py         # 匯出 ONNX／TensorRT（預留）
-├─ scripts/
-│  ├─ eval_league.py      # 天梯／TrueSkill 評估（樣板）
+│  ├─ ruleset.py          # 台麻 16 規則設定（含花與張數）
+│  ├─ env.py              # 單桌環境：reset/step/observation/legal_actions
+│  └─ judge.py            # 合法性檢查、胡牌與結算（預留）
+├─ bots/                  # 範例對局 bot
+│  ├─ random_bot.py       # 隨機策略
+│  ├─ rulebot.py          # 規則／啟發式基線
+│  └─ mcts_bot.py         # IS-MCTS（預留）
+├─ rl/                    # 自我對弈與訓練骨架（需自行安裝 PyTorch）
+│  ├─ net.py              # Policy-Value Network
+│  ├─ selfplay.py         # 產生自我對弈資料
+│  ├─ buffer.py           # Replay Buffer
+│  └─ train.py            # AlphaZero 式訓練流程
+├─ scripts/               # 評估與測試腳本
+│  ├─ eval_league.py      # TrueSkill 評估
 │  └─ bench_sim.py        # 模擬吞吐量壓測
-├─ tests/
-│  └─ test_env_basic.py   # 基本不變式測試（含莊家 17 張與 drawn 輪轉）
-├─ main.py                # CLI Demo：印出手牌與 drawn
-├─ README.md
+├─ tests/                 # 基礎單元測試
+│  └─ test_env_basic.py   # 檢查莊家 17 張與 drawn 輪轉
+├─ main.py                # CLI Demo
 └─ requirements.txt
 ```
+
+## 待辦事項
+
+- 吃／碰／槓／胡牌判定與結算。
+- 服務部署與模型匯出。
+- 改進規則 bot 與搜尋演算法。
+
