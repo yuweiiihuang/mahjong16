@@ -95,6 +95,7 @@ class Mahjong16Env:
         self.last_discard: Optional[Dict[str, Any]] = None
         self.done = False
         self.winner: Optional[int] = None
+        self.win_source: Optional[str] = None
 
         return self._obs(self.turn)
 
@@ -264,6 +265,7 @@ class Mahjong16Env:
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                     else:  # HU
                         # 判胡：目前 judge.is_win_16 未實作，此分支暫不會觸發
+                        self.win_source = "RON"
                         self.winner = claimer
                         self.phase = "DONE"
                         self.reaction_queue = []

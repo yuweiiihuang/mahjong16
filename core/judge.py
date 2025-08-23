@@ -1,6 +1,86 @@
 from __future__ import annotations
 from functools import lru_cache
 from typing import List, Dict, Any
+from .tiles import tile_to_str, is_flower
+
+def _is_honor(t: int) -> bool:
+    ch = tile_to_str(t)[0]
+    return ch in ("E","S","W","N","C","F","P")
+
+def _is_wind(t: int) -> bool:
+    ch = tile_to_str(t)[0]
+    return ch in ("E","S","W","N")
+
+def _is_dragon(t: int) -> bool:
+    ch = tile_to_str(t)[0]
+    return ch in ("C","F","P")
+
+def _tsumo_detect(env) -> bool:
+    src = getattr(env, "win_source", None)
+    return str(src).upper() in ("TSUMO","ZIMO")
+
+def _dead_wall_reserved(env) -> int:
+    mode = getattr(env.rules, "dead_wall_mode", "fixed")
+    base = getattr(env.rules, "dead_wall_base", 16)
+    if mode == "gang_plus_one":
+        return base + getattr(env, "n_gang", 0)
+    return base
+
+def _score_env(env) -> list:
+    winner = getattr(env, "winner", None)
+    if winner is None:
+        return [0] * env.rules.n_players
+    pl = env.players[winner]
+    tsumo = _tsumo_detect(env)
+    melds = pl.get("melds") or []
+    flowers = pl.get("flowers") or []
+    hand = list(pl.get("hand") or [])
+    drawn = pl.get("drawn")
+    if drawn is not None:
+        hand.append(drawn)
+
+    menqing = all((m.get("type") not in ("CHI","PONG","GANG")) for m in melds)
+    fan = 0
+    menqing_awarded = False
+    if menqing and tsumo:
+        fan += 3
+        menqing_awarded = True
+    else:
+        if tsumo:
+            fan += 1
+        # 暫不立即加門清，先看是否符合「無字無花」
+
+    fan += len(flowers)
+
+    for m in melds:
+        if m.get("type") in ("PONG","GANG"):
+            tiles = m.get("tiles") or []
+            if not tiles:
+                continue
+            t0 = tiles[0]
+            if _is_wind(t0):
+                fan += 1
+            if _is_dragon(t0):
+                fan += 1
+            if m.get("type") == "GANG":
+                fan += 1
+
+    # 無字無花 +2：須「門清」且整副皆無字，且無花
+    has_honor = any(_is_honor(t) for t in hand) or any(_is_honor(t) for m in melds for t in (m.get("tiles") or []))
+    if menqing and not flowers and not has_honor:
+        # 無字無花 +2 與門清不疊加 → 只加 +2
+        fan += 2
+        menqing_awarded = True
+    elif menqing and not menqing_awarded:
+        # 非「門清自摸=3」，且非「無字無花」時，才補門清 +1
+        fan += 1
+
+    if tsumo and len(env.wall) == _dead_wall_reserved(env):
+        fan += 1
+
+    rewards = [0] * env.rules.n_players
+    rewards[winner] = fan
+    return rewards
 
 # 入口：判定「五面子（順子或刻子）+ 一個眼睛」
 def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
@@ -108,6 +188,5 @@ def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
     return dfs(tuple(counts), need_melds, False)
 
 
-# 暫時沿用樣板結算：流局全 0、和了全 0（之後再補）
 def settle_scores_stub(env) -> List[int]:
-    return [0] * env.rules.n_players
+    return _score_env(env)
