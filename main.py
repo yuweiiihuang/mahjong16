@@ -6,6 +6,7 @@ import re
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
 from core.judge import score_with_breakdown  # 新增：用來展示 breakdown
+from ui.console import render_public_view, render_reveal   # ← 新增：Rich UI
 
 # 反應優先權：HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -331,7 +332,7 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
     )
     env = Mahjong16Env(rules, seed=seed)
 
-    print("=== mahjong16 demo（精簡輸出） ===")
+    print("=== mahjong16 demo（Rich Console UI） ===")
 
     obs = env.reset()
     discard_id = 0
@@ -352,6 +353,9 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
                 strategies.append(AutoStrategy())
 
     while True:
+        # 每回合開始重繪一次（你也可只在事件後重繪）
+        render_public_view(env, pov_pid=(human_pid if human_pid is not None else 0),
+                           did=discard_id, last_action=None)
         act = strategies[obs.get("player")].choose(obs)
 
         # 非 PASS 動作行（只在 TURN 階段預先列印；REACTION 改為決議後列印）
@@ -371,20 +375,22 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
             t = rc.get("type")
             pid = rc.get("pid")
             tile = rc.get("tile")
+            # 事件摘要（丟給 UI 顯示在狀態列）
+            detail = ""
             if t == "CHI":
                 use = rc.get("use", [])
                 if isinstance(use, list) and len(use) == 2:
-                    print(f"P{pid} CHI ({tile_to_str(use[0])},{tile_to_str(use[1])}) + {tile_to_str(tile)}")
-                else:
-                    print(f"P{pid} CHI {tile_to_str(tile)}")
+                    detail = f"{tile_to_str(use[0])}-{tile_to_str(use[1])} + {tile_to_str(tile)}"
             elif t in ("PONG", "GANG", "HU"):
-                print(f"P{pid} {t} {tile_to_str(tile)}")
+                detail = tile_to_str(tile) or ""
+            render_public_view(env, pov_pid=(human_pid if human_pid is not None else 0),
+                               did=discard_id, last_action={"who": f"P{pid}", "type": t, "detail": detail})
 
         if atype == "DISCARD" and pre_tile is not None:
             discard_id += 1
-            Formatter.print_discard_line(discard_id, pre_pid, pre_tile, pre_drawn, env, policy, human_pid)
-            Formatter.print_table_snapshot(env, pre_pid, pre_drawn, policy, human_pid)
- 
+            # 丟牌後重繪（狀態列帶上動作摘要）
+            render_public_view(env, pov_pid=(human_pid if human_pid is not None else 0),
+                               did=discard_id, last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)})
 
         if done:
             print("=== round end ===")
@@ -411,6 +417,8 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
                     melds_s = render_melds(pl["melds"])
                     river_s = " ".join(_colorize_tile(t) for t in pl["river"])
                     print(f"P{p} | hand={hand_s} | melds={melds_s} | river={river_s}")
+            # 終局亮牌
+            render_reveal(env)
             break
 
         if discard_id > 2000:
