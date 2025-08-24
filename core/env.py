@@ -97,6 +97,8 @@ class Mahjong16Env:
         self.done = False
         self.winner: Optional[int] = None
         self.win_source: Optional[str] = None
+        # 胡牌當下的回合持有者（自摸時等於 winner；榮和時等於丟牌者）
+        self.turn_at_win: Optional[int] = None
 
         return self._obs(self.turn)
 
@@ -150,6 +152,9 @@ class Mahjong16Env:
             # 支援自摸結束
             if a_type == "HU":
                 self.winner = pid
+                # 明確標記來源為自摸，並記錄胡牌當下回合屬於誰（即 winner）
+                self.win_source = "TSUMO"
+                self.turn_at_win = pid
                 self.phase = "DONE"
                 self.reaction_queue = []
                 self.reaction_idx = 0
@@ -265,8 +270,15 @@ class Mahjong16Env:
                             return self._obs(self.turn), rewards, True, {}
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                     else:  # HU
+                        # 記錄丟牌者（胡牌當下的回合持有者）
+                        discarder_pid = self.reaction_queue[0]  # 順序起點為丟牌者之下一家
+                        # 更保險：直接從 last_discard 讀取
+                        if self.last_discard is not None:
+                            discarder_pid = self.last_discard.get("pid", discarder_pid)
+
                         self.win_source = "RON"
                         self.winner = claimer
+                        self.turn_at_win = discarder_pid
                         self.phase = "DONE"
                         self.reaction_queue = []
                         self.reaction_idx = 0

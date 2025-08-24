@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Tuple
 import json, os
 from pathlib import Path
 from .tiles import tile_to_str, is_flower
-from .scoring_profiles import PY_SCORING_TABLE
+from .scoring_profiles import PY_SCORING_TABLE, SCORING_LABELS
 
 # ----------------------------
 # 基本判斷
@@ -127,89 +127,109 @@ def _dfs_only_chows(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
     return False
 
 # ----------------------------
-# 主計分：混合式
+# 主計分（帶 breakdown）
 # ----------------------------
-def _score_env(env) -> list:
+def score_with_breakdown(env) -> tuple[List[int], Dict[int, List[Dict[str, Any]]]]:
+    """
+    回傳:
+      - rewards: List[int]（各家台數）
+      - breakdown_by_player: { pid: [ {key,label,base,count,points,meta?}, ... ], ... }
+    """
     winner = getattr(env, "winner", None)
     if winner is None:
-        return [0] * env.rules.n_players
+        return [0] * env.rules.n_players, {i: [] for i in range(env.rules.n_players)}
 
     rules = env.rules
     profile_name = getattr(rules, "scoring_profile", "gametower_star31")
     table = _load_profile_table(profile_name, getattr(rules, "scoring_overrides_path", None))
 
-    # 預設值（若 profile 未提供）
     def P(key: str, default: int) -> int:
         return int(table.get(key, default))
+
+    labels = SCORING_LABELS
+
+    breakdown_by_player: Dict[int, List[Dict[str, Any]]] = {i: [] for i in range(env.rules.n_players)}
+    bd: List[Dict[str, Any]] = breakdown_by_player[winner]
+
+    def add(key: str, base: int | None = None, count: int = 1, meta: Dict[str, Any] | None = None) -> int:
+        b = int(P(key, 0) if base is None else base)
+        if b == 0 or count == 0:
+            return 0
+        pts = b * count
+        item = {"key": key, "label": labels.get(key, key), "base": b, "count": count, "points": pts}
+        if meta:
+            item["meta"] = meta
+        bd.append(item)
+        return pts
 
     pl = env.players[winner]
     tsumo = _tsumo_detect(env)
     melds = pl.get("melds") or []
-    flowers = pl.get("flowers") or []
+    flowers = pl.get("flowers") or []  # 目前不採見花見字，保留欄位但不加台
     hand = list(pl.get("hand") or [])
     drawn = pl.get("drawn")
+
+    # 只有自摸才把 drawn 算進隱蔽牌；榮和贏家自己沒有 drawn
     concealed_tiles = list(hand)
-    # 只有自摸才把 drawn 算進隱蔽牌；榮和時贏家不應有自家 drawn
     if tsumo and (drawn is not None):
         concealed_tiles.append(drawn)
 
-    # ---- 狀態與統計 ----
-    menqing = all((m.get("type") not in ("CHI","PONG","GANG")) for m in melds)
+    # === 為牌型判定準備 "concealed_for_patterns"（榮和時把最後棄牌補進來） ===
+    fixed_melds = sum(1 for m in (melds or []) if (m.get("type") or "").upper() in ("CHI", "PONG", "GANG"))
+    need = 5 - fixed_melds
+    required_len = need * 3 + 2 if need >= 0 else None
 
-    fixed_melds = 0
+    ron_tile = None
+    if not tsumo:
+        ld = getattr(env, "last_discard", None)
+        if isinstance(ld, dict):
+            ron_tile = ld.get("tile")
+
+    concealed_for_patterns = list(concealed_tiles)
+    if (not tsumo) and isinstance(ron_tile, int) and (required_len is not None):
+        # 只在剛好少 1 張時補進來，避免測試已給足 14 張又多算
+        if len(concealed_for_patterns) == required_len - 1:
+            concealed_for_patterns.append(ron_tile)
+
+    # ---- 統計 ----
+    menqing = all((m.get("type") not in ("CHI","PONG","GANG")) for m in melds)
     fixed_melds_pungs = 0
     fixed_melds_chis  = 0
     dragon_pungs = 0
-
     for m in melds:
         mtype = (m.get("type") or "").upper()
-        if mtype in ("CHI","PONG","GANG"):
-            fixed_melds += 1
         tiles_m = m.get("tiles") or []
-        if tiles_m:
-            t0 = tiles_m[0]
-            if mtype in ("PONG","GANG"):
-                fixed_melds_pungs += 1
-                if _is_dragon(t0): dragon_pungs += 1
-            elif mtype == "CHI":
-                fixed_melds_chis += 1
+        if mtype in ("PONG","GANG"):
+            fixed_melds_pungs += 1
+            if tiles_m and _is_dragon(tiles_m[0]):
+                dragon_pungs += 1
+        elif mtype == "CHI":
+            fixed_melds_chis += 1
 
-    has_honor_in_all = any(_is_honor(t) for t in concealed_tiles) or any(
-        _is_honor(t) for m in melds for t in (m.get("tiles") or [])
-    )
-
-    # ---- 台數（門清/自摸/無字無花）----
-    fan = 0
-    menqing_bonus = 0
-    zimo_bonus = 0
-
+    # ---- 台型（門清/自摸 等）----
     if menqing and tsumo and P("menqing_zimo", 3):
-        fan += P("menqing_zimo", 3)
+        add("menqing_zimo")
     else:
         if menqing:
-            menqing_bonus = P("menqing", 1)
+            add("menqing")
         if tsumo:
-            zimo_bonus = P("zimo", 1)
+            add("zimo")
 
     if dragon_pungs:
-        fan += dragon_pungs * P("dragon_pung", 1)
-
-    fan += menqing_bonus
-    fan += zimo_bonus
+        add("dragon_pung", count=dragon_pungs)
 
     if tsumo and len(env.wall) == _dead_wall_reserved(env):
-        fan += P("hai_di", 1)
+        add("hai_di")
 
     if getattr(env, "win_by_gang_draw", False):
-        fan += P("gang_shang", 0)
+        add("gang_shang")
     if getattr(env, "winner_is_dealer", False):
-        fan += P("dealer", 0)
+        add("dealer")
 
     # ----------------------------
-    # 牌型類
+    # 牌型類（全部用 concealed_for_patterns 來判定）
     # ----------------------------
-    # 全部牌
-    all_tiles = list(concealed_tiles)
+    all_tiles = list(concealed_for_patterns)
     for m in melds:
         all_tiles.extend(m.get("tiles") or [])
 
@@ -223,41 +243,37 @@ def _score_env(env) -> list:
     # 清一色／混一色（至少 1 組副露）
     if fixed_melds > 0:
         if len(suits) == 1 and not has_honor_total:
-            fan += P("qing_yi_se", 8)
+            add("qing_yi_se")
         elif len(suits) == 1 and has_honor_total:
-            fan += P("hun_yi_se", 4)
+            add("hun_yi_se")
 
-    # 碰碰胡：副露不可含 CHI，且隱蔽部分必須是「純刻子 + 1 對」
-    if fixed_melds_chis == 0:
-        need = 5 - fixed_melds
-        if need >= 0:
-            # 按牌面字串計數（避免依賴 0..33 編號）
+    # 碰碰胡：副露不可含 CHI；隱蔽部分必須是「純刻子 + 1 對」
+    if fixed_melds_chis == 0 and need >= 0 and required_len is not None:
+        if len(concealed_for_patterns) == required_len:
             cnt: Dict[str, int] = {}
-            for t in concealed_tiles:
+            for t in concealed_for_patterns:
                 s = tile_to_str(t)
                 cnt[s] = cnt.get(s, 0) + 1
             mods = [c % 3 for c in cnt.values()]
-            if mods.count(2) == 1 and all(m in (0, 2) for m in mods) and len(concealed_tiles) == need*3 + 2:
-                fan += P("peng_peng_hu", 4)
+            if mods.count(2) == 1 and all(m in (0, 2) for m in mods):
+                add("peng_peng_hu")
 
-    # 平胡：副露不可含 PONG/GANG（可有 CHI），且隱蔽部分必須能被「順子 + 1 對」完全分解
-    if fixed_melds_pungs == 0 and fixed_melds_chis > 0:
-        need = 5 - fixed_melds
-        if need >= 0 and len(concealed_tiles) == need * 3 + 2:
-            counts34 = _counts34(concealed_tiles)
-            # 確認索引有效（沒有越界牌）
-            if sum(counts34) == len(concealed_tiles):
+    # 平胡：副露不可含 PONG/GANG（可有 CHI），隱蔽部分需能被「順子 + 1 對」完全分解
+    if fixed_melds_pungs == 0 and fixed_melds_chis > 0 and need >= 0 and required_len is not None:
+        if len(concealed_for_patterns) == required_len:
+            counts34 = _counts34(concealed_for_patterns)
+            if sum(counts34) == len(concealed_for_patterns):
                 if _dfs_only_chows(tuple(counts34), need, False):
-                    fan += P("ping_hu", 2)
+                    add("ping_hu")
 
-    # 大小三元（總張數）
+    # 大小三元（總張數：對子必須恰為 2，不可與刻子重疊）
     def _cnt_total(label: str) -> int:
         tid = None
         for i in range(34):
             if tile_to_str(i) == label:
                 tid = i; break
         if tid is None: return 0
-        total = concealed_tiles.count(tid)
+        total = concealed_for_patterns.count(tid)
         for m in melds:
             total += (m.get("tiles") or []).count(tid)
         return total
@@ -265,22 +281,21 @@ def _score_env(env) -> list:
     c_cnt = _cnt_total("C")
     f_cnt = _cnt_total("F")
     p_cnt = _cnt_total("P")
-    # 對子需「恰為 2 張」，不可與刻子(>=3)重疊
     triplets = sum(1 for x in (c_cnt, f_cnt, p_cnt) if x >= 3)
     pairs    = sum(1 for x in (c_cnt, f_cnt, p_cnt) if x == 2)
     if triplets == 3:
-        fan += P("da_san_yuan", 8)
+        add("da_san_yuan")
     elif triplets == 2 and pairs == 1:
-        fan += P("xiao_san_yuan", 4)
+        add("xiao_san_yuan")
 
-    # 大小四喜（總張數）
+    # 大小四喜（總張數：對子必須恰為 2）
     def _cnt_wind(label: str) -> int:
         tid = None
         for i in range(34):
             if tile_to_str(i) == label:
                 tid = i; break
         if tid is None: return 0
-        total = concealed_tiles.count(tid)
+        total = concealed_for_patterns.count(tid)
         for m in melds:
             total += (m.get("tiles") or []).count(tid)
         return total
@@ -289,16 +304,21 @@ def _score_env(env) -> list:
     s_cnt = _cnt_wind("S")
     w_cnt = _cnt_wind("W")
     n_cnt = _cnt_wind("N")
-    # 小四喜的對子也必須「恰為 2 張」
     w_triplets = sum(1 for x in (e_cnt, s_cnt, w_cnt, n_cnt) if x >= 3)
     w_pairs    = sum(1 for x in (e_cnt, s_cnt, w_cnt, n_cnt) if x == 2)
     if w_triplets == 4:
-        fan += P("da_si_xi", 16)
+        add("da_si_xi")
     elif w_triplets == 3 and w_pairs == 1:
-        fan += P("xiao_si_xi", 8)
+        add("xiao_si_xi")
 
+    total = sum(x["points"] for x in bd)
     rewards = [0] * env.rules.n_players
-    rewards[winner] = fan
+    rewards[winner] = total
+    return rewards, breakdown_by_player
+
+# 舊介面（回傳 List[int]），相容保留
+def _score_env(env) -> list:
+    rewards, _ = score_with_breakdown(env)
     return rewards
 
 # ----------------------------

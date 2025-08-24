@@ -127,22 +127,28 @@ def test_haitei_tsumo_plus_one():
     assert rewards[0] == 2
 
 
-def test_peng_peng_hu_only_4():
-    """碰碰胡（全刻）→ +4；避免清/混一色、風刻/三元刻與門清等干擾。"""
+def test_peng_peng_hu_ron_from_discard():
+    """碰碰胡（榮和補牌）：手牌少一張，靠別家丟的最後一張補成全刻 + 將 → +4。"""
     env = _fresh_env()
     _set_winner_basic(env, pid=0, win_source="RON")
     p = env.players[0]
-    # 有一組 PONG 打破門清（且非字牌，避免三元刻 +1）
-    p["melds"] = [{"type": "PONG", "tiles": [_tid("1W")] * 3}]
+
+    # 有一組數牌 PONG 打破門清（且非字牌，避免疊其他台）
+    p["melds"] = [{"type": "PONG", "tiles": [_tid("1W")] * 3},
+                  {"type": "PONG", "tiles": [_tid("2W")] * 3},]
     p["flowers"] = []
-    # 其餘 4 組刻 + 1 對（混兩種花色，避免清/混一色）
+
+    # 手牌先放 3 組刻 + 1 組「差一張就成刻」 + 1 對（總共 13 張）
+    # 這裡差的那張，等會用 last_discard 來補。
     p["hand"] = (
-        [_tid("2W")] * 3
-        + [_tid("3W")] * 3
-        + [_tid("2D")] * 3
-        + [_tid("3D")] * 3
-        + [_tid("5W")] * 2
+        [_tid("3W")] * 3 +   # 刻
+        [_tid("2D")] * 3 +   # 刻
+        [_tid("3D")] * 2 +   # 差一張 → 等會用 RON 補成刻
+        [_tid("5W")] * 2     # 對子
     )
+    # 指定別家剛丟出來、被我們榮的那張（補上面少的 3D）
+    env.last_discard = {"player": 1, "tile": _tid("3D")}
+
     rewards = settle_scores_stub(env)
     assert rewards[0] == 4
 
