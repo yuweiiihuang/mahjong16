@@ -1,4 +1,4 @@
-# main.py
+# file: main.py
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple, Protocol
 import re
@@ -303,7 +303,10 @@ def run_demo(seed=None, human_pid: Optional[int] = 0):
     rules = Ruleset(
         include_flowers=True,
         dead_wall_mode="fixed",   # 或 "kong_plus_one"
-        dead_wall_base=16
+        dead_wall_base=16,
+        scoring_profile="gametower_star31",     # 或 "mj888"
+        see_flower_see_wind=False,               # 是否採用見花見字（風刻/花牌等定義）
+        scoring_overrides_path=None             # 可指向外部 JSON 覆蓋
     )
     env = Mahjong16Env(rules, seed=seed)
 
@@ -355,4 +358,4 @@ def run_demo(seed=None, human_pid: Optional[int] = 0):
 
 if __name__ == "__main__":
     # human_pid=None 可切回全自動；預設 0 由你手動操控 P0
-    run_demo(human_pid=0)
+    run_demo(human_pid=2)

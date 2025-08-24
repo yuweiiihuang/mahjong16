@@ -1,3 +1,4 @@
+# file: core/env.py
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
 import random
@@ -264,7 +265,6 @@ class Mahjong16Env:
                             return self._obs(self.turn), rewards, True, {}
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                     else:  # HU
-                        # 判胡：目前 judge.is_win_16 未實作，此分支暫不會觸發
                         self.win_source = "RON"
                         self.winner = claimer
                         self.phase = "DONE"

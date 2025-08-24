@@ -4,6 +4,7 @@ Thumbs.db
 *.swp
 *.swo
 *.orig
+*.pdf
 
 # VS Code / JetBrains（如無需忽略可移除）
 .vscode/

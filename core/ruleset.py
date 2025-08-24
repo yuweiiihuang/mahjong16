@@ -20,3 +20,11 @@ class Ruleset:
     # - gang_plus_one: 以 base 為底，每有 1 次槓增加 1 張留置（俗稱「一槓一」）
     dead_wall_mode: str = "fixed"   # "fixed" | "gang_plus_one"
     dead_wall_base: int = 16        # 台灣常見：尾牌留 16 張
+
+    # ====== 新增：混合式台數計算設定 ======
+    # 使用哪一個計分表（內建提供 "gametower_star31" 與 "mj888"）
+    scoring_profile: str = "gametower_star31"
+    # 是否採用見花見字（影響部份台型的定義；預設 True 以符合一般台灣 16 張）
+    see_flower_see_wind: bool = True
+    # 外部 JSON 覆蓋檔路徑（可為 None；若提供則優先）
+    scoring_overrides_path: str | None = None
