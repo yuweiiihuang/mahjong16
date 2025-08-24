@@ -179,11 +179,17 @@ def score_with_breakdown(env) -> tuple[List[int], Dict[int, List[Dict[str, Any]]
     need = 5 - fixed_melds
     required_len = need * 3 + 2 if need >= 0 else None
 
+    # RON 時優先使用 env.win_tile（env 在決議前已把 last_discard 清掉）
     ron_tile = None
     if not tsumo:
-        ld = getattr(env, "last_discard", None)
-        if isinstance(ld, dict):
-            ron_tile = ld.get("tile")
+        wt = getattr(env, "win_tile", None)
+        if isinstance(wt, int):
+            ron_tile = wt
+        else:
+            # 向後相容：若未設 win_tile，才回退讀 last_discard
+            ld = getattr(env, "last_discard", None)
+            if isinstance(ld, dict):
+                ron_tile = ld.get("tile")
 
     concealed_for_patterns = list(concealed_tiles)
     if (not tsumo) and isinstance(ron_tile, int) and (required_len is not None):

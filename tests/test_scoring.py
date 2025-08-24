@@ -135,7 +135,7 @@ def test_peng_peng_hu_ron_from_discard():
 
     # 有一組數牌 PONG 打破門清（且非字牌，避免疊其他台）
     p["melds"] = [{"type": "PONG", "tiles": [_tid("1W")] * 3},
-                  {"type": "PONG", "tiles": [_tid("2W")] * 3},]
+                  {"type": "PONG", "tiles": [_tid("4W")] * 3},]
     p["flowers"] = []
 
     # 手牌先放 3 組刻 + 1 組「差一張就成刻」 + 1 對（總共 13 張）

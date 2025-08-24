@@ -64,7 +64,7 @@ SCORING_LABELS: Dict[str, str] = {
     "menqing_zimo": "門清自摸",
     "flower": "見花見台",
     "feng_pung": "風刻",
-    "dragon_pung": "三元刻",
+    "dragon_pung": "三元牌",
     "kong_any": "槓牌",
     "kong_concealed": "暗槓",
     "no_honor_no_flower": "無字無花",

@@ -97,6 +97,8 @@ class Mahjong16Env:
         self.done = False
         self.winner: Optional[int] = None
         self.win_source: Optional[str] = None
+        # 胡的那張牌（自摸=drawn；榮和=最後那張被胡的棄牌）
+        self.win_tile: Optional[int] = None
         # 胡牌當下的回合持有者（自摸時等於 winner；榮和時等於丟牌者）
         self.turn_at_win: Optional[int] = None
 
@@ -154,6 +156,8 @@ class Mahjong16Env:
                 self.winner = pid
                 # 明確標記來源為自摸，並記錄胡牌當下回合屬於誰（即 winner）
                 self.win_source = "TSUMO"
+                # 自摸的胡牌就是當前 drawn
+                self.win_tile = self.players[pid]["drawn"]
                 self.turn_at_win = pid
                 self.phase = "DONE"
                 self.reaction_queue = []
@@ -232,8 +236,29 @@ class Mahjong16Env:
                     # 有宣告者：套用
                     claimer = resolved["pid"]
                     ctype = resolved["type"]
+                    # 取出最後一張棄牌與丟牌者
+                    discarder = self.last_discard["pid"]
                     tile = self.last_discard["tile"]
-                    self.last_discard = None  # 被吃碰槓後，棄牌不在場上
+                    # 從丟牌者 river 與全局 discard_pile 移除該牌（不再留在河道）
+                    rv = self.players[discarder]["river"]
+                    if rv and rv[-1] == tile:
+                        rv.pop()
+                    else:
+                        try:
+                            rv.remove(tile)
+                        except ValueError:
+                            pass
+                    if self.discard_pile and self.discard_pile[-1] == tile:
+                        self.discard_pile.pop()
+                    else:
+                        try:
+                            self.discard_pile.remove(tile)
+                        except ValueError:
+                            pass
+                    # 回傳給上層列印的中標資訊
+                    resolved_info = {"pid": claimer, "type": ctype, "tile": tile, "from_pid": discarder}
+                    # 棄牌已被取走，不再留在場上
+                    self.last_discard = None
                     # 準備回傳給上層列印用的 info
                     info = {"resolved_claim": {
                         "pid": claimer,
@@ -246,25 +271,32 @@ class Mahjong16Env:
                         # 從手牌移除兩張，加入明順
                         self.players[claimer]["hand"].remove(a)
                         self.players[claimer]["hand"].remove(b)
-                        self.players[claimer]["melds"].append({"type":"CHI","tiles":[a,b,tile]})
+                        self.players[claimer]["melds"].append(
+                            {"type":"CHI","tiles":[a,b,tile], "from_pid": discarder}
+                        )
                         self.players[claimer]["drawn"] = None  # 由吃入，非摸牌
                         self.turn = claimer
                         self.phase = "TURN"  # 直接要求丟牌
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
+                        resolved_info["use"] = [a,b]
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
                     elif ctype == "PONG":
                         # 從手牌移除兩張，加入明刻
                         for _ in range(2):
                             self.players[claimer]["hand"].remove(tile)
-                        self.players[claimer]["melds"].append({"type":"PONG","tiles":[tile,tile,tile]})
+                        self.players[claimer]["melds"].append(
+                            {"type":"PONG","tiles":[tile,tile,tile], "from_pid": discarder}
+                        )
                         self.players[claimer]["drawn"] = None
                         self.turn = claimer
                         self.phase = "TURN"
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
                     elif ctype == "GANG":
                         # 大明槓：移除三張，加入明槓，槓後補摸（不得侵犯尾牌留置）
                         for _ in range(3):
                             self.players[claimer]["hand"].remove(tile)
-                        self.players[claimer]["melds"].append({"type":"GANG","tiles":[tile,tile,tile,tile]})
+                        self.players[claimer]["melds"].append(
+                            {"type":"GANG","tiles":[tile,tile,tile,tile], "from_pid": discarder}
+                        )
                         self.n_gang += 1  # 記錄場上槓數以調整尾牌留置（「一槓一」）
                         self.players[claimer]["drawn"] = None
                         self.turn = claimer
@@ -274,14 +306,13 @@ class Mahjong16Env:
                             # 補摸失敗（已達尾牌留置）→ 流局
                             self.done = True
                             rewards = settle_scores_stub(self)
-                            return self._obs(self.turn), rewards, True, info
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
+                            return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
                     else:  # HU
+                        # 記錄榮和的胡牌（即被吃入的那張棄牌）
+                        self.win_tile = tile
                         # 記錄丟牌者（胡牌當下的回合持有者）
-                        discarder_pid = self.reaction_queue[0]  # 順序起點為丟牌者之下一家
-                        # 更保險：直接從 last_discard 讀取
-                        if self.last_discard is not None:
-                            discarder_pid = self.last_discard.get("pid", discarder_pid)
+                        discarder_pid = discarder
 
                         self.win_source = "RON"
                         self.winner = claimer
@@ -291,7 +322,7 @@ class Mahjong16Env:
                         self.reaction_idx = 0
                         self.done = True
                         rewards = settle_scores_stub(self)
-                        return self._obs(self.turn), rewards, True, info
+                        return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
 
     # ====== 內部輔助 ======
     def _new_player(self, pid: int) -> Dict[str, Any]:
