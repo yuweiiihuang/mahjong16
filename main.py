@@ -1,6 +1,7 @@
 # file: main.py
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple, Protocol
+from bots import GreedyBotStrategy
 import re
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
@@ -263,7 +264,7 @@ class HumanStrategy:
 
 # ========= 主程式迴圈 =========
 
-def run_demo(seed=None, human_pid: Optional[int] = 0):
+def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
     rules = Ruleset(
         include_flowers=True,
         dead_wall_mode="fixed",
@@ -284,13 +285,19 @@ def run_demo(seed=None, human_pid: Optional[int] = 0):
         if human_pid is not None and pid == human_pid:
             strategies.append(HumanStrategy())
         else:
-            strategies.append(AutoStrategy())
+            if bot == "greedy":
+                strategies.append(GreedyBotStrategy())
+            elif bot == "human":
+                strategies.append(HumanStrategy())
+            else:
+                strategies.append(AutoStrategy())
 
     while True:
         act = strategies[obs.get("player")].choose(obs)
 
+        # 非 PASS 動作行（只在 TURN 階段預先列印；REACTION 改為決議後列印）
         atype = (act.get("type") or "").upper()
-        if atype in ("HU", "GANG", "PONG", "CHI"):
+        if obs.get("phase") == "TURN" and atype in ("HU", "GANG", "PONG", "CHI"):
             Formatter.print_action_line(act, obs)
 
         pre_pid = obs.get("player")
@@ -298,6 +305,21 @@ def run_demo(seed=None, human_pid: Optional[int] = 0):
         pre_tile = act.get("tile") if atype == "DISCARD" else None
 
         obs, rew, done, info = env.step(act)
+        
+        # 若是反應期結束並產生決議，僅列印中標者（避免多家同時宣告 HU 的混淆）
+        if isinstance(info, dict) and "resolved_claim" in info:
+            rc = info["resolved_claim"]
+            t = rc.get("type")
+            pid = rc.get("pid")
+            tile = rc.get("tile")
+            if t == "CHI":
+                use = rc.get("use", [])
+                if isinstance(use, list) and len(use) == 2:
+                    print(f"P{pid} CHI ({tile_to_str(use[0])},{tile_to_str(use[1])}) + {tile_to_str(tile)}")
+                else:
+                    print(f"P{pid} CHI {tile_to_str(tile)}")
+            elif t in ("PONG", "GANG", "HU"):
+                print(f"P{pid} {t} {tile_to_str(tile)}")
 
         if atype == "DISCARD" and pre_tile is not None:
             discard_id += 1
@@ -326,4 +348,5 @@ def run_demo(seed=None, human_pid: Optional[int] = 0):
             break
 
 if __name__ == "__main__":
-    run_demo(human_pid=0)
+    # 範例：四家都用 greedy bot
+    run_demo(human_pid=None, bot="greedy")

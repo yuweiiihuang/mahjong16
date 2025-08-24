@@ -234,6 +234,13 @@ class Mahjong16Env:
                     ctype = resolved["type"]
                     tile = self.last_discard["tile"]
                     self.last_discard = None  # 被吃碰槓後，棄牌不在場上
+                    # 準備回傳給上層列印用的 info
+                    info = {"resolved_claim": {
+                        "pid": claimer,
+                        "type": ctype,
+                        "tile": tile,
+                        **({"use": resolved.get("use")} if "use" in resolved else {})
+                    }}
                     if ctype == "CHI":
                         a,b = resolved["use"]
                         # 從手牌移除兩張，加入明順
@@ -243,7 +250,7 @@ class Mahjong16Env:
                         self.players[claimer]["drawn"] = None  # 由吃入，非摸牌
                         self.turn = claimer
                         self.phase = "TURN"  # 直接要求丟牌
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {}
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
                     elif ctype == "PONG":
                         # 從手牌移除兩張，加入明刻
                         for _ in range(2):
@@ -252,7 +259,7 @@ class Mahjong16Env:
                         self.players[claimer]["drawn"] = None
                         self.turn = claimer
                         self.phase = "TURN"
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {}
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
                     elif ctype == "GANG":
                         # 大明槓：移除三張，加入明槓，槓後補摸（不得侵犯尾牌留置）
                         for _ in range(3):
@@ -267,8 +274,8 @@ class Mahjong16Env:
                             # 補摸失敗（已達尾牌留置）→ 流局
                             self.done = True
                             rewards = settle_scores_stub(self)
-                            return self._obs(self.turn), rewards, True, {}
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {}
+                            return self._obs(self.turn), rewards, True, info
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, info
                     else:  # HU
                         # 記錄丟牌者（胡牌當下的回合持有者）
                         discarder_pid = self.reaction_queue[0]  # 順序起點為丟牌者之下一家
@@ -284,7 +291,7 @@ class Mahjong16Env:
                         self.reaction_idx = 0
                         self.done = True
                         rewards = settle_scores_stub(self)
-                        return self._obs(self.turn), rewards, True, {}
+                        return self._obs(self.turn), rewards, True, info
 
     # ====== 內部輔助 ======
     def _new_player(self, pid: int) -> Dict[str, Any]:
@@ -325,7 +332,12 @@ class Mahjong16Env:
         """根據優先權與距離，選擇最終中標者。回傳 claim 或 None。"""
         if not self.claims:
             return None
-        # 最高 priority；若同 priority，距離（1 最近）優先；仍同則以玩家編號小者（穩定）
+        # 新規則：若有人 HU，僅在 HU 候選中決定；一家放槍僅能一家胡。
+        hu_claims = [c for c in self.claims if c["type"] == "HU"]
+        if hu_claims:
+            hu_claims.sort(key=lambda c: (c["distance"], c["pid"]))  # 距離近者優先
+            return hu_claims[0]
+        # 否則按原則：優先度 > 距離 > 玩家編號
         self.claims.sort(key=lambda c: (-c["priority"], c["distance"], c["pid"]))
         return self.claims[0]
 
