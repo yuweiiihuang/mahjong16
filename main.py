@@ -6,7 +6,7 @@ import re
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
 from core.judge import score_with_breakdown  # 新增：用來展示 breakdown
-from ui.console import render_public_view, render_reveal   # ← 新增：Rich UI
+from ui.console import render_public_view, render_reveal # 新增 UI：狀態/桌面/攤牌
 
 # 反應優先權：HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -89,45 +89,6 @@ def render_melds(melds: List[Dict[str, Any]]) -> str:
             parts.append(f"[{mtype or 'MELD'} {tiles_str}]")
     return " ".join(parts) if parts else "[]"
 
-class RenderPolicy:
-    """決定觀眾(viewer)可見哪些資訊。"""
-    def show_hand(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-    def show_drawn(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-    def show_river(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-    def show_melds(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-
-class FullOpenPolicy(RenderPolicy):
-    pass
-
-class MahjongLikePolicy(RenderPolicy):
-    """只看到自己的手牌/自摸；他家只看副露與棄牌河。"""
-    def show_hand(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return viewer_pid is not None and viewer_pid == target_pid
-    def show_drawn(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return viewer_pid is not None and viewer_pid == target_pid
-    # 河與副露對所有人可見
-    def show_river(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-    def show_melds(self, viewer_pid: int | None, target_pid: int) -> bool:
-        return True
-
-def _fmt_hand_for_view(tiles: List[int], policy: RenderPolicy, viewer_pid: int | None, pid: int) -> str:
-    """依 policy 格式化手牌：看得到就列牌，看不到就只顯示張數。"""
-    if policy.show_hand(viewer_pid, pid):
-        sorted_hand = _sort_tiles_for_display(tiles)
-        return " ".join(_colorize_tile(t) for t in sorted_hand)
-    return f"({len(tiles)} tiles)"
-
-def _fmt_drawn_for_view(drawn: int | None, policy: RenderPolicy, viewer_pid: int | None, pid: int) -> str:
-    if drawn is None:
-        return "None"
-    return fmt_tile(drawn) if policy.show_drawn(viewer_pid, pid) else "Hidden"
-
-
 # ========= Formatter（統一輸出） =========
 
 class Formatter:
@@ -155,42 +116,6 @@ class Formatter:
                 print(f"P{pid} CHI ({_colorize_tile(use[0])},{_colorize_tile(use[1])}) + {fmt_tile(tt)}")
             else:
                 print(f"P{pid} CHI {fmt_tile(tt)}")
-
-    @staticmethod
-    def print_discard_line(
-        did: int,
-        pid: int,
-        tile: int,
-        pre_drawn: int | None,
-        env: Mahjong16Env,
-        policy: RenderPolicy,
-        viewer_pid: int | None,
-    ) -> None:
-        me = env.players[pid]
-        hand_s = _fmt_hand_for_view(me["hand"], policy, viewer_pid, pid)
-        melds_s = render_melds(me["melds"]) if policy.show_melds(viewer_pid, pid) else "[]"
-        drawn_s = _fmt_drawn_for_view(pre_drawn, policy, viewer_pid, pid)
-        print(f"[D{did:03d}]P{pid} DISCARD {_colorize_tile(tile)} | hand={hand_s} | melds={melds_s} | drawn={drawn_s}")
-
-    @staticmethod
-    def print_table_snapshot(
-        env: Mahjong16Env,
-        discarder_pid: int,
-        pre_drawn: int | None,
-        policy: RenderPolicy,
-        viewer_pid: int | None,
-    ) -> None:
-        """丟牌後的全桌快照：依 policy 隱藏他家手牌；顯示各家河。"""
-        for p in range(env.rules.n_players):
-            pl = env.players[p]
-            hand_s = _fmt_hand_for_view(pl["hand"], policy, viewer_pid, p)
-            melds_s = render_melds(pl["melds"]) if policy.show_melds(viewer_pid, p) else "[]"
-            drawn_s = _fmt_drawn_for_view(pre_drawn if p == discarder_pid else None, policy, viewer_pid, p)
-            river_s = " ".join(_colorize_tile(t) for t in env.players[p]["river"]) if policy.show_river(viewer_pid, p) else ""
-            if p == discarder_pid:
-                print(f"      P{p} | hand={hand_s} | melds={melds_s} | drawn={drawn_s} | river={river_s}")
-            else:
-                print(f"      P{p} | hand={hand_s} | melds={melds_s} | river={river_s}")
 
 # ========= Strategy 介面與實作 =========
 
@@ -321,7 +246,7 @@ class HumanStrategy:
 
 # ========= 主程式迴圈 =========
 
-def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong_like_ui: bool = True):
+def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
     rules = Ruleset(
         include_flowers=True,
         dead_wall_mode="fixed",
@@ -336,9 +261,6 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
 
     obs = env.reset()
     discard_id = 0
-    
-    # 視覺政策：一般麻將 UI（只看得到自己手牌）或全公開
-    policy: RenderPolicy = MahjongLikePolicy() if mahjong_like_ui else FullOpenPolicy()
 
     strategies: List[Strategy] = []
     for pid in range(env.rules.n_players):
@@ -408,15 +330,6 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
                     print(f"  - {label}: {base} x {count} = {points}")
                 print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
                 
-            # 亮牌（僅在麻將式 UI 底下有用）
-            if mahjong_like_ui:
-                print("=== reveal hands ===")
-                for p in range(env.rules.n_players):
-                    pl = env.players[p]
-                    hand_s = " ".join(_colorize_tile(t) for t in _sort_tiles_for_display(pl['hand']))
-                    melds_s = render_melds(pl["melds"])
-                    river_s = " ".join(_colorize_tile(t) for t in pl["river"])
-                    print(f"P{p} | hand={hand_s} | melds={melds_s} | river={river_s}")
             # 終局亮牌
             render_reveal(env)
             break
@@ -426,5 +339,40 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", mahjong
             break
 
 if __name__ == "__main__":
-    # 範例：四家都用 greedy bot；麻將式 UI（只看得到自己手牌）
-    run_demo(human_pid=0, bot="greedy", mahjong_like_ui=True)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="mahjong16 demo CLI")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="RNG seed (int). Omit for random."
+    )
+    parser.add_argument(
+        "--human",
+        type=str,
+        default="0",
+        help="Human player id (0-3), or 'none' for no human (all bots). Default: 0"
+    )
+    parser.add_argument(
+        "--bot",
+        type=str,
+        default="greedy",
+        choices=["auto", "greedy", "human"],
+        help="Bot strategy for non-human players. Default: greedy"
+    )
+    args = parser.parse_args()
+
+    # 解析 human 參數：支援 'none' / '-1' / 'no' 表示沒有真人
+    human_str = (args.human or "").strip().lower()
+    if human_str in ("none", "-1", "no", "n"):
+        human_pid = None
+    else:
+        try:
+            human_pid = int(args.human)
+        except ValueError:
+            raise SystemExit("Invalid --human value. Use 0-3 or 'none'.")
+        if human_pid not in (0, 1, 2, 3):
+            raise SystemExit("Invalid --human value. Must be 0,1,2,3 or 'none'.")
+
+    run_demo(seed=args.seed, human_pid=human_pid, bot=args.bot)

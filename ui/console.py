@@ -58,10 +58,14 @@ def _text_tile(t: int, *, highlight: bool = False, dim: bool = False) -> Text:
         txt.stylize("reverse bold")
     return txt
 
-def _join_tiles(tiles: List[int]) -> Text:
+def _join_tiles(tiles: List[int], *, highlight_tile: Optional[int] = None) -> Text:
     parts: List[Text] = []
+    highlighted = False
     for i, t in enumerate(tiles):
-        parts.append(_text_tile(t))
+        hl = (not highlighted) and (highlight_tile is not None) and (t == highlight_tile)
+        parts.append(_text_tile(t, highlight=hl))
+        if hl:
+            highlighted = True
         if i != len(tiles) - 1:
             parts.append(Text(" "))
     return Text.assemble(*parts)
@@ -177,7 +181,39 @@ def _top_bar(env, *, did: Optional[int], last_action: Optional[Dict[str, Any]]) 
     t.add_row(la_txt, Text(""), Text(""))
     return Panel(t, title="Status", box=ROUNDED)
 
-def render_public_view(env, pov_pid: int, *, did: Optional[int] = None, last_action: Optional[Dict[str, Any]] = None) -> None:
+def _win_marker_line(env, pid: int) -> Optional[Text]:
+    """為攤牌面板建立胡牌標示行：TSUMO/RON 與最後一張牌；榮和會附上放槍者。"""
+    winner = getattr(env, "winner", None)
+    if winner is None or pid != winner:
+        return None
+    win_src  = (getattr(env, "win_source", None) or "").upper()
+    win_tile = getattr(env, "win_tile", None)
+    from_pid = getattr(env, "turn_at_win", None) if win_src == "RON" else None
+    if win_tile is None:
+        return None
+    line = Text.assemble(Text("win: ", style="bold"))
+    if win_src == "TSUMO":
+        line.append("TSUMO ")
+        line.append(_text_tile(win_tile, highlight=True))
+    elif win_src == "RON":
+        line.append("RON ")
+        line.append(_text_tile(win_tile, highlight=True))
+        if from_pid is not None:
+            line.append(Text(f" from P{from_pid}", style="italic"))
+    else:
+        # 不明來源時也至少標出牌
+        line.append(_text_tile(win_tile, highlight=True))
+    return line
+
+
+def render_public_view(
+    env,
+    pov_pid: int,
+    *,
+    did: Optional[int] = None,
+    last_action: Optional[Dict[str, Any]] = None,
+    layout: str = "1x4",   # 預設直向 1 欄 4 列；option: "2x2"
+) -> None:
     """
     以「公開視角」渲染全桌面：
       - 自己：全資訊（手牌/摸牌/副露/河）
@@ -190,33 +226,65 @@ def render_public_view(env, pov_pid: int, *, did: Optional[int] = None, last_act
     # 上方狀態列
     console.print(_top_bar(env, did=did, last_action=last_action))
 
-    # 四家 2x2 佈局
+    # 四家面板
     panels = [
         _player_panel(env, 0, pov_pid, last_discard),
         _player_panel(env, 1, pov_pid, last_discard),
         _player_panel(env, 2, pov_pid, last_discard),
         _player_panel(env, 3, pov_pid, last_discard),
     ]
-    # 用 Columns 先排成 2 欄，再用 Panel 外框。或你也能改成 Table grid
-    left_col  = Panel(Columns([panels[0], panels[2]], expand=True), box=ROUNDED)
-    right_col = Panel(Columns([panels[1], panels[3]], expand=True), box=ROUNDED)
-    console.print(Columns([left_col, right_col], expand=True))
+    
+    # 用 Columns 先排成 2 欄，再用 Panel 外框。
+    if layout == "2x2":
+        # 舊版 2x2 佈局
+        left_col  = Panel(Columns([panels[0], panels[2]], expand=True), box=ROUNDED)
+        right_col = Panel(Columns([panels[1], panels[3]], expand=True), box=ROUNDED)
+        console.print(Columns([left_col, right_col], expand=True))
+    else:
+        # 新版 1x4 直向排列
+        for pan in panels:
+            console.print(pan)
 
 def render_reveal(env) -> None:
-    """終局亮牌：所有玩家的手牌/副露/河一次列出。"""
+    """終局亮牌（4x1 直向）：依序列出 P0→P3，每家一個獨立面板。"""
     console.rule("[bold]reveal hands")
-    rows: List[RenderableType] = []
+    winner: Optional[int] = getattr(env, "winner", None)
+    win_src: Optional[str] = getattr(env, "win_source", None)
+    win_tile: Optional[int] = getattr(env, "win_tile", None)
+    turn_at_win: Optional[int] = getattr(env, "turn_at_win", None)
+
     for pid in range(env.rules.n_players):
         pl = env.players[pid]
+        # hand / melds / river
         hand = sorted(list(pl["hand"]), key=_tile_sort_key)
-        hand_txt = Text.assemble(Text("hand: ", style="bold"), _join_tiles(hand) if hand else Text("(empty)", style="dim"))
-        melds_txt = Text.assemble(Text("melds: ", style="bold"), _render_melds(pl.get("melds") or []))
+        hand_txt = Text.assemble(Text("hand: ", style="bold"),
+                                 _join_tiles(hand) if hand else Text("(empty)", style="dim"))
+        melds_txt = Text.assemble(Text("melds: ", style="bold"),
+                                  _render_melds(pl.get("melds") or []))
         river = list(pl.get("river") or [])
         river_txt = Text.assemble(Text("river: ", style="bold"),
                                   _join_tiles(river) if river else Text("(empty)", style="dim"))
-        body = Table.grid(padding=(0,1))
+
+        body = Table.grid(padding=(0, 1))
         body.add_row(hand_txt)
         body.add_row(melds_txt)
         body.add_row(river_txt)
-        rows.append(Panel(body, title=f"P{pid}", box=ROUNDED, padding=(0,1)))
-    console.print(Columns(rows, expand=True))
+
+        # 若是贏家，附上胡牌資訊
+        title = f"P{pid}"
+        if winner == pid:
+            title += " (WINNER)"
+            # 顯示 TSUMO/RON 與胡的那張牌；若為榮和可加註放槍者
+            wt = tile_to_str(win_tile) if isinstance(win_tile, int) else "?"
+            src = (win_src or "").upper()
+            win_line = Text.assemble(Text("win: ", style="bold"),
+                                     Text(src if src else "WIN"),
+                                     Text(" "),
+                                     Text(wt, style=_style_for_tile(win_tile) if isinstance(win_tile, int) else ""))
+            # 榮和可附註放槍者（若拿得到）
+            if src == "RON" and isinstance(turn_at_win, int):
+                win_line.append(Text(f" from P{turn_at_win}", style="dim"))
+            body.add_row(win_line)
+
+        panel = Panel(body, title=title, box=ROUNDED, padding=(0, 1))
+        console.print(panel)
