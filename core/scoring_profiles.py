@@ -12,6 +12,7 @@ PY_SCORING_TABLE: Dict[str, Dict[str, int]] = {
         "menqing": 1,
         "zimo": 1,
         "menqing_zimo": 3,           # 門清自摸互斥於 menqing / zimo
+        "ting": 1,                    # 宣告聽牌 +1
 
         # 下列鍵值雖保留，但目前 judge.py 不採見花見字與風刻加台
         "flower": 1,                 # 見花見台（一張 1）【目前不使用】
@@ -41,6 +42,7 @@ PY_SCORING_TABLE: Dict[str, Dict[str, int]] = {
         "menqing": 1,
         "zimo": 1,
         "menqing_zimo": 3,
+        "ting": 1,
         "flower": 1,                 # 正花 +1（此內建未細分對位）
         "feng_pung": 1,              # 簡化後仍作 +1；如需圈風/門風拆解，外部 JSON 可自訂
         "dragon_pung": 1,
@@ -62,6 +64,7 @@ SCORING_LABELS: Dict[str, str] = {
     "menqing": "門清",
     "zimo": "自摸",
     "menqing_zimo": "門清自摸",
+    "ting": "聽牌",
     "flower": "見花見台",
     "feng_pung": "風刻",
     "dragon_pung": "三元牌",

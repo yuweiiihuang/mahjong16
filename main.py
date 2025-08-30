@@ -5,7 +5,7 @@ import re
 from bots import GreedyBotStrategy
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
-from core.judge import score_with_breakdown
+from core.judge import score_with_breakdown, waits_after_discard_17, waits_for_hand_16
 from ui.console import render_public_view, render_reveal
 
 # ======================================================================
@@ -117,6 +117,10 @@ class Formatter:
                 print(f"P{pid} HU (source={src}, tile={fmt_tile(tt)})")
             else:
                 print(f"P{pid} HU (source={src}, tile={fmt_tile(obs.get('drawn'))})")
+        elif t == "TING":
+            src = act.get("from", "hand")
+            tt = act.get("tile")
+            print(f"P{pid} TING -> DISCARD {fmt_tile(tt)} from {src}")
         elif t in ("GANG", "PONG"):
             ld = obs.get("last_discard") or {}
             tt = ld.get("tile")
@@ -194,18 +198,115 @@ class HumanStrategy:
 
         display_actions: List[Dict[str, Any]] = []
         display_labels: List[str] = []
+        waits_list: List[List[int]] = []
         for a in discards_all:
             t = a.get("tile")
             lbl = tile_to_str(t)
             if a.get("from") == "drawn":
                 lbl += "*"
+            # 計算丟此張後的聽牌等待（只用於標示 T 數量，不直接提供宣告）
+            ws = waits_after_discard_17(hand, drawn, obs.get("melds") or [], t, a.get("from", "hand"), rules=Ruleset(include_flowers=False), exclude_exhausted=True)
             display_actions.append(a)
             display_labels.append(lbl)
+            waits_list.append(ws)
 
         print(f"\n=== Your Turn | P{player} ===")
         sorted_hand_for_view = _sort_tiles_for_display(hand)
         print(f"Hand: {' '.join(_colorize_tile(t) for t in sorted_hand_for_view)}   Drawn: {fmt_tile(drawn)}")
         print(f"Melds: {render_melds(obs.get('melds') or [])}")
+        # 若已宣告聽，顯示當前等待與剩餘張數（單獨一行）
+        if bool(obs.get("declared_ting", False)):
+            waits_now = waits_for_hand_16(hand, obs.get("melds") or [], Ruleset(include_flowers=False), exclude_exhausted=True)
+            if waits_now:
+                def _visible_count_now(tile_id: int) -> int:
+                    cnt = sum(1 for t in hand if t == tile_id)
+                    for meld_list in (obs.get("melds_all") or []):
+                        for m in (meld_list or []):
+                            for x in (m.get("tiles") or []):
+                                if x == tile_id:
+                                    cnt += 1
+                    for rv in (obs.get("rivers") or []):
+                        for x in rv:
+                            if x == tile_id:
+                                cnt += 1
+                    return cnt
+                parts = []
+                for w in sorted(waits_now, key=_tile_sort_key):
+                    vis = _visible_count_now(w)
+                    rem = max(0, 4 - min(4, vis))
+                    parts.append(f"{tile_to_str(w)}({rem})")
+                print(_colorize_text_tiles("TING: " + " ".join(parts)))
+
+        # 若摸到牌後有機會進入聽牌，先詢問是否宣告
+        def _after_discard(hand0: List[int], drawn0: Optional[int], tile0: int, src0: str) -> List[int]:
+            h = list(hand0)
+            if (src0 or "hand").lower() == "drawn":
+                # 丟摸到的，手牌維持原 16
+                return h
+            # 丟手牌：若當前有 drawn 則併回
+            if tile0 in h:
+                h.remove(tile0)
+            if drawn0 is not None:
+                h.append(drawn0)
+            return h
+
+        def _visible_count(tile_id: int, hand_after: List[int]) -> int:
+            # 自家手牌（丟後的 16 張）
+            cnt = sum(1 for t in hand_after if t == tile_id)
+            # 所有玩家副露
+            for meld_list in (obs.get("melds_all") or []):
+                for m in (meld_list or []):
+                    for t in (m.get("tiles") or []):
+                        if t == tile_id:
+                            cnt += 1
+            # 全部河
+            for rv in (obs.get("rivers") or []):
+                for t in rv:
+                    if t == tile_id:
+                        cnt += 1
+            return cnt
+
+        # 先掃描出所有可聽的丟牌候選
+        ting_candidates: List[Tuple[Dict[str, Any], List[int]]] = []  # (discard_action, waits)
+        for a, ws in zip(display_actions, waits_list):
+            if ws:
+                ting_candidates.append((a, ws))
+
+        # 若未宣告聽且存在候選，先詢問是否宣告
+        if (not bool(obs.get("declared_ting", False))) and ting_candidates:
+            print("ACTIONS → " + ("[H] HU  " if hu_action is not None else "") + "[T] TING  [N] PASS")
+            while True:
+                raw0 = input("Declare TING? (T/N): ").strip().upper()
+                if raw0 in ("H", "HU") and hu_action is not None:
+                    return dict(hu_action)
+                if raw0 in ("T", "TING", "Y", "YES"):
+                    # 第二步：選擇要丟哪張進入聽，並列出各等待與剩餘張數
+                    rows: List[str] = []
+                    for i, (a, ws) in enumerate(ting_candidates):
+                        t = a.get("tile")
+                        src = a.get("from", "hand")
+                        hand_after = _after_discard(hand, drawn, t, src)
+                        waits_detail: List[str] = []
+                        for w in sorted(ws, key=_tile_sort_key):
+                            vis = _visible_count(w, hand_after)
+                            rem = max(0, 4 - min(4, vis))
+                            waits_detail.append(f"{tile_to_str(w)}({rem})")
+                        label = f"[{i}] DISCARD {tile_to_str(t)}{'*' if src=='drawn' else ''} → TING: " + " ".join(waits_detail)
+                        rows.append(_colorize_text_tiles(label))
+                    print("TING OPTIONS →")
+                    for r in rows:
+                        print("  " + r)
+                    while True:
+                        sel = input("Pick TING option index: ").strip()
+                        if sel.isdigit():
+                            k = int(sel)
+                            if 0 <= k < len(ting_candidates):
+                                a, _ = ting_candidates[k]
+                                return {"type": "TING", "tile": a.get("tile"), "from": a.get("from", "hand")}
+                        print("索引超出範圍，請重新輸入。")
+                if raw0 in ("N", "NO", "P", "PASS"):
+                    break
+                print("請輸入 T 或 N。")
 
         if hu_action is not None:
             print("ACTIONS → [H] HU")

@@ -231,6 +231,14 @@ def score_with_breakdown(env) -> tuple[List[int], Dict[int, List[Dict[str, Any]]
         add("gang_shang")
     if getattr(env, "winner_is_dealer", False):
         add("dealer")
+    # 聽牌加台（若贏家先前宣告過聽牌）
+    pl_state = None
+    try:
+        pl_state = env.players[winner]
+    except Exception:
+        pl_state = None
+    if isinstance(pl_state, dict) and pl_state.get("declared_ting", False):
+        add("ting")
 
     # ----------------------------
     # 牌型類（全部用 concealed_for_patterns 來判定）
@@ -402,3 +410,49 @@ def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
 
 def settle_scores_stub(env) -> List[int]:
     return _score_env(env)
+
+# ----------------------------
+# 聽牌（Tenpai）輔助
+# ----------------------------
+def waits_for_hand_16(hand16: List[int], melds: List[Dict[str, Any]], rules, *, exclude_exhausted: bool = True) -> List[int]:
+    """
+    給定 16 張手牌（未含 drawn）與現有副露，回傳所有可一張自摸胡的牌種（waits）。
+    - exclude_exhausted=True 時，若某牌在手牌+副露已達 4 張，則不列為候選等待。
+    - 僅檢查 0..33（非花）。
+    """
+    waits: List[int] = []
+    # 先計算已用張數（手牌 + 副露）
+    used_counts = [0] * 34
+    for t in hand16:
+        if 0 <= t < 34:
+            used_counts[t] += 1
+    for m in (melds or []):
+        for t in (m.get("tiles") or []):
+            if 0 <= t < 34:
+                used_counts[t] += 1
+
+    for t in range(34):
+        if is_flower(t):
+            continue
+        if exclude_exhausted and used_counts[t] >= 4:
+            continue
+        if is_win_16(hand16 + [t], melds, rules):
+            waits.append(t)
+    return waits
+
+def waits_after_discard_17(hand: List[int], drawn: int | None, melds: List[Dict[str, Any]], discard_tile: int, discard_from: str, rules, *, exclude_exhausted: bool = True) -> List[int]:
+    """
+    模擬丟牌後的 16 張手牌（若從手牌丟，需把 drawn 併回手），返回該狀態的一摸胡等待列表。
+    - discard_from: "hand" 或 "drawn"
+    """
+    h = list(hand)
+    if (discard_from or "hand").lower() == "drawn":
+        # 丟摸來的，手牌不變
+        pass
+    else:
+        # 從手牌移除一張，若有 drawn 則併回
+        if discard_tile in h:
+            h.remove(discard_tile)
+        if drawn is not None:
+            h.append(drawn)
+    return waits_for_hand_16(h, melds, rules, exclude_exhausted=exclude_exhausted)
