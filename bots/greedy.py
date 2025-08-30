@@ -189,7 +189,14 @@ class GreedyBotStrategy:
                     best = a
             return best
 
-        # phase == "TURN"：選擇要丟哪張
+        # phase == "TURN"
+        # 若能宣告聽，直接宣告（偏好等待較多者）
+        tings = [a for a in acts if (a.get("type") or "").upper() == "TING"]
+        if tings:
+            tings.sort(key=lambda a: -len(a.get("waits") or []))
+            return tings[0]
+
+        # 否則：選擇要丟哪張
         best = None
         best_key = None  # (cost, tie_break)
         for a in acts:

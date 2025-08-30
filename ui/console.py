@@ -108,6 +108,11 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
 
     # 標題（玩家/剩餘張數/身份）
     title = f"P{pid} {'(You)' if is_me else ''}"
+    try:
+        if bool(env.players[pid].get("declared_ting", False)):
+            title += " (TING)"
+    except Exception:
+        pass
 
     # 手牌/摸牌
     if is_me:

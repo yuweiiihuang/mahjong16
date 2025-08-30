@@ -14,6 +14,7 @@ class Ruleset:
     allow_gang: bool = True
     allow_hu: bool = True
     allow_zimo: bool = True
+    allow_ting: bool = True
 
     # 尾牌留置（流局）設定
     # - fixed: 固定留 N 張（預設 16）
