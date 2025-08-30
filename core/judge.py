@@ -5,7 +5,6 @@ from typing import List, Dict, Any, Tuple
 import json, os
 from pathlib import Path
 from .tiles import tile_to_str, is_flower
-from .scoring_profiles import PY_SCORING_TABLE, SCORING_LABELS
 
 # ----------------------------
 # 基本判斷
@@ -33,24 +32,61 @@ def _dead_wall_reserved(env) -> int:
         return base + getattr(env, "n_gang", 0)
     return base
 
-def _load_profile_table(profile_name: str, override_path: str | None = None) -> dict:
+def _load_scoring_assets(profile_name: str, override_path: str | None = None) -> tuple[dict, dict]:
     """
-    嘗試載入外部 JSON 覆蓋；找不到時回退到內建表。
-    - override_path：Ruleset.scoring_overrides_path 或環境變數 MAHJONG16_SCORING_JSON
-    - 若 JSON 根節點含多個 profile，取指定名稱；若根節點即為單一表，也可直接使用
+    載入計分表與標籤。
+    僅使用 JSON（無內建回退）。
+    優先順序：
+      1) 指定路徑（Ruleset.scoring_overrides_path 或環境變數 MAHJONG16_SCORING_JSON）
+      2) 專案根目錄 taiwanese_mahjong_scoring.json（若存在）
+
+    支援兩種 JSON 結構：
+      - { "<profile_name>": { ... }, "labels": { ... } }
+      - { "profiles": { "<profile_name>": { ... } }, "labels": { ... } }
+    若無 labels，則以空 dict，顯示時會退回 key。
     """
-    path = override_path or os.environ.get("MAHJONG16_SCORING_JSON")
-    if path and Path(path).is_file():
+    # 1) 指定覆蓋路徑或環境變數
+    candidates: list[Path] = []
+    path_str = override_path or os.environ.get("MAHJONG16_SCORING_JSON")
+    if path_str:
+        candidates.append(Path(path_str))
+
+    # 2) 專案內預設 JSON
+    try:
+        proj_root = Path(__file__).resolve().parent.parent
+        default_json = proj_root / "taiwanese_mahjong_scoring.json"
+        candidates.append(default_json)
+    except Exception:
+        pass
+
+    for p in candidates:
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and profile_name in data:
-                return data[profile_name]
-            if isinstance(data, dict):
-                return data
+            if p.is_file():
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                table = None
+                labels = None
+                if isinstance(data, dict):
+                    # profiles 容器
+                    if "profiles" in data and isinstance(data["profiles"], dict):
+                        table = data["profiles"].get(profile_name)
+                    # 直接以 profile name 為 key
+                    if table is None and profile_name in data and isinstance(data[profile_name], dict):
+                        table = data[profile_name]
+                    # labels（若存在）
+                    if isinstance(data.get("labels"), dict):
+                        labels = data["labels"]
+                if isinstance(table, dict):
+                    return table, (labels or {})
         except Exception:
-            pass
-    return PY_SCORING_TABLE.get(profile_name, {})
+            # 若解析失敗，嘗試下一個候選
+            continue
+
+    # 找不到有效 JSON 或未包含指定 profile，直接拋出錯誤以利場規明確化
+    raise FileNotFoundError(
+        f"Scoring JSON not found or profile '{profile_name}' missing. "
+        f"Provide taiwanese_mahjong_scoring.json or set MAHJONG16_SCORING_JSON."
+    )
 
 # ----------------------------
 # 34 張計數工具
@@ -140,13 +176,11 @@ def score_with_breakdown(env) -> tuple[List[int], Dict[int, List[Dict[str, Any]]
         return [0] * env.rules.n_players, {i: [] for i in range(env.rules.n_players)}
 
     rules = env.rules
-    profile_name = getattr(rules, "scoring_profile", "gametower_star31")
-    table = _load_profile_table(profile_name, getattr(rules, "scoring_overrides_path", None))
+    profile_name = getattr(rules, "scoring_profile", "taiwan_base")
+    table, labels = _load_scoring_assets(profile_name, getattr(rules, "scoring_overrides_path", None))
 
     def P(key: str, default: int) -> int:
         return int(table.get(key, default))
-
-    labels = SCORING_LABELS
 
     breakdown_by_player: Dict[int, List[Dict[str, Any]]] = {i: [] for i in range(env.rules.n_players)}
     bd: List[Dict[str, Any]] = breakdown_by_player[winner]

@@ -23,8 +23,7 @@ class Ruleset:
     dead_wall_base: int = 16        # 台灣常見：尾牌留 16 張
 
     # ====== 新增：混合式台數計算設定 ======
-    # 使用哪一個計分表（內建提供 "gametower_star31" 與 "mj888"）
-    scoring_profile: str = "gametower_star31"
+    scoring_profile: str = "taiwan_base"
     # 是否採用見花見字（影響部份台型的定義；預設 True 以符合一般台灣 16 張）
     see_flower_see_wind: bool = True
     # 外部 JSON 覆蓋檔路徑（可為 None；若提供則優先）
