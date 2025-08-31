@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional, Tuple, Protocol
 from bots import GreedyBotStrategy
 from core import Ruleset
 from core.tiles import tile_to_str
-from core.judge import waits_after_discard_17, waits_for_hand_16
+from core.hand import waits_after_discard_17, waits_for_hand_16
 from .formatting import (
     _colorize_label,
     _colorize_text_tiles,
@@ -256,4 +256,3 @@ def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List
             else:
                 strategies.append(AutoStrategy())
     return strategies
-

@@ -29,29 +29,43 @@ pytest -q           # 執行測試
 
 ```text
 mahjong16/
-├─ core/                  # 規則與模擬
-│  ├─ tiles.py            # 牌編碼與洗牌
-│  ├─ ruleset.py          # 規則設定（含尾牌留置模式）
-│  ├─ judge.py            # 胡牌判定與結算佔位
-│  └─ env.py              # 單桌環境：reset/step/legal_actions
-├─ bots/                  # 範例對局 bot
-│  ├─ random_bot.py       # 隨機策略
-│  └─ rulebot.py          # 極簡啟發式
-├─ rl/                    # 自我對弈與訓練骨架
-│  ├─ net.py              # Policy-Value Network
-│  ├─ selfplay.py         # 產生對弈資料
-│  ├─ buffer.py           # Replay Buffer
-│  └─ train.py            # 訓練流程（尚未實作）
-├─ scripts/               # 評估與壓測（樣板）
+├─ core/                          # 規則、模擬與計分核心
+│  ├─ tiles.py                    # 牌編碼、洗牌、轉字串
+│  ├─ ruleset.py                  # 場規設定（含尾牌留置、計分 profile 名稱）
+│  ├─ env.py                      # 單桌環境：reset/step/legal_actions
+│  ├─ hand.py                     # 純手牌判定：is_win_16 / waits_*
+│  ├─ judge.py                    # 相容層：委派至 scoring/ 與 hand/
+│  └─ scoring/
+│     ├─ engine.py                # 計分引擎（score_with_breakdown）
+│     ├─ tables.py                # 計分表載入（JSON profiles + labels）
+│     └─ types.py                 # ScoringTable / ScoringContext 型別
+├─ app/                           # Demo 執行與互動策略
+│  ├─ runtime.py                  # Demo 執行流程（預載計分表、顯示結果）
+│  ├─ strategies.py               # Auto/Human 策略（使用 hand.waits_*）
+│  └─ formatting.py               # CLI 顯示用格式化工具
+├─ ui/                            # Rich 終端 UI
+│  └─ console.py                  # 公開資訊與攤牌畫面渲染
+├─ bots/                          # 範例對局 bot
+│  ├─ random_bot.py               # 隨機策略
+│  ├─ rulebot.py                  # 極簡啟發式
+│  └─ greedy.py                   # 貪婪啟發式策略
+├─ rl/                            # 自我對弈與訓練骨架
+│  ├─ net.py
+│  ├─ selfplay.py
+│  ├─ buffer.py
+│  └─ train.py
+├─ scripts/                       # 評估與壓測（樣板）
 │  ├─ eval_league.py
 │  └─ bench_sim.py
-├─ tests/                 # 單元測試
+├─ tests/                         # 單元測試
 │  ├─ test_env_basic.py
 │  ├─ test_reaction_basic.py
 │  ├─ test_deadwall.py
 │  ├─ test_tsumo.py
-│  └─ test_win_basic.py
-├─ main.py                # CLI Demo
+│  ├─ test_win_basic.py
+│  └─ test_scoring.py
+├─ taiwanese_mahjong_scoring.json # 計分 profiles 與標籤
+├─ main.py                        # CLI Demo 入口
 └─ requirements.txt
 ```
 

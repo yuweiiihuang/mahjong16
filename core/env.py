@@ -5,7 +5,8 @@ import random
 
 from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
 from .ruleset import Ruleset
-from .judge import is_win_16, settle_scores_stub, waits_after_discard_17
+from .hand import is_win_16, waits_after_discard_17
+from .judge import settle_scores_stub
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}

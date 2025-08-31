@@ -1,8 +1,11 @@
 from __future__ import annotations
 from typing import Dict, Any, Optional
+import time
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
-from core.judge import score_with_breakdown
+from core.scoring.tables import load_scoring_assets
+from core.scoring.types import ScoringContext
+from core.scoring.engine import score_with_breakdown
 from ui.console import render_public_view, render_reveal
 from .formatting import fmt_tile, _colorize_tile
 from .strategies import build_strategies
@@ -66,11 +69,13 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
         include_flowers=True,
         dead_wall_mode="fixed",
         dead_wall_base=16,
-        scoring_profile="gametower_star31",
+        scoring_profile="taiwan_base",
         see_flower_see_wind=False,
         scoring_overrides_path=None,
     )
     env = Mahjong16Env(rules, seed=seed)
+    # Preload scoring table for this run
+    table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     print("=== mahjong16 demo（Rich Console UI） ===")
 
     obs = env.reset()
@@ -78,7 +83,6 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
     strategies = build_strategies(env.rules.n_players, human_pid, bot)
 
     while True:
-        update_ui(env, human_pid, discard_id, last_action=None)
 
         act = strategies[obs.get("player")].choose(obs)
 
@@ -91,8 +95,10 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
 
         obs, rew, done, info = env.step(act)
 
+        # Only redraw UI on specific events to avoid duplicates
         event = summarize_resolved_claim(info) if isinstance(info, dict) else None
         if event:
+            # RESOLVED_CLAIM: a reaction decision (HU/GANG/PONG/CHI or PASS-all)
             update_ui(env, human_pid, discard_id, last_action=event)
 
         if atype == "DISCARD" and pre_tile is not None:
@@ -107,7 +113,7 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
         if done:
             print("=== round end ===")
             print(f"rewards: {rew}")
-            rewards2, bd = score_with_breakdown(env)
+            rewards2, bd = score_with_breakdown(ScoringContext.from_env(env, table))
             winner = env.winner
             if winner is not None:
                 print(f"breakdown for P{winner}:")
@@ -118,10 +124,10 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
                     points = item.get("points", base * count)
                     print(f"  - {label}: {base} x {count} = {points}")
                 print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
+            # ROUND_END: reveal and stop
             render_reveal(env)
             break
 
         if discard_id > 2000:
             print("=== stop (safety break) ===")
             break
-
