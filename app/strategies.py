@@ -5,11 +5,9 @@ from core import Ruleset
 from core.tiles import tile_to_str
 from core.hand import waits_after_discard_17, waits_for_hand_16
 from .formatting import (
-    _colorize_label,
-    _colorize_text_tiles,
-    _colorize_tile,
-    _tile_sort_key,
-    _sort_tiles_for_display,
+    colorize_text_tiles,
+    tile_sort_key,
+    sort_tiles_for_display,
     fmt_tile,
     render_melds,
 )
@@ -19,10 +17,26 @@ PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 
 
 class Strategy(Protocol):
-    def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]: ...
+    """Protocol for strategies used by the demo gameplay loop."""
+
+    def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        """Select an action given an observation.
+
+        Args:
+          obs: Observation dict from the environment.
+
+        Returns:
+          An action dict.
+        """
 
 
 class AutoStrategy:
+    """Simple auto strategy: HU if available; otherwise discard policy.
+
+    REACTION phase: prefer highest priority non‑PASS.
+    TURN phase: HU if present, otherwise discard drawn, else first legal discard.
+    """
+
     def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         acts = obs.get("legal_actions", []) or []
         phase = obs.get("phase")
@@ -48,6 +62,8 @@ class AutoStrategy:
 
 
 class HumanStrategy:
+    """Interactive console strategy that renders waits and prompts for input."""
+
     def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
         acts = obs.get("legal_actions", []) or []
         player = obs.get("player")
@@ -62,6 +78,7 @@ class HumanStrategy:
             return self._choose_reaction(obs, acts, player)
 
     def _choose_turn(self, obs: Dict[str, Any], acts: List[Dict[str, Any]], player: int) -> Dict[str, Any]:
+        """Prompt user for a discard/HU/declare TING option during TURN phase."""
         hand: List[int] = list(obs.get("hand") or [])
         drawn: Optional[int] = obs.get("drawn")
         hu_action = next((a for a in acts if (a.get("type") or "").upper() == "HU"), None)
@@ -70,26 +87,24 @@ class HumanStrategy:
         def key_disc(a: Dict[str, Any]) -> Tuple:
             t = a.get("tile")
             src = a.get("from", "hand")
-            return (0 if src == "hand" else 1, *_tile_sort_key(t))
+            return (0 if src == "hand" else 1, *tile_sort_key(t))
 
         discards_all.sort(key=key_disc)
 
         display_actions: List[Dict[str, Any]] = []
-        display_labels: List[str] = []
+        display_labels: List[int] = []  # store tile ids; render via fmt_tile
         waits_list: List[List[int]] = []
         for a in discards_all:
             t = a.get("tile")
-            lbl = tile_to_str(t)
-            if a.get("from") == "drawn":
-                lbl += "*"
+            lbl = t
             ws = waits_after_discard_17(hand, drawn, obs.get("melds") or [], t, a.get("from", "hand"), rules=Ruleset(include_flowers=False), exclude_exhausted=True)
             display_actions.append(a)
             display_labels.append(lbl)
             waits_list.append(ws)
 
         print(f"\n=== Your Turn | P{player} ===")
-        sorted_hand_for_view = _sort_tiles_for_display(hand)
-        print(f"Hand: {' '.join(_colorize_tile(t) for t in sorted_hand_for_view)}   Drawn: {fmt_tile(drawn)}")
+        sorted_hand_for_view = sort_tiles_for_display(hand)
+        print(f"Hand: {' '.join(fmt_tile(t) for t in sorted_hand_for_view)}   Drawn: {fmt_tile(drawn)}")
         print(f"Melds: {render_melds(obs.get('melds') or [])}")
         if bool(obs.get("declared_ting", False)):
             waits_now = waits_for_hand_16(hand, obs.get("melds") or [], Ruleset(include_flowers=False), exclude_exhausted=True)
@@ -107,13 +122,14 @@ class HumanStrategy:
                                 cnt += 1
                     return cnt
                 parts = []
-                for w in sorted(waits_now, key=_tile_sort_key):
+                for w in sorted(waits_now, key=tile_sort_key):
                     vis = _visible_count_now(w)
                     rem = max(0, 4 - min(4, vis))
                     parts.append(f"{tile_to_str(w)}({rem})")
-                print(_colorize_text_tiles("TING: " + " ".join(parts)))
+                print(colorize_text_tiles("TING: " + " ".join(parts)))
 
         def _after_discard(hand0: List[int], drawn0: Optional[int], tile0: int, src0: str) -> List[int]:
+            """Simulate concealed tiles after discarding tile0 from src0."""
             h = list(hand0)
             if (src0 or "hand").lower() == "drawn":
                 return h
@@ -124,6 +140,7 @@ class HumanStrategy:
             return h
 
         def _visible_count(tile_id: int, hand_after: List[int]) -> int:
+            """Count how many copies of tile_id are visible in hand/melds/rivers."""
             cnt = sum(1 for t in hand_after if t == tile_id)
             for meld_list in (obs.get("melds_all") or []):
                 for m in (meld_list or []):
@@ -154,12 +171,12 @@ class HumanStrategy:
                         src = a.get("from", "hand")
                         hand_after = _after_discard(hand, drawn, t, src)
                         waits_detail: List[str] = []
-                        for w in sorted(ws, key=_tile_sort_key):
+                        for w in sorted(ws, key=tile_sort_key):
                             vis = _visible_count(w, hand_after)
                             rem = max(0, 4 - min(4, vis))
                             waits_detail.append(f"{tile_to_str(w)}({rem})")
                         label = f"[{i}] DISCARD {tile_to_str(t)}{'*' if src=='drawn' else ''} → TING: " + " ".join(waits_detail)
-                        rows.append(_colorize_text_tiles(label))
+                        rows.append(colorize_text_tiles(label))
                     print("TING OPTIONS →")
                     for r in rows:
                         print("  " + r)
@@ -177,7 +194,11 @@ class HumanStrategy:
 
         if hu_action is not None:
             print("ACTIONS → [H] HU")
-        line = "  ".join(f"[{i}] {_colorize_label(lbl)}" for i, lbl in enumerate(display_labels))
+        line_parts: List[str] = []
+        for i, tid in enumerate(display_labels):
+            star = "*" if (display_actions[i].get("from") == "drawn") else ""
+            line_parts.append(f"[{i}] {fmt_tile(tid)}{star}")
+        line = "  ".join(line_parts)
         print(f"DISCARD → {line}")
 
         while True:
@@ -191,12 +212,13 @@ class HumanStrategy:
                 print("索引超出範圍，請重新輸入。")
                 continue
             key = raw.rstrip("*")
-            for a, lbl in zip(display_actions, display_labels):
-                if lbl.rstrip("*").upper() == key:
+            for a, tid in zip(display_actions, display_labels):
+                if tile_to_str(tid).upper() == key:
                     return dict(a)
             print("無效輸入，請輸入索引或合法牌面（例如 7W）。")
 
     def _choose_reaction(self, obs: Dict[str, Any], acts: List[Dict[str, Any]], player: int) -> Dict[str, Any]:
+        """Prompt user for a reaction choice (HU/GANG/PONG/CHI/PASS)."""
         prio = {"HU": 0, "GANG": 1, "PONG": 2, "CHI": 3, "PASS": 9}
         ld = obs.get("last_discard") or {}
         ld_tile = ld.get("tile")
@@ -230,7 +252,7 @@ class HumanStrategy:
         labels: List[str] = [label_for(a) for a in menu_actions]
 
         print(f"\n=== Your Reaction | P{player} → to {fmt_tile(ld_tile)} ===")
-        print("  ".join(f"[{i}] {_colorize_text_tiles(lbl)}" for i, lbl in enumerate(labels)))
+        print("  ".join(f"[{i}] {colorize_text_tiles(lbl)}" for i, lbl in enumerate(labels)))
 
         while True:
             raw = input("Select action index: ").strip()

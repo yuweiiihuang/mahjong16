@@ -155,6 +155,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
     return Panel(body, title=title, box=ROUNDED, padding=(0, 1))
 
 def _top_bar(env, *, did: Optional[int], last_action: Optional[Dict[str, Any]]) -> Panel:
+    """Build the top status panel with turn, remaining tiles, deadwall, and last action."""
     n_rem = len(env.wall)
     # 牆尾留置
     mode = getattr(env.rules, "dead_wall_mode", "fixed")

@@ -7,10 +7,26 @@ from ..ruleset import Ruleset
 
 @dataclass
 class ScoringTable:
+    """In‑memory scoring table for one profile with label lookup.
+
+    Attributes:
+      values: Mapping from scoring key (e.g., 'zimo', 'menqing') to base points (台數).
+      labels: Mapping from key to human‑readable label.
+    """
+
     values: Dict[str, int]
     labels: Dict[str, str]
 
     def get(self, key: str, default: int = 0) -> int:
+        """Fetch integer value for a scoring key with a default fallback.
+
+        Args:
+          key: Scoring item key.
+          default: Fallback value when key is missing or invalid.
+
+        Returns:
+          Integer value for the key or the default.
+        """
         v = self.values.get(key, default)
         try:
             return int(v)
@@ -19,11 +35,31 @@ class ScoringTable:
 
 
 @dataclass
+class Meld:
+    """Typed meld view used by the scoring context.
+
+    Attributes:
+      type: 'CHI' | 'PONG' | 'GANG' (uppercase expected by engine).
+      tiles: Constituent tile ids (3 for PONG, 3 for CHI, 4 for GANG).
+      from_pid: Optional discarder id for open melds, if available.
+    """
+
+    type: str
+    tiles: List[int]
+    from_pid: Optional[int] = None
+
+
+@dataclass
 class PlayerView:
+    """Read‑only snapshot of player state for scoring.
+
+    Only fields relevant for the scoring engine are included.
+    """
+
     id: int
     hand: List[int]
     drawn: Optional[int]
-    melds: List[Dict[str, Any]]
+    melds: List[Meld]
     flowers: List[int]
     river: List[int]
     declared_ting: bool
@@ -31,6 +67,22 @@ class PlayerView:
 
 @dataclass
 class ScoringContext:
+    """Typed snapshot of everything the scoring engine needs.
+
+    Attributes:
+      rules: Active Ruleset (for reserved tail, players, etc.).
+      players: Typed per‑player views.
+      winner: Index of winner (or None when no winner).
+      win_source: 'TSUMO' | 'RON' | None.
+      win_tile: Id of the winning tile if known.
+      last_discard: Original last discard dict (for ron inference).
+      wall_len: Remaining wall size.
+      n_gang: Number of ganged melds on table (affects reserved tail in gang_plus_one).
+      table: ScoringTable for this profile.
+      winner_is_dealer: Optional flag for dealer bonus.
+      win_by_gang_draw: Optional flag for '槓上' types.
+    """
+
     rules: Ruleset
     players: List[PlayerView]
     winner: Optional[int]
@@ -45,14 +97,34 @@ class ScoringContext:
 
     @staticmethod
     def from_env(env, table: ScoringTable) -> "ScoringContext":
+        """Build ScoringContext from an env snapshot and a preloaded table.
+
+        Args:
+          env: Mahjong16Env instance at end of round.
+          table: ScoringTable for the active scoring profile.
+
+        Returns:
+          A populated ScoringContext ready for scoring.
+        """
         players = []
         for p in env.players:
+            meld_objs: List[Meld] = []
+            for m in (p.get("melds") or []):
+                if isinstance(m, dict):
+                    meld_objs.append(Meld(type=str(m.get("type", "")).upper(), tiles=list(m.get("tiles") or []), from_pid=m.get("from_pid")))
+                else:
+                    try:
+                        # fallback if tuple/list
+                        mt = str(m[0]).upper() if m else ""
+                        meld_objs.append(Meld(type=mt, tiles=list(m[1] or [])))
+                    except Exception:
+                        meld_objs.append(Meld(type="", tiles=[]))
             players.append(
                 PlayerView(
                     id=p.get("id"),
                     hand=list(p.get("hand") or []),
                     drawn=p.get("drawn"),
-                    melds=list(p.get("melds") or []),
+                    melds=meld_objs,
                     flowers=list(p.get("flowers") or []),
                     river=list(p.get("river") or []),
                     declared_ting=bool(p.get("declared_ting", False)),
@@ -71,4 +143,3 @@ class ScoringContext:
             winner_is_dealer=bool(getattr(env, "winner_is_dealer", False)),
             win_by_gang_draw=bool(getattr(env, "win_by_gang_draw", False)),
         )
-

@@ -3,20 +3,23 @@ from typing import Any, Dict, List, Tuple
 
 from ..tiles import tile_to_str, is_flower
 from ..hand import waits_for_hand_16, _counts34  # reuse pure helpers
-from .types import ScoringContext
+from .types import ScoringContext, Meld
 
 
 def _is_honor(t: int) -> bool:
+    """Return True if tile id corresponds to a wind/dragon (honor tile)."""
     ch = tile_to_str(t)[0]
     return ch in ("E", "S", "W", "N", "C", "F", "P")
 
 
 def _is_dragon(t: int) -> bool:
+    """Return True if tile id corresponds to a dragon (C/F/P)."""
     ch = tile_to_str(t)[0]
     return ch in ("C", "F", "P")
 
 
 def _dead_wall_reserved(ctx: ScoringContext) -> int:
+    """Compute current reserved tail length based on rules and number of gangs."""
     mode = getattr(ctx.rules, "dead_wall_mode", "fixed")
     base = getattr(ctx.rules, "dead_wall_base", 16)
     if mode == "gang_plus_one":
@@ -25,6 +28,16 @@ def _dead_wall_reserved(ctx: ScoringContext) -> int:
 
 
 def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List[Dict[str, Any]]]]:
+    """Calculate per‑player rewards and a labeled breakdown for the winner.
+
+    Args:
+      ctx: ScoringContext built from the end‑of‑round env and preloaded table.
+
+    Returns:
+      A pair (rewards, breakdown_by_player):
+        - rewards: list of length ``n_players`` (台數), winner gets the sum, others 0.
+        - breakdown_by_player: mapping pid -> list of items {key,label,base,count,points}.
+    """
     winner = ctx.winner
     if winner is None:
         return [0] * ctx.rules.n_players, {i: [] for i in range(ctx.rules.n_players)}
@@ -51,7 +64,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     pl = ctx.players[winner]
     tsumo = str(ctx.win_source).upper() in ("TSUMO", "ZIMO")
-    melds = pl.melds or []
+    melds: List[Meld] = pl.melds or []
     flowers = pl.flowers or []  # not used currently, placeholder for variants
     hand = list(pl.hand or [])
     drawn = pl.drawn
@@ -61,7 +74,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     if tsumo and (drawn is not None):
         concealed_tiles.append(drawn)
 
-    fixed_melds = sum(1 for m in (melds or []) if (m.get("type") or "").upper() in ("CHI", "PONG", "GANG"))
+    fixed_melds = sum(1 for m in (melds or []) if (m.type or "").upper() in ("CHI", "PONG", "GANG"))
     need = 5 - fixed_melds
     required_len = need * 3 + 2 if need >= 0 else None
 
@@ -82,13 +95,13 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             concealed_for_patterns.append(ron_tile)
 
     # stats
-    menqing = all((m.get("type") not in ("CHI", "PONG", "GANG")) for m in melds)
+    menqing = all((m.type not in ("CHI", "PONG", "GANG")) for m in melds)
     fixed_melds_pungs = 0
     fixed_melds_chis = 0
     dragon_pungs = 0
     for m in melds:
-        mtype = (m.get("type") or "").upper()
-        tiles_m = m.get("tiles") or []
+        mtype = (m.type or "").upper()
+        tiles_m = m.tiles or []
         if mtype in ("PONG", "GANG"):
             fixed_melds_pungs += 1
             if tiles_m and _is_dragon(tiles_m[0]):
@@ -120,7 +133,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     tenpai_before_draw = False
     if tsumo:
         try:
-            waits = waits_for_hand_16(list(pl.hand or []), list(pl.melds or []), ctx.rules, exclude_exhausted=True)
+            melds_dicts = [{"type": m.type, "tiles": list(m.tiles or [])} for m in (pl.melds or [])]
+            waits = waits_for_hand_16(list(pl.hand or []), melds_dicts, ctx.rules, exclude_exhausted=True)
             tenpai_before_draw = bool(waits)
         except Exception:
             tenpai_before_draw = False
@@ -130,7 +144,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     # pattern-based
     all_tiles = list(concealed_for_patterns)
     for m in melds:
-        all_tiles.extend(m.get("tiles") or [])
+        all_tiles.extend(m.tiles or [])
 
     suits = set()
     for t in all_tiles:
@@ -228,10 +242,12 @@ from functools import lru_cache
 
 
 def _is_suited_idx(i: int) -> bool:
+    """Index helper: 0..26 are suited tiles (万/筒/条)."""
     return 0 <= i <= 26
 
 
 def _same_suit_triplet_ok(i: int) -> bool:
+    """Check if i,i+1,i+2 are consecutive in the same suit without crossing suit edges."""
     if not (_is_suited_idx(i) and _is_suited_idx(i + 1) and _is_suited_idx(i + 2)):
         return False
     if i in (8, 17, 26):
@@ -243,6 +259,16 @@ def _same_suit_triplet_ok(i: int) -> bool:
 
 @lru_cache(maxsize=None)
 def _dfs_only_chows(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
+    """DFS that tries to consume only chows plus one pair across suited tiles.
+
+    Args:
+      state: Length‑34 counts.
+      need: Number of melds to form.
+      eye_used: Whether the pair is already picked.
+
+    Returns:
+      True if the state can be fully consumed under these constraints.
+    """
     if need == 0:
         total = sum(state)
         if eye_used:
@@ -269,4 +295,3 @@ def _dfs_only_chows(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
         if _dfs_only_chows(tuple(lst), need, True):
             return True
     return False
-

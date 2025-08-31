@@ -10,15 +10,25 @@ from .types import ScoringTable
 
 @lru_cache(maxsize=16)
 def load_scoring_assets(profile_name: str, override_path: str | None = None) -> ScoringTable:
-    """
-    Load scoring table and labels for a given profile.
-    Search order:
-      1) `override_path` or env MAHJONG16_SCORING_JSON (if provided)
-      2) project root `taiwanese_mahjong_scoring.json`
+    """Load a scoring profile and labels from JSON.
 
-    Supports two JSON shapes:
-      - { "<profile_name>": { ... }, "labels": { ... } }
-      - { "profiles": { "<profile_name>": { ... } }, "labels": { ... } }
+    Resolution order:
+      1) ``override_path`` argument (or env var ``MAHJONG16_SCORING_JSON`` if set)
+      2) Project root ``taiwanese_mahjong_scoring.json``
+
+    JSON shapes supported:
+      - { "profiles": { "<profile>": {...} }, "labels": {...} }
+      - { "<profile>": {...}, "labels": {...} }
+
+    Args:
+      profile_name: Profile key to load (e.g., 'taiwan_base').
+      override_path: Optional explicit JSON file path.
+
+    Returns:
+      ScoringTable with values and labels for the profile.
+
+    Raises:
+      FileNotFoundError: When no file found or profile missing.
     """
     candidates: list[Path] = []
     path_str = override_path or os.environ.get("MAHJONG16_SCORING_JSON")
@@ -55,4 +65,3 @@ def load_scoring_assets(profile_name: str, override_path: str | None = None) -> 
         f"Scoring JSON not found or profile '{profile_name}' missing. "
         f"Provide taiwanese_mahjong_scoring.json or set MAHJONG16_SCORING_JSON."
     )
-

@@ -6,23 +6,27 @@ import random
 from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
-from .judge import settle_scores_stub
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 
 def is_suited(t: int) -> bool:
-    # 0..8 萬, 9..17 筒, 18..26 條
+    """Return True if tile id is a suited (萬/筒/條) tile.
+
+    Indexing convention:
+    - 0..8: 萬, 9..17: 筒, 18..26: 條, 27..33: 字
+    """
     return 0 <= t <= 26
 
 def suit_of(t: int) -> int:
-    # 0:萬, 1:筒, 2:條, 3:字
+    """Return suit index of a tile id: 0=萬, 1=筒, 2=條, 3=字。"""
     if 0 <= t <= 8: return 0
     if 9 <= t <= 17: return 1
     if 18 <= t <= 26: return 2
     return 3
 
 def rank_of(t: int) -> Optional[int]:
+    """Return rank (1..9) for suited tiles; None for honors/flowers."""
     if not is_suited(t): return None
     if 0 <= t <= 8: return t - 0 + 1
     if 9 <= t <= 17: return t - 9 + 1
@@ -30,7 +34,11 @@ def rank_of(t: int) -> Optional[int]:
     return None
 
 def chi_options(discard_tile: int, hand: List[int]) -> List[Tuple[int,int]]:
-    """列舉所有可吃的兩張（僅限下家；不含字牌）。回傳 [(a,b), ...]，代表以 a,b + discard_tile 成順子。"""
+    """Enumerate all 2‑tile choices (a,b) from hand that can CHI the discard.
+
+    Only suited tiles and immediate neighbor patterns are considered:
+      (r-2,r-1), (r-1,r+1), (r+1,r+2)
+    """
     if not is_suited(discard_tile): return []
     r = rank_of(discard_tile)
     s = suit_of(discard_tile)
@@ -48,22 +56,23 @@ def chi_options(discard_tile: int, hand: List[int]) -> List[Tuple[int,int]]:
     return candidates
 
 class Mahjong16Env:
-    """
-    台麻16簡化環境（含 drawn、反應視窗、尾牌留置）：
-    - 每家持有 16 張；輪到該家時，摸 1 張至 `drawn`（第17張），再丟回 1 張。
-    - 丟牌後進入反應視窗：依「胡>槓>碰>吃」與距離（近優先）決定插入行動。
-    - 尾牌留置：依 rules.dead_wall_mode / dead_wall_base 決定是否允許摸牌；若無法摸牌則流局。
-    - 目前支援：DISCARD、反應（CHI/PONG/GANG/HU）與簡化的大明槓（槓後補摸）。
-    - TODO：加槓/暗槓、自摸胡/結算（judge.is_win_16 尚未完成，HU 分支通常不會觸發）。
+    """Taiwan 16‑tile Mahjong single‑table environment.
+
+    Mechanics:
+    - Each player holds 16 tiles; on their turn they draw into `drawn` (17th), then discard one.
+    - After a discard, a reaction window opens: HU > GANG > PONG > CHI by priority and distance.
+    - Dead‑wall reservation: drawing stops when only reserved tiles remain (flow).
+    - Supports DISCARD, reactions (CHI/PONG/GANG/HU), and exposed ka‑kan (daminggang) with draw.
     """
     def __init__(self, rules: Ruleset, seed: Optional[int]=None):
+        """Initialize environment with rules and optional RNG seed."""
         self.rules = rules
         self.rng = random.Random(seed)
         self.reset_rng_seed = seed
 
     # ====== 尾牌留置（流局）判斷 ======
     def _dead_wall_reserved(self) -> int:
-        """計算目前尾牌留置張數（dead wall）。"""
+        """Compute reserved tail length based on rules and number of gangs so far."""
         mode = getattr(self.rules, "dead_wall_mode", "fixed")
         base = getattr(self.rules, "dead_wall_base", 16)
         if mode == "gang_plus_one":
@@ -71,11 +80,12 @@ class Mahjong16Env:
         return base
 
     def _can_draw_from_wall(self) -> bool:
-        """檢查是否還能從牆摸牌（不得侵犯尾牌留置）。"""
+        """Return True if we can still draw from the wall (not violating reserved tail)."""
         return len(self.wall) > self._dead_wall_reserved()
 
     # ====== API ======
     def reset(self) -> Dict[str, Any]:
+        """Reset the table, deal hands, and return the first observation for the dealer."""
         self.wall: List[int] = full_wall(self.rules.include_flowers, self.rng)
         self.discard_pile: List[int] = []
         self.players: List[Dict[str, Any]] = [self._new_player(i) for i in range(self.rules.n_players)]
@@ -106,6 +116,7 @@ class Mahjong16Env:
         return self._obs(self.turn)
 
     def legal_actions(self, pid: Optional[int]=None) -> List[Dict[str, Any]]:
+        """List legal actions for current player (TURN) or current reactor (REACTION)."""
         if getattr(self, "done", False):
             return []
         if self.phase == "TURN":
@@ -166,6 +177,14 @@ class Mahjong16Env:
             return acts
 
     def step(self, action: Dict[str, Any]):
+        """Apply an action and advance the environment.
+
+        Returns: (obs, rewards, done, info)
+        - obs: next observation for the next actor
+        - rewards: list per player (zeros here; scoring happens outside env)
+        - done: True if the hand ends
+        - info: optional metadata including resolved reactions
+        """
         assert not self.done, "episode is done"
 
         if self.phase == "TURN":
@@ -184,7 +203,7 @@ class Mahjong16Env:
                 self.reaction_idx = 0
                 self.last_discard = None
                 self.done = True
-                rewards = settle_scores_stub(self)
+                rewards = [0] * self.rules.n_players
                 return self._obs(self.turn), rewards, True, {}
             if a_type not in ("DISCARD", "TING"):
                 raise AssertionError("本階段僅能丟牌（DISCARD）/自摸（HU）/宣告聽（TING）")
@@ -256,7 +275,7 @@ class Mahjong16Env:
                     if self.players[self.turn]["drawn"] is None:
                         # 無法摸牌（已達尾牌留置）→ 立刻流局
                         self.done = True
-                        rewards = settle_scores_stub(self)
+                        rewards = [0] * self.rules.n_players
                         return self._obs(self.turn), rewards, True, {}
                     return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                 else:
@@ -332,7 +351,7 @@ class Mahjong16Env:
                         if self.players[self.turn]["drawn"] is None:
                             # 補摸失敗（已達尾牌留置）→ 流局
                             self.done = True
-                            rewards = settle_scores_stub(self)
+                            rewards = [0] * self.rules.n_players
                             return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
                     else:  # HU
@@ -348,11 +367,12 @@ class Mahjong16Env:
                         self.reaction_queue = []
                         self.reaction_idx = 0
                         self.done = True
-                        rewards = settle_scores_stub(self)
+                        rewards = [0] * self.rules.n_players
                         return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
 
     # ====== 內部輔助 ======
     def _new_player(self, pid: int) -> Dict[str, Any]:
+        """Create initial player dict state."""
         return {
             "id": pid,
             "hand": [],
@@ -365,6 +385,7 @@ class Mahjong16Env:
         }
 
     def _draw_into_hand(self, pid: int):
+        """Draw from wall into hand, auto‑handling flowers (replacing immediately)."""
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
@@ -374,6 +395,7 @@ class Mahjong16Env:
             break
 
     def _draw_to_drawn(self, pid: int):
+        """Draw from wall into the `drawn` slot, replacing flowers immediately."""
         self.players[pid]["drawn"] = None
         while self._can_draw_from_wall():
             t = self.wall.pop()
@@ -384,11 +406,12 @@ class Mahjong16Env:
             break
 
     def _legal_discards(self, pid: int):
+        """Return list of tile ids in hand that can be legally discarded (non‑flower)."""
         from .tiles import is_flower  # 重新導入以防循環
         return [t for t in self.players[pid]["hand"] if not is_flower(t)]
 
     def _resolve_claims(self) -> Optional[Dict[str, Any]]:
-        """根據優先權與距離，選擇最終中標者。回傳 claim 或 None。"""
+        """Resolve reaction claims by priority and distance; return chosen claim or None."""
         if not self.claims:
             return None
         # 新規則：若有人 HU，僅在 HU 候選中決定；一家放槍僅能一家胡。
@@ -401,6 +424,7 @@ class Mahjong16Env:
         return self.claims[0]
 
     def _obs(self, pid: int) -> Dict[str, Any]:
+        """Build the observation for a given player id, including public info and legal actions."""
         me = self.players[pid]
         is_done = getattr(self, "done", False)
         obs = {

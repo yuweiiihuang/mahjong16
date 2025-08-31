@@ -6,6 +6,14 @@ from .tiles import is_flower
 
 
 def _counts34(tiles: List[int]) -> List[int]:
+    """Count occurrences of tile ids in the range [0, 33].
+
+    Args:
+      tiles: Tile ids. Any id outside 0..33 short‑circuits to an all‑zero list.
+
+    Returns:
+      A length‑34 list where index i is the count of tile id i.
+    """
     c = [0] * 34
     for t in tiles:
         if 0 <= t < 34:
@@ -16,10 +24,19 @@ def _counts34(tiles: List[int]) -> List[int]:
 
 
 def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
-    """Return True if 16+1 tiles can form 5 melds + 1 pair, given existing melds.
+    """Check whether a 16+1 hand is a legal win (5 melds + 1 pair).
 
-    This mirrors the prior implementation in core.judge and is kept pure
-    (no IO, no env access) so it is easy to unit test.
+    Contract:
+      Assumes Taiwan 16‑tile variant: a winning hand has 5 melds + 1 pair (17 tiles).
+      Open `melds` are already completed; only their count reduces the needed concealed melds.
+
+    Args:
+      tiles: Concealed tiles to be evaluated (length must be `need*3 + 2`).
+      melds: Open melds: dicts like {"type": "CHI"|"PONG"|"GANG", "tiles": [...]}.
+      rules: Ruleset object; currently unused but reserved for future variants.
+
+    Returns:
+      True if the concealed tiles can be decomposed into the required melds and one pair.
     """
     fixed_melds = 0
     for m in melds or []:
@@ -102,9 +119,16 @@ def waits_for_hand_16(
     *,
     exclude_exhausted: bool = True,
 ) -> List[int]:
-    """
-    Given 16 tiles and open melds, return all tiles that complete a win on draw.
-    Excludes tiles already exhausted in hand+melds when exclude_exhausted=True.
+    """List all waits (tile ids) that would win if drawn with the current 16.
+
+    Args:
+      hand16: Concealed tiles (exactly 16).
+      melds: Open melds (env dicts: {"type", "tiles"}).
+      rules: Ruleset passed to `is_win_16` for variant compatibility.
+      exclude_exhausted: When True, exclude tiles already fully used by hand+melds (4 copies).
+
+    Returns:
+      Sorted list of tile ids 0..33 which make the hand win when added.
     """
     waits: List[int] = []
     used_counts = [0] * 34
@@ -136,8 +160,22 @@ def waits_after_discard_17(
     *,
     exclude_exhausted: bool = True,
 ) -> List[int]:
-    """
-    Simulate discarding a tile from hand/drawn, return waits for the resulting 16.
+    """Compute waits after discarding from a 17‑tile state (hand + optional drawn).
+
+    Simulates the post‑discard concealed 16, then delegates to `waits_for_hand_16`.
+
+    Args:
+      hand: Concealed tiles in hand (16 when ``drawn`` is set, else 17).
+      drawn: The separate drawn tile, or None.
+      melds: Open melds.
+      discard_tile: The tile id to discard.
+      discard_from: 'hand' to remove from hand (and add drawn back if any), or
+        'drawn' to drop the drawn tile and keep hand untouched.
+      rules: Ruleset.
+      exclude_exhausted: Passed through to waits computation.
+
+    Returns:
+      List of tile ids that make a win after discarding ``discard_tile``.
     """
     h = list(hand)
     if (discard_from or "hand").lower() == "drawn":
@@ -148,4 +186,3 @@ def waits_after_discard_17(
         if drawn is not None:
             h.append(drawn)
     return waits_for_hand_16(h, melds, rules, exclude_exhausted=exclude_exhausted)
-

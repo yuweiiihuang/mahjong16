@@ -1,3 +1,9 @@
+"""CLI entrypoint for the Mahjong16 demo.
+
+Provides simple flags for RNG seed, selecting a human player, and bot strategy.
+Delegates the gameplay loop to `app.runtime.run_demo`.
+"""
+
 from __future__ import annotations
 from app.runtime import run_demo
 
@@ -34,4 +40,3 @@ if __name__ == "__main__":
             raise SystemExit("Invalid --human value. Must be 0,1,2,3 or 'none'.")
 
     run_demo(seed=args.seed, human_pid=human_pid, bot=args.bot)
-

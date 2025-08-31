@@ -1,5 +1,5 @@
 from core import Mahjong16Env, Ruleset
-from core.judge import is_win_16
+from core.hand import is_win_16
 from core.tiles import Tile  # 假設有 W1..W9, D1..D9, B1..B9, 以及 E/S/W/N/C/F/P
 
 def test_is_win_simple_all_chows():

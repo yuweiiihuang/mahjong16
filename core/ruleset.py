@@ -1,8 +1,28 @@
+"""Ruleset definitions for the Taiwan 16-tile Mahjong environment.
+
+Use this dataclass to configure environment behavior, including action toggles,
+dead-wall reservation mode, and scoring profile injection.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 
 @dataclass
 class Ruleset:
+    """Game rules configuration used by `Mahjong16Env`.
+
+    Attributes:
+      include_flowers: Whether to include flowers in the wall and auto-replace.
+      n_players: Number of players (default 4).
+      initial_hand: Initial concealed tiles per player (16 for Taiwan variant).
+      max_rounds: Max number of rounds (not enforced by core env yet).
+      allow_chi/pong/gang/hu/zimo/ting: Action toggles.
+      dead_wall_mode: 'fixed' or 'gang_plus_one' (one extra reserved per gang).
+      dead_wall_base: Base reserved tiles for the dead wall (commonly 16).
+      scoring_profile: Key used to load a scoring table from JSON.
+      see_flower_see_wind: Variant switch for certain rules (placeholder).
+      scoring_overrides_path: Optional explicit scoring JSON path.
+    """
     include_flowers: bool = True
     n_players: int = 4
     initial_hand: int = 16

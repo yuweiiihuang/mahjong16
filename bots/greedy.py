@@ -6,22 +6,23 @@ from core.tiles import tile_to_str
 
 
 class GreedyBotStrategy:
-    """
-    極簡「容易胡」測試用 bot：
+    """Greedy smoke-test bot that aims for shape (not points).
 
-    決策原則（不計台、只求形狀好）：
-      - 反應期：若能 HU 直接胡；否則模擬 CHI/PONG/GANG 與 PASS 的結果，取啟發式成本最低者。
-      - 走牌期：嘗試所有可丟，丟後把 drawn 併回手（若有），用啟發式評估，丟出成本最低的那張。
+    Decision rule:
+    - REACTION: HU if available; else simulate CHI/PONG/GANG vs PASS and pick
+      the state with lower heuristic cost.
+    - TURN: evaluate all legal discards; prefer the one that minimizes cost
+      (tiebreak: prefer discarding honors).
 
-    啟發式成本（越小越好）：
-        fixed_melds = 已有的副露數（CHI/PONG/GANG）
-        need = max(0, 5 - fixed_melds)                 # 十六張麻將需 5 面子
-        m, has_pair = greedy 拆手牌可做出的面子數、是否還留得下一對眼
-        cost = 10 * max(0, need - m)                   # 面子不足懲罰，權重較大
-               + 3 * (0 if has_pair else 1)            # 缺眼懲罰
-               + min(3, singles_penalty)               # 散張（只計到 3 分以內）
+    Heuristic cost (lower is better):
+      fixed_melds = number of open melds (CHI/PONG/GANG)
+      need = max(0, 5 - fixed_melds)   # Taiwan 16 uses 5 melds
+      (m, has_pair) = greedy estimate of how many melds can be formed from hand
+      cost = 10 * max(0, need - m)     # penalize missing melds (heavier)
+           + 3 * (0 if has_pair else 1)
+           + min(3, singles_penalty)   # count of singles capped at 3
 
-    這個 bot 非常單純，僅供快速 smoke test／壓力測使用。
+    Intended for quick smoke/pressure tests rather than strong play.
     """
 
     # ===================== 小工具 =====================
@@ -160,6 +161,7 @@ class GreedyBotStrategy:
     # ===================== 主決策 =====================
 
     def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        """Choose an action in TURN/REACTION to minimize heuristic cost; HU if possible."""
         acts = obs.get("legal_actions", []) or []
         if not acts:
             return {"type": "PASS"}
