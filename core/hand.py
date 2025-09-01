@@ -41,7 +41,8 @@ def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
     fixed_melds = 0
     for m in melds or []:
         t = (m.get("type") or "").upper()
-        if t in ("CHI", "PONG", "GANG"):
+        # KONG 類（ANGANG/KAKAN/GANG）亦算一個面子
+        if t in ("CHI", "PONG", "GANG", "ANGANG", "KAKAN"):
             fixed_melds += 1
     need_melds = 5 - fixed_melds
     if need_melds < 0:

@@ -7,7 +7,7 @@ utilities to generate a shuffled wall.
 from __future__ import annotations
 from enum import IntEnum
 import random
-from typing import List
+from typing import List, Tuple
 
 # 0..33: 34 tiles (萬/筒/條 1..9, 字 E/S/W/N/C/F/P)
 # 34..41: 8 flowers (四季 + 四君子)
@@ -70,3 +70,44 @@ def tile_to_str(t: int) -> str:
 def hand_to_str(hand: List[int]) -> str:
     """Convert a sequence of tiles into a space-separated, sorted label string."""
     return " ".join(sorted([tile_to_str(t) for t in hand]))
+
+
+# Sorting helpers (pure, display-agnostic)
+
+def _suit_of_id(t: int) -> int:
+    """Return suit index: 0=萬, 1=筒, 2=條, 3=字."""
+    if 0 <= t <= 8:
+        return 0
+    if 9 <= t <= 17:
+        return 1
+    if 18 <= t <= 26:
+        return 2
+    return 3
+
+
+def _rank_of_id(t: int) -> int:
+    """Return 1..9 for suited tiles; 0 for honors/flowers."""
+    if 0 <= t <= 8:
+        return t - 0 + 1
+    if 9 <= t <= 17:
+        return t - 9 + 1
+    if 18 <= t <= 26:
+        return t - 18 + 1
+    return 0
+
+
+def _honor_index_of_id(t: int) -> int:
+    """Honor order as E,S,W,N,C,F,P mapped to 0..6; others 99."""
+    # E..P are contiguous after B1..B9
+    return (t - 27) if 27 <= t <= 33 else 99
+
+
+def tile_sort_key(t: int) -> Tuple[int, int, str]:
+    """Sort key for tiles: suit → rank/honor → label.
+
+    Keeps a stable order within the same tile using `tile_to_str` as tiebreaker.
+    """
+    s = _suit_of_id(t)
+    if s < 3:
+        return (s, _rank_of_id(t), tile_to_str(t))
+    return (s, _honor_index_of_id(t), tile_to_str(t))

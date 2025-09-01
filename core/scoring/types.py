@@ -94,6 +94,7 @@ class ScoringContext:
     table: ScoringTable
     winner_is_dealer: bool = False
     win_by_gang_draw: bool = False
+    win_by_qiang_gang: bool = False
 
     @staticmethod
     def from_env(env, table: ScoringTable) -> "ScoringContext":
@@ -142,4 +143,5 @@ class ScoringContext:
             table=table,
             winner_is_dealer=bool(getattr(env, "winner_is_dealer", False)),
             win_by_gang_draw=bool(getattr(env, "win_by_gang_draw", False)),
+            win_by_qiang_gang=bool(getattr(env, "win_by_qiang_gang", False)),
         )

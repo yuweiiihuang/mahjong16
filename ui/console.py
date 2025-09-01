@@ -8,36 +8,14 @@ from rich.table import Table
 from rich.text import Text
 from rich.box import ROUNDED
 
-# 依你專案的 tiles 工具取字串
-from core.tiles import tile_to_str
+from core.tiles import tile_to_str, tile_sort_key
+from core.hand import waits_after_discard_17, waits_for_hand_16
+from core import Ruleset
+from typing import Tuple
 
 console = Console()
 
 # ---------- 小工具：牌面排序 / 著色 ----------
-
-def _suit_of_id(t: int) -> int:
-    # 0:萬, 1:筒, 2:條, 3:字
-    if 0 <= t <= 8: return 0
-    if 9 <= t <= 17: return 1
-    if 18 <= t <= 26: return 2
-    return 3
-
-def _rank_of_id(t: int) -> int:
-    # 萬/筒/條回傳 1..9；字牌回 0
-    if 0 <= t <= 8: return t - 0 + 1
-    if 9 <= t <= 17: return t - 9 + 1
-    if 18 <= t <= 26: return t - 18 + 1
-    return 0
-
-_HONOR_ORDER = {"E": 0, "S": 1, "W": 2, "N": 3, "C": 4, "F": 5, "P": 6}
-def _honor_index_of_id(t: int) -> int:
-    s = tile_to_str(t)
-    k = s[0] if s else "?"
-    return _HONOR_ORDER.get(k, 99)
-
-def _tile_sort_key(t: int):
-    s = _suit_of_id(t)
-    return (s, _rank_of_id(t), tile_to_str(t)) if s < 3 else (s, _honor_index_of_id(t), tile_to_str(t))
 
 def _style_for_tile(t: int) -> str:
     s = tile_to_str(t)
@@ -70,7 +48,7 @@ def _join_tiles(tiles: List[int], *, highlight_tile: Optional[int] = None) -> Te
             parts.append(Text(" "))
     return Text.assemble(*parts)
 
-def _render_melds(melds: List[Dict[str, Any]]) -> RenderableType:
+def _render_melds(melds: List[Dict[str, Any]], *, mask_concealed: bool = False) -> RenderableType:
     if not melds:
         return Text("[]", style="dim")
     # 例如：[PONG 3W-3W-3W] [CHI 6D-7D-8D]
@@ -85,7 +63,10 @@ def _render_melds(melds: List[Dict[str, Any]]) -> RenderableType:
         if tiles:
             parts.append(Text(" ", style="dim"))
             for i, t in enumerate(tiles):
-                parts.append(_text_tile(t))
+                if mask_concealed and mtype == "ANGANG":
+                    parts.append(Text("##", style="dim"))
+                else:
+                    parts.append(_text_tile(t))
                 if i != len(tiles) - 1:
                     parts.append(Text("-", style="dim"))
         parts.append(Text("]", style="dim"))
@@ -94,6 +75,317 @@ def _render_melds(melds: List[Dict[str, Any]]) -> RenderableType:
     if chunks:
         chunks.pop()  # 移除尾端多餘空白
     return Text.assemble(*chunks)
+
+# ---------- 互動式選單（HumanStrategy 專用） ----------
+
+def _after_discard(hand0: List[int], drawn0: Optional[int], tile0: int, src0: str) -> List[int]:
+    """模擬丟出某張牌後，concealed 手牌的狀態（供 TING 候選剩餘計算用）。"""
+    h = list(hand0)
+    if (src0 or "hand").lower() == "drawn":
+        return h
+    if tile0 in h:
+        h.remove(tile0)
+    if drawn0 is not None:
+        h.append(drawn0)
+    return h
+
+def _visible_count_global(tile_id: int, obs: Dict[str, Any]) -> int:
+    """統計目前桌上可見的該牌數量（手牌+副露+河），用於已宣告 TING 的提示。"""
+    cnt = sum(1 for t in (obs.get("hand") or []) if t == tile_id)
+    for meld_list in (obs.get("melds_all") or []):
+        for m in (meld_list or []):
+            for x in (m.get("tiles") or []):
+                if x == tile_id:
+                    cnt += 1
+    for rv in (obs.get("rivers") or []):
+        for x in rv:
+            if x == tile_id:
+                cnt += 1
+    return cnt
+
+def _visible_count_after(tile_id: int, hand_after: List[int], obs: Dict[str, Any]) -> int:
+    """丟掉某張之後的可見數（手牌 after + 副露 + 各家河）。"""
+    cnt = sum(1 for t in hand_after if t == tile_id)
+    for meld_list in (obs.get("melds_all") or []):
+        for m in (meld_list or []):
+            for t in (m.get("tiles") or []):
+                if t == tile_id:
+                    cnt += 1
+    for rv in (obs.get("rivers") or []):
+        for t in rv:
+            if t == tile_id:
+                cnt += 1
+    return cnt
+
+def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
+    """以 Rich 在命令列提示自己的回合操作（丟牌/胡/宣告聽）。"""
+    acts: List[Dict[str, Any]] = obs.get("legal_actions", []) or []
+    player = obs.get("player")
+    hand: List[int] = list(obs.get("hand") or [])
+    drawn: Optional[int] = obs.get("drawn")
+
+    # 取得可選的行動
+    hu_action = next((a for a in acts if (a.get("type") or "").upper() == "HU"), None)
+    discards_all: List[Dict[str, Any]] = [a for a in acts if (a.get("type") or "").upper() == "DISCARD"]
+
+    def key_disc(a: Dict[str, Any]) -> Tuple:
+        t = a.get("tile")
+        src = a.get("from", "hand")
+        return (0 if src == "hand" else 1, *tile_sort_key(t))
+
+    discards_all.sort(key=key_disc)
+
+    # 計算每個丟法對應的聽牌
+    display_actions: List[Dict[str, Any]] = []
+    display_tiles: List[int] = []
+    waits_list: List[List[int]] = []
+    for a in discards_all:
+        t = a.get("tile")
+        ws = waits_after_discard_17(
+            hand,
+            drawn,
+            obs.get("melds") or [],
+            t,
+            a.get("from", "hand"),
+            rules=Ruleset(include_flowers=False),
+            exclude_exhausted=True,
+        )
+        display_actions.append(a)
+        display_tiles.append(t)
+        waits_list.append(ws)
+
+    # 版頭
+    console.print(f"\n[bold]=== Your Turn | P{player} ===[/bold]")
+    sorted_hand = sorted(hand, key=tile_sort_key)
+    hand_line = Text.assemble(Text("Hand: ", style="bold"), _join_tiles(sorted_hand))
+    drawn_line = Text.assemble(
+        Text("Drawn: ", style="bold"),
+        _text_tile(drawn) if drawn is not None else Text("None", style="dim")
+    )
+    melds_line = Text.assemble(Text("Melds: ", style="bold"), _render_melds(obs.get("melds") or [], mask_concealed=False))
+    console.print(hand_line)
+    console.print(drawn_line)
+    console.print(melds_line)
+
+    # 若已宣告聽，列出目前等待及剩餘數
+    if bool(obs.get("declared_ting", False)):
+        waits_now = waits_for_hand_16(hand, obs.get("melds") or [], Ruleset(include_flowers=False), exclude_exhausted=True)
+        if waits_now:
+            parts: List[Text] = []
+            parts.append(Text("TING: ", style="bold"))
+            for i, w in enumerate(sorted(waits_now, key=tile_sort_key)):
+                vis = _visible_count_global(w, obs)
+                rem = max(0, 4 - min(4, vis))
+                parts.append(_text_tile(w))
+                parts.append(Text(f"({rem})"))
+                if i != len(waits_now) - 1:
+                    parts.append(Text(" "))
+            console.print(Text.assemble(*parts))
+
+    # 收集可進入 TING 的丟法
+    ting_candidates: List[Tuple[Dict[str, Any], List[int]]] = [
+        (a, ws) for a, ws in zip(display_actions, waits_list) if ws
+    ]
+
+    # 若未宣告且存在候選，提供宣告 TING 流程
+    if (not bool(obs.get("declared_ting", False))) and ting_candidates:
+        # 嘗試找出可 ANGANG / KAKAN
+        acts = obs.get("legal_actions", []) or []
+        angangs = [a for a in acts if (a.get("type") or "").upper() == "ANGANG"]
+        kakans = [a for a in acts if (a.get("type") or "").upper() == "KAKAN"]
+        extras = []
+        if angangs:
+            extras.append("[A] ANGANG")
+        if kakans:
+            extras.append("[K] KAKAN")
+        actions_hdr = ("[H] HU  " if hu_action is not None else "") + (" ".join(extras) + "  " if extras else "") + "[T] TING  [N] PASS"
+        console.print(Text("ACTIONS → ", style="bold") + Text(actions_hdr))
+        while True:
+            raw0 = console.input("Declare TING? (T/N): ").strip().upper()
+            if raw0 in ("H", "HU") and hu_action is not None:
+                return dict(hu_action)
+            if raw0 in ("A", "ANGANG") and angangs:
+                if len(angangs) == 1:
+                    return dict(angangs[0])
+                # 多個暗槓候選 → 選其中之一
+                console.print(Text("ANGANG options:", style="bold"))
+                for i, a in enumerate(angangs):
+                    console.print(Text.assemble(Text(f"  [{i}] ANGANG "), _text_tile(a.get("tile"))))
+                while True:
+                    sel = console.input("Pick ANGANG index: ").strip()
+                    if sel.isdigit():
+                        k = int(sel)
+                        if 0 <= k < len(angangs):
+                            return dict(angangs[k])
+                    console.print(Text("索引超出範圍，請重新輸入。", style="red"))
+            if raw0 in ("K", "KAKAN") and kakans:
+                if len(kakans) == 1:
+                    return dict(kakans[0])
+                console.print(Text("KAKAN options:", style="bold"))
+                for i, a in enumerate(kakans):
+                    console.print(Text.assemble(Text(f"  [{i}] KAKAN "), _text_tile(a.get("tile"))))
+                while True:
+                    sel = console.input("Pick KAKAN index: ").strip()
+                    if sel.isdigit():
+                        k = int(sel)
+                        if 0 <= k < len(kakans):
+                            return dict(kakans[k])
+                    console.print(Text("索引超出範圍，請重新輸入。", style="red"))
+            if raw0 in ("T", "TING", "Y", "YES"):
+                # 列出每個 TING 方案
+                rows: List[Text] = []
+                for i, (a, ws) in enumerate(ting_candidates):
+                    t = a.get("tile")
+                    src = a.get("from", "hand")
+                    hand_after = _after_discard(hand, drawn, t, src)
+                    cells: List[Text] = []
+                    cells.append(Text(f"[{i}] DISCARD "))
+                    cells.append(_text_tile(t))
+                    if src == "drawn":
+                        cells.append(Text("*", style="dim"))
+                    cells.append(Text(" → TING: "))
+                    for j, w in enumerate(sorted(ws, key=tile_sort_key)):
+                        vis = _visible_count_after(w, hand_after, obs)
+                        rem = max(0, 4 - min(4, vis))
+                        cells.append(_text_tile(w))
+                        cells.append(Text(f"({rem})"))
+                        if j != len(ws) - 1:
+                            cells.append(Text(" "))
+                    rows.append(Text.assemble(*cells))
+                console.print(Text("TING OPTIONS →", style="bold"))
+                for r in rows:
+                    console.print(Text("  ") + r)
+                while True:
+                    sel = console.input("Pick TING option index: ").strip()
+                    if sel.isdigit():
+                        k = int(sel)
+                        if 0 <= k < len(ting_candidates):
+                            a, _ = ting_candidates[k]
+                            return {"type": "TING", "tile": a.get("tile"), "from": a.get("from", "hand")}
+                    console.print(Text("索引超出範圍，請重新輸入。", style="red"))
+            if raw0 in ("N", "NO", "P", "PASS"):
+                break
+            console.print(Text("請輸入 T 或 N。", style="yellow"))
+
+    # 丟牌/胡/暗槓/加槓 選單
+    if hu_action is not None:
+        console.print(Text("ACTIONS → ", style="bold") + Text("[H] HU"))
+    acts = obs.get("legal_actions", []) or []
+    angangs = [a for a in acts if (a.get("type") or "").upper() == "ANGANG"]
+    kakans = [a for a in acts if (a.get("type") or "").upper() == "KAKAN"]
+    if angangs or kakans:
+        extra_parts: List[Text] = []
+        if angangs:
+            extra_parts.append(Text(" [A] ANGANG"))
+        if kakans:
+            extra_parts.append(Text(" [K] KAKAN"))
+        console.print(Text("KONGS → ", style="bold") + Text.assemble(*extra_parts))
+    line_parts: List[Text] = []
+    for i, tid in enumerate(display_tiles):
+        star = (display_actions[i].get("from") == "drawn")
+        cell = Text.assemble(Text(f"[{i}] "), _text_tile(tid))
+        if star:
+            cell.append(Text("*", style="dim"))
+        line_parts.append(cell)
+        if i != len(display_tiles) - 1:
+            line_parts.append(Text("  "))
+    console.print(Text("DISCARD → ", style="bold") + Text.assemble(*line_parts))
+
+    while True:
+        raw = console.input("Discard index or tile: ").strip().upper()
+        if hu_action is not None and raw in ("H", "HU"):
+            return dict(hu_action)
+        if raw in ("A", "ANGANG") and angangs:
+            if len(angangs) == 1:
+                return dict(angangs[0])
+            console.print(Text("ANGANG options:", style="bold"))
+            for i, a in enumerate(angangs):
+                console.print(Text.assemble(Text(f"  [{i}] ANGANG "), _text_tile(a.get("tile"))))
+            sel = console.input("Pick ANGANG index: ").strip()
+            if sel.isdigit() and 0 <= int(sel) < len(angangs):
+                return dict(angangs[int(sel)])
+            console.print(Text("索引超出範圍。", style="red"))
+            continue
+        if raw in ("K", "KAKAN") and kakans:
+            if len(kakans) == 1:
+                return dict(kakans[0])
+            console.print(Text("KAKAN options:", style="bold"))
+            for i, a in enumerate(kakans):
+                console.print(Text.assemble(Text(f"  [{i}] KAKAN "), _text_tile(a.get("tile"))))
+            sel = console.input("Pick KAKAN index: ").strip()
+            if sel.isdigit() and 0 <= int(sel) < len(kakans):
+                return dict(kakans[int(sel)])
+            console.print(Text("索引超出範圍。", style="red"))
+            continue
+        if raw.isdigit():
+            idx = int(raw)
+            if 0 <= idx < len(display_actions):
+                return dict(display_actions[idx])
+            console.print(Text("索引超出範圍，請重新輸入。", style="red"))
+            continue
+        key = raw.rstrip("*")
+        for a, tid in zip(display_actions, display_tiles):
+            if tile_to_str(tid).upper() == key:
+                return dict(a)
+        console.print(Text("無效輸入，請輸入索引或合法牌面（例如 7W）。", style="yellow"))
+
+
+def prompt_reaction_action(obs: Dict[str, Any]) -> Dict[str, Any]:
+    """以 Rich 在命令列提示反應（HU/GANG/PONG/CHI/PASS）。"""
+    acts = obs.get("legal_actions", []) or []
+    player = obs.get("player")
+    prio = {"HU": 0, "GANG": 1, "PONG": 2, "CHI": 3, "PASS": 9}
+    ld = obs.get("last_discard") or {}
+    ld_tile = ld.get("tile")
+
+    def key_react(a: Dict[str, Any]):
+        t = (a.get("type") or "").upper()
+        if t == "CHI":
+            use = a.get("use", [])
+            s = [tile_to_str(x) for x in (use or [])]
+            return (prio[t], s)
+        return (prio.get(t, 99),)
+
+    pass_action: Dict[str, Any] = next((a for a in acts if (a.get("type") or "").upper() == "PASS"), {"type": "PASS"})
+    others_sorted = sorted([a for a in acts if (a.get("type") or "").upper() != "PASS"], key=key_react)
+
+    def label_for(a: Dict[str, Any]) -> Text:
+        t = (a.get("type") or "").upper()
+        if t == "PASS":
+            return Text("PASS")
+        if t == "CHI":
+            use = a.get("use", [])
+            if isinstance(use, list) and len(use) == 2:
+                txt = Text("CHI ")
+                txt.append(_text_tile(use[0])); txt.append(Text("-")); txt.append(_text_tile(use[1]))
+                if ld_tile is not None:
+                    txt.append(Text("  "))
+                    txt.append(_text_tile(ld_tile))
+                return txt
+            return Text("CHI")
+        if t in ("PONG", "GANG", "HU"):
+            txt = Text(f"{t} ")
+            if ld_tile is not None:
+                txt.append(_text_tile(ld_tile))
+            return txt
+        return Text("PASS")
+
+    menu_actions: List[Dict[str, Any]] = [pass_action] + others_sorted
+    labels: List[Text] = [label_for(a) for a in menu_actions]
+
+    console.print(f"\n[bold]=== Your Reaction | P{player} → to [/bold]", _text_tile(ld_tile) if ld_tile is not None else Text("?"))
+    menu_line = Text.assemble(*[Text.assemble(Text(f"[{i}] "), labels[i], Text("  ")) for i in range(len(labels))])
+    console.print(menu_line)
+
+    while True:
+        raw = console.input("Select action index: ").strip()
+        if raw.isdigit():
+            idx = int(raw)
+            if 0 <= idx < len(menu_actions):
+                return dict(menu_actions[idx])
+            console.print(Text("索引超出範圍，請重新輸入。", style="red"))
+            continue
+        console.print(Text("請輸入數字索引。", style="yellow"))
 
 # ---------- 公開視角渲染 ----------
 
@@ -116,7 +408,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
 
     # 手牌/摸牌
     if is_me:
-        hand = sorted(list(pl["hand"]), key=_tile_sort_key)
+        hand = sorted(list(pl["hand"]), key=tile_sort_key)
         drawn = pl.get("drawn")
         hand_line = Text.assemble(Text("hand: ", style="bold"), _join_tiles(hand))
         drawn_line = Text.assemble(Text("drawn: ", style="bold"),
@@ -129,7 +421,10 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
         drawn_line = Text.assemble(Text("drawn: ", style="bold"), Text("Hidden", style="dim"))
 
     # 副露
-    melds_line = Text.assemble(Text("melds: ", style="bold"), _render_melds(pl.get("melds") or []))
+    melds_line = Text.assemble(
+        Text("melds: ", style="bold"),
+        _render_melds(pl.get("melds") or [], mask_concealed=(not is_me))
+    )
 
     # 河牌（若最後一張等於 last_discard 且此家就是丟牌者，反白）
     river = list(pl.get("river") or [])
@@ -262,7 +557,7 @@ def render_reveal(env) -> None:
     for pid in range(env.rules.n_players):
         pl = env.players[pid]
         # hand / melds / river
-        hand = sorted(list(pl["hand"]), key=_tile_sort_key)
+        hand = sorted(list(pl["hand"]), key=tile_sort_key)
         hand_txt = Text.assemble(Text("hand: ", style="bold"),
                                  _join_tiles(hand) if hand else Text("(empty)", style="dim"))
         melds_txt = Text.assemble(Text("melds: ", style="bold"),

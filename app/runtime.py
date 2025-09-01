@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Dict, Any, Optional
-import time
 from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str
 from core.scoring.tables import load_scoring_assets
@@ -8,9 +7,6 @@ from core.scoring.types import ScoringContext
 from core.scoring.engine import score_with_breakdown
 from ui.console import render_public_view, render_reveal
 from .strategies import build_strategies
-
-
- 
 
 
 def summarize_resolved_claim(info: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -74,6 +70,7 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
 
     obs = env.reset()
     discard_id = 0
+    last_seen_discard: Optional[tuple] = None  # (pid, tile)
     strategies = build_strategies(env.rules.n_players, human_pid, bot)
 
     while True:
@@ -94,13 +91,41 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
             update_ui(env, human_pid, discard_id, last_action=event)
 
         if atype == "DISCARD" and pre_tile is not None:
+            # Record the explicit discard we just took
             discard_id += 1
+            last_seen_discard = (pre_pid, pre_tile)
             update_ui(
                 env,
                 human_pid,
                 discard_id,
                 last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)},
             )
+
+        # If a new reaction window opens for the human due to someone else's discard
+        # (e.g., our previous action was PASS and env advanced internally),
+        # make sure we refresh the board to show that latest discard.
+        if (
+            obs.get("phase") == "REACTION"
+            and human_pid is not None
+            and obs.get("player") == human_pid
+        ):
+            ld = getattr(env, "last_discard", None)
+            if isinstance(ld, dict) and ld.get("tile") is not None:
+                key = (ld.get("pid"), ld.get("tile"))
+                # Only refresh if we haven't just rendered this same discard
+                if key != last_seen_discard:
+                    discard_id += 1
+                    last_seen_discard = key
+                    update_ui(
+                        env,
+                        human_pid,
+                        discard_id,
+                        last_action={
+                            "who": f"P{ld.get('pid')}",
+                            "type": "DISCARD",
+                            "detail": tile_to_str(ld.get("tile")),
+                        },
+                    )
 
         if done:
             print("=== round end ===")

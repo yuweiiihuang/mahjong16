@@ -34,7 +34,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
       ctx: ScoringContext built from the end‑of‑round env and preloaded table.
 
     Returns:
-      A pair (rewards, breakdown_by_player):
+      (rewards, breakdown_by_player):
         - rewards: list of length ``n_players`` (台數), winner gets the sum, others 0.
         - breakdown_by_player: mapping pid -> list of items {key,label,base,count,points}.
     """
@@ -74,7 +74,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     if tsumo and (drawn is not None):
         concealed_tiles.append(drawn)
 
-    fixed_melds = sum(1 for m in (melds or []) if (m.type or "").upper() in ("CHI", "PONG", "GANG"))
+    fixed_melds = sum(1 for m in (melds or []) if (m.type or "").upper() in ("CHI", "PONG", "GANG", "ANGANG", "KAKAN"))
     need = 5 - fixed_melds
     required_len = need * 3 + 2 if need >= 0 else None
 
@@ -95,7 +95,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             concealed_for_patterns.append(ron_tile)
 
     # stats
-    menqing = all((m.type not in ("CHI", "PONG", "GANG")) for m in melds)
+    # 門清：不可含明副露。明槓（大明槓 GANG、加槓 KAKAN）視為明副露；暗槓（ANGANG）不破門清。
+    menqing = all((m.type not in ("CHI", "PONG", "GANG", "KAKAN")) for m in melds)
     fixed_melds_pungs = 0
     fixed_melds_chis = 0
     dragon_pungs = 0
@@ -110,13 +111,18 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             fixed_melds_chis += 1
 
     # base patterns
-    if menqing and tsumo and P("menqing_zimo", 3):
-        add("menqing_zimo")
-    else:
+    # 槓上自摸：已含自摸，不再重複加計『自摸』；若門清則僅加『門清』
+    if tsumo and getattr(ctx, "win_by_gang_draw", False):
         if menqing:
             add("menqing")
-        if tsumo:
-            add("zimo")
+    else:
+        if menqing and tsumo and P("menqing_zimo", 3):
+            add("menqing_zimo")
+        else:
+            if menqing:
+                add("menqing")
+            if tsumo:
+                add("zimo")
 
     if dragon_pungs:
         add("dragon_pung", count=dragon_pungs)
@@ -126,6 +132,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     if ctx.win_by_gang_draw:
         add("gang_shang")
+    if getattr(ctx, "win_by_qiang_gang", False):
+        add("qiang_gang")
     if ctx.winner_is_dealer:
         add("dealer")
 

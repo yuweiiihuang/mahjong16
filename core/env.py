@@ -113,6 +113,13 @@ class Mahjong16Env:
         # 胡牌當下的回合持有者（自摸時等於 winner；榮和時等於丟牌者）
         self.turn_at_win: Optional[int] = None
 
+        # 進階：槓相關旗標
+        self.win_by_gang_draw: bool = False      # 槓上自摸
+        self.win_by_qiang_gang: bool = False     # 搶槓
+        self._recent_gang_draw_pid: Optional[int] = None  # 剛補摸者
+        self.qiang_gang_mode: bool = False       # 是否進入搶槓反應
+        self.pending_kakan: Optional[Dict[str, Any]] = None  # {pid,tile}
+
         return self._obs(self.turn)
 
     def legal_actions(self, pid: Optional[int]=None) -> List[Dict[str, Any]]:
@@ -148,7 +155,23 @@ class Mahjong16Env:
                         waits = waits_after_discard_17(me["hand"], drawn, melds, drawn, "drawn", self.rules)
                         if waits:
                             acts.append({"type":"TING", "tile": drawn, "from":"drawn", "waits": waits})
-            # TODO：加槓/暗槓等
+            # 加入自家回合的槓選項：暗槓 / 加槓
+            if self.rules.allow_gang:
+                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                # 暗槓：四張同牌皆在自家（摸牌後）
+                for t in set(all_tiles):
+                    if not is_flower(t) and all_tiles.count(t) >= 4:
+                        acts.append({"type": "ANGANG", "tile": t})
+                # 加槓：先前已有 PONG，且手上/摸到第4張
+                pong_bases: List[int] = []
+                for m in (me.get("melds") or []):
+                    if (m.get("type") or "").upper() == "PONG":
+                        tiles_m = list(m.get("tiles") or [])
+                        if tiles_m:
+                            pong_bases.append(tiles_m[0])
+                for base in set(pong_bases):
+                    if all_tiles.count(base) >= 1:
+                        acts.append({"type": "KAKAN", "tile": base})
             return acts
         else:  # REACTION
             if not self.reaction_queue or not (0 <= self.reaction_idx < len(self.reaction_queue)):
@@ -161,6 +184,11 @@ class Mahjong16Env:
                 return acts
             tile = discard["tile"]
             ting_locked = bool(self.players[pid].get("declared_ting", False))
+            # 搶槓反應期：僅允許 PASS、HU
+            if self.qiang_gang_mode:
+                if self.rules.allow_hu and is_win_16(self.players[pid]["hand"] + [tile], self.players[pid]["melds"], self.rules):
+                    acts.append({"type":"HU"})
+                return acts
             # Chi（僅限下家）
             if (not ting_locked) and ((pid - discard["pid"]) % self.rules.n_players) == 1 and self.rules.allow_chi:
                 for a,b in chi_options(tile, self.players[pid]["hand"]):
@@ -198,6 +226,9 @@ class Mahjong16Env:
                 # 自摸的胡牌就是當前 drawn
                 self.win_tile = self.players[pid]["drawn"]
                 self.turn_at_win = pid
+                # 槓上自摸判定
+                if self._recent_gang_draw_pid == pid:
+                    self.win_by_gang_draw = True
                 self.phase = "DONE"
                 self.reaction_queue = []
                 self.reaction_idx = 0
@@ -205,8 +236,54 @@ class Mahjong16Env:
                 self.done = True
                 rewards = [0] * self.rules.n_players
                 return self._obs(self.turn), rewards, True, {}
+            # 暗槓：直接成槓並補摸
+            if a_type == "ANGANG":
+                t = action.get("tile")
+                me = self.players[pid]
+                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                assert all_tiles.count(t) >= 4, "暗槓需手牌+摸牌共4張同牌"
+                # 移除四張（優先從手牌移除）
+                removed = 0
+                while removed < 4 and t in me["hand"]:
+                    me["hand"].remove(t)
+                    removed += 1
+                if removed < 4 and me["drawn"] == t:
+                    me["drawn"] = None
+                    removed += 1
+                while removed < 4 and t in me["hand"]:
+                    me["hand"].remove(t)
+                    removed += 1
+                assert removed == 4
+                me["melds"].append({"type": "ANGANG", "tiles": [t, t, t, t], "from_pid": None})
+                self.n_gang += 1
+                # 槓後補摸
+                self._draw_to_drawn(pid)
+                self._recent_gang_draw_pid = pid
+                if self.players[pid]["drawn"] is None:
+                    # 無法補摸 → 流局
+                    self.done = True
+                    rewards = [0] * self.rules.n_players
+                    return self._obs(self.turn), rewards, True, {}
+                return self._obs(self.turn), [0]*self.rules.n_players, False, {}
+            # 加槓：開啟搶槓反應視窗；若無人胡再生效與補摸
+            if a_type == "KAKAN":
+                t = action.get("tile")
+                me = self.players[pid]
+                has_pong = any((m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == t for m in (me.get("melds") or []))
+                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                assert has_pong and all_tiles.count(t) >= 1, "加槓需已有 PONG 且持有第4張"
+                # 開啟搶槓反應
+                self.qiang_gang_mode = True
+                self.pending_kakan = {"pid": pid, "tile": t}
+                self.last_discard = {"pid": pid, "tile": t}
+                self.phase = "REACTION"
+                self.reaction_queue = [ (pid + i) % self.rules.n_players for i in (1,2,3) ]
+                self.reaction_idx = 0
+                self.claims = []
+                next_pid = self.reaction_queue[self.reaction_idx]
+                return self._obs(next_pid), [0]*self.rules.n_players, False, {}
             if a_type not in ("DISCARD", "TING"):
-                raise AssertionError("本階段僅能丟牌（DISCARD）/自摸（HU）/宣告聽（TING）")
+                raise AssertionError("本階段僅能丟牌/自摸/宣告聽/暗槓/加槓")
             src = action.get("from", "hand")
             tile = action["tile"]
 
@@ -234,6 +311,8 @@ class Mahjong16Env:
             self.reaction_queue = [ (pid + i) % self.rules.n_players for i in (1,2,3) ]  # 下家起
             self.reaction_idx = 0
             self.claims = []
+            # 丟牌之後重置槓上的候選狀態
+            self._recent_gang_draw_pid = None
 
             # 下一個要動作的是第一位反應者
             next_pid = self.reaction_queue[self.reaction_idx]
@@ -268,6 +347,37 @@ class Mahjong16Env:
                 # 結束反應視窗，進入決議
                 resolved = self._resolve_claims()
                 if resolved is None:
+                    # 搶槓窗口無人胡：執行加槓，補摸
+                    if self.qiang_gang_mode and self.pending_kakan:
+                        kpid = self.pending_kakan.get("pid")
+                        ktile = self.pending_kakan.get("tile")
+                        me = self.players[kpid]
+                        # 使用第4張（優先用 drawn）
+                        if me["drawn"] == ktile:
+                            me["drawn"] = None
+                        else:
+                            me["hand"].remove(ktile)
+                        # 將對應 PONG 升級為 KAKAN
+                        for m in (me.get("melds") or []):
+                            if (m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == ktile:
+                                m["type"] = "KAKAN"
+                                m["tiles"] = [ktile, ktile, ktile, ktile]
+                                break
+                        self.n_gang += 1
+                        # 清理搶槓狀態
+                        self.qiang_gang_mode = False
+                        self.pending_kakan = None
+                        # 補摸到 kpid 的 drawn（仍輪到自己）
+                        self.turn = kpid
+                        self.phase = "TURN"
+                        self._draw_to_drawn(kpid)
+                        self._recent_gang_draw_pid = kpid
+                        self.last_discard = None
+                        if self.players[kpid]["drawn"] is None:
+                            self.done = True
+                            rewards = [0] * self.rules.n_players
+                            return self._obs(self.turn), rewards, True, {}
+                        return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                     # 無人宣告：進入下一家摸牌（不得侵犯尾牌留置；若無法摸則流局）
                     self.phase = "TURN"
                     self.turn = (self.last_discard["pid"] + 1) % self.rules.n_players
@@ -363,6 +473,12 @@ class Mahjong16Env:
                         self.win_source = "RON"
                         self.winner = claimer
                         self.turn_at_win = discarder_pid
+                        # 搶槓胡的標記
+                        if self.qiang_gang_mode:
+                            self.win_by_qiang_gang = True
+                        # 清理搶槓狀態
+                        self.qiang_gang_mode = False
+                        self.pending_kakan = None
                         self.phase = "DONE"
                         self.reaction_queue = []
                         self.reaction_idx = 0
