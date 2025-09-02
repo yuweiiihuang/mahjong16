@@ -400,6 +400,18 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
 
     # 標題（玩家/剩餘張數/身份）
     title = f"P{pid} {'(You)' if is_me else ''}"
+    # 顯示門風與莊家
+    try:
+        sw = None
+        seat_winds = getattr(env, "seat_winds", None)
+        if isinstance(seat_winds, list) and 0 <= pid < len(seat_winds):
+            sw = seat_winds[pid]
+        if isinstance(sw, str) and sw:
+            title += f" [{sw}]"
+        if pid == getattr(env, "dealer_pid", -1):
+            title += " (莊)"
+    except Exception:
+        pass
     try:
         if bool(env.players[pid].get("declared_ting", False)):
             title += " (TING)"
@@ -474,6 +486,22 @@ def _top_bar(env, *, did: Optional[int], last_action: Optional[Dict[str, Any]]) 
 
     t = Table.grid(expand=True)
     t.add_column(justify="left"); t.add_column(justify="center"); t.add_column(justify="right")
+    # 圈風 / 莊家資訊
+    try:
+        qf = (getattr(env, "quan_feng", None) or "?")
+        dealer_pid = getattr(env, "dealer_pid", None)
+        seat_winds = getattr(env, "seat_winds", None)
+        dw = None
+        if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
+            dw = seat_winds[dealer_pid]
+        qmap = {"E": "東", "S": "南", "W": "西", "N": "北"}
+        qcn = qmap.get(str(qf).upper(), str(qf))
+        dcn = f"P{dealer_pid}" if isinstance(dealer_pid, int) else "?"
+        if isinstance(dw, str) and dw:
+            dcn += f"({qmap.get(dw.upper(), dw)})"
+        t.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"), Text(""), Text(""))
+    except Exception:
+        pass
     t.add_row(
         Text(f"Turn: P{env.turn}  Phase: {env.phase}"),
         Text(f"Remaining: {n_rem}  |  DeadWall: {reserved}"),
@@ -527,13 +555,19 @@ def render_public_view(
     # 上方狀態列
     console.print(_top_bar(env, did=did, last_action=last_action))
 
-    # 四家面板
-    panels = [
-        _player_panel(env, 0, pov_pid, last_discard),
-        _player_panel(env, 1, pov_pid, last_discard),
-        _player_panel(env, 2, pov_pid, last_discard),
-        _player_panel(env, 3, pov_pid, last_discard),
-    ]
+    # 四家面板：依東南西北順序排列
+    seat_winds = getattr(env, "seat_winds", None)
+    order_pids = []
+    try:
+        if isinstance(seat_winds, list):
+            for w in ("E", "S", "W", "N"):
+                if w in seat_winds:
+                    order_pids.append(seat_winds.index(w))
+    except Exception:
+        order_pids = list(range(env.rules.n_players))
+    if not order_pids:
+        order_pids = list(range(env.rules.n_players))
+    panels = [ _player_panel(env, pid, pov_pid, last_discard) for pid in order_pids ]
     
     # 用 Columns 先排成 2 欄，再用 Panel 外框。
     if layout == "2x2":
@@ -554,7 +588,19 @@ def render_reveal(env) -> None:
     win_tile: Optional[int] = getattr(env, "win_tile", None)
     turn_at_win: Optional[int] = getattr(env, "turn_at_win", None)
 
-    for pid in range(env.rules.n_players):
+    # 依東南西北順序列出
+    seat_winds = getattr(env, "seat_winds", None)
+    order_pids: List[int] = []
+    try:
+        if isinstance(seat_winds, list):
+            for w in ("E", "S", "W", "N"):
+                if w in seat_winds:
+                    order_pids.append(seat_winds.index(w))
+    except Exception:
+        order_pids = list(range(env.rules.n_players))
+    if not order_pids:
+        order_pids = list(range(env.rules.n_players))
+    for pid in order_pids:
         pl = env.players[pid]
         # hand / melds / river
         hand = sorted(list(pl["hand"]), key=tile_sort_key)

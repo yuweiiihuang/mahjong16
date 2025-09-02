@@ -48,3 +48,9 @@ class Ruleset:
     see_flower_see_wind: bool = True
     # 外部 JSON 覆蓋檔路徑（可為 None；若提供則優先）
     scoring_overrides_path: str | None = None
+
+    # 風位/莊家與計分擴充（預設關閉以維持既有測試行為）
+    # - randomize_seating_and_dealer: True 時，重置時隨機莊家與門風座位
+    # - enable_wind_flower_scoring: True 時，開啟圈風/門風/正花/花槓等台數計算
+    randomize_seating_and_dealer: bool = True
+    enable_wind_flower_scoring: bool = True

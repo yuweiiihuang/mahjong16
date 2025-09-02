@@ -6,6 +6,7 @@ from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
 from core.scoring.engine import score_with_breakdown
 from ui.console import render_public_view, render_reveal
+from .table import TableManager
 from .strategies import build_strategies
 
 
@@ -47,7 +48,7 @@ def update_ui(env: Mahjong16Env, human_pid: Optional[int], discard_id: int, last
     render_public_view(env, pov_pid=pov, did=discard_id, last_action=last_action)
 
 
-def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
+def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: int = 1):
     """Run a simple console demo with auto/human play and scoring breakdown.
 
     Args:
@@ -61,6 +62,8 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
         dead_wall_base=16,
         scoring_profile="taiwan_base",
         see_flower_see_wind=False,
+        randomize_seating_and_dealer=True,
+        enable_wind_flower_scoring=True,
         scoring_overrides_path=None,
     )
     env = Mahjong16Env(rules, seed=seed)
@@ -68,83 +71,95 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto"):
     table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     print("=== mahjong16 demo（Rich Console UI） ===")
 
-    obs = env.reset()
-    discard_id = 0
-    last_seen_discard: Optional[tuple] = None  # (pid, tile)
+    # Table manager: multi-hand flow
+    tm = TableManager(rules, seed=seed)
+    tm.initialize(env.rules.n_players)
     strategies = build_strategies(env.rules.n_players, human_pid, bot)
 
-    while True:
+    for hand_idx in range(hands):
+        obs = tm.start_hand(env)
+        discard_id = 0
+        last_seen_discard: Optional[tuple] = None  # (pid, tile)
 
-        act = strategies[obs.get("player")].choose(obs)
+        # quick header per hand
+        print(f"--- Hand {hand_idx+1} | Quan={getattr(env,'quan_feng','?')} | Dealer=P{getattr(env,'dealer_pid',0)} | Streak={getattr(env,'dealer_streak',0)} ---")
 
-        atype = (act.get("type") or "").upper()
+        while True:
 
-        pre_pid = obs.get("player")
-        pre_tile = act.get("tile") if atype == "DISCARD" else None
+            act = strategies[obs.get("player")].choose(obs)
 
-        obs, rew, done, info = env.step(act)
+            atype = (act.get("type") or "").upper()
 
-        # Only redraw UI on specific events to avoid duplicates
-        event = summarize_resolved_claim(info) if isinstance(info, dict) else None
-        if event:
-            # RESOLVED_CLAIM: a reaction decision (HU/GANG/PONG/CHI or PASS-all)
-            update_ui(env, human_pid, discard_id, last_action=event)
+            pre_pid = obs.get("player")
+            pre_tile = act.get("tile") if atype == "DISCARD" else None
 
-        if atype == "DISCARD" and pre_tile is not None:
-            # Record the explicit discard we just took
-            discard_id += 1
-            last_seen_discard = (pre_pid, pre_tile)
-            update_ui(
-                env,
-                human_pid,
-                discard_id,
-                last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)},
-            )
+            obs, rew, done, info = env.step(act)
 
-        # If a new reaction window opens for the human due to someone else's discard
-        # (e.g., our previous action was PASS and env advanced internally),
-        # make sure we refresh the board to show that latest discard.
-        if (
-            obs.get("phase") == "REACTION"
-            and human_pid is not None
-            and obs.get("player") == human_pid
-        ):
-            ld = getattr(env, "last_discard", None)
-            if isinstance(ld, dict) and ld.get("tile") is not None:
-                key = (ld.get("pid"), ld.get("tile"))
-                # Only refresh if we haven't just rendered this same discard
-                if key != last_seen_discard:
-                    discard_id += 1
-                    last_seen_discard = key
-                    update_ui(
-                        env,
-                        human_pid,
-                        discard_id,
-                        last_action={
-                            "who": f"P{ld.get('pid')}",
-                            "type": "DISCARD",
-                            "detail": tile_to_str(ld.get("tile")),
-                        },
-                    )
+            # Only redraw UI on specific events to avoid duplicates
+            event = summarize_resolved_claim(info) if isinstance(info, dict) else None
+            if event:
+                # RESOLVED_CLAIM: a reaction decision (HU/GANG/PONG/CHI or PASS-all)
+                update_ui(env, human_pid, discard_id, last_action=event)
 
-        if done:
-            print("=== round end ===")
-            print(f"rewards: {rew}")
-            rewards2, bd = score_with_breakdown(ScoringContext.from_env(env, table))
-            winner = env.winner
-            if winner is not None:
-                print(f"breakdown for P{winner}:")
-                for item in bd.get(winner, []):
-                    label = item.get("label", item.get("key"))
-                    base = item.get("base", 0)
-                    count = item.get("count", 1)
-                    points = item.get("points", base * count)
-                    print(f"  - {label}: {base} x {count} = {points}")
-                print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
-            # ROUND_END: reveal and stop
-            render_reveal(env)
-            break
+            if atype == "DISCARD" and pre_tile is not None:
+                # Record the explicit discard we just took
+                discard_id += 1
+                last_seen_discard = (pre_pid, pre_tile)
+                update_ui(
+                    env,
+                    human_pid,
+                    discard_id,
+                    last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)},
+                )
 
-        if discard_id > 2000:
-            print("=== stop (safety break) ===")
-            break
+            # If a new reaction window opens for the human due to someone else's discard
+            # (e.g., our previous action was PASS and env advanced internally),
+            # make sure we refresh the board to show that latest discard.
+            if (
+                obs.get("phase") == "REACTION"
+                and human_pid is not None
+                and obs.get("player") == human_pid
+            ):
+                ld = getattr(env, "last_discard", None)
+                if isinstance(ld, dict) and ld.get("tile") is not None:
+                    key = (ld.get("pid"), ld.get("tile"))
+                    # Only refresh if we haven't just rendered this same discard
+                    if key != last_seen_discard:
+                        discard_id += 1
+                        last_seen_discard = key
+                        update_ui(
+                            env,
+                            human_pid,
+                            discard_id,
+                            last_action={
+                                "who": f"P{ld.get('pid')}",
+                                "type": "DISCARD",
+                                "detail": tile_to_str(ld.get("tile")),
+                            },
+                        )
+
+            if done:
+                print("=== round end ===")
+                print(f"rewards: {rew}")
+                rewards2, bd = score_with_breakdown(ScoringContext.from_env(env, table))
+                winner = env.winner
+                if winner is not None:
+                    print(f"breakdown for P{winner}:")
+                    for item in bd.get(winner, []):
+                        label = item.get("label", item.get("key"))
+                        base = item.get("base", 0)
+                        count = item.get("count", 1)
+                        points = item.get("points", base * count)
+                        print(f"  - {label}: {base} x {count} = {points}")
+                    print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
+                # ROUND_END: reveal and stop
+                render_reveal(env)
+                # Update table state and possibly continue to next hand
+                tm.finish_hand(env)
+                break
+
+            if discard_id > 2000:
+                print("=== stop (safety break) ===")
+                break
+
+    print("=== demo finished ===")

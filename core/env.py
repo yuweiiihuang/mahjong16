@@ -90,19 +90,66 @@ class Mahjong16Env:
         self.discard_pile: List[int] = []
         self.players: List[Dict[str, Any]] = [self._new_player(i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
-        self.turn = 0  # 莊家
+        # ====== 風位與莊家 / 座次 ======
+        winds_cycle = ["E", "S", "W", "N"]
+        # 優先採用外部預設的 pid->風位（供 TableManager 餵入）
+        preset_winds = getattr(self, "preset_seat_winds", None)
+        if isinstance(preset_winds, list) and len(preset_winds) == self.rules.n_players:
+            self.seat_winds = list(preset_winds)
+        else:
+            if getattr(self.rules, "randomize_seating_and_dealer", False):
+                # 完整打亂相對座次：建立 seating_order 並依序指派 ESWN 給各 pid
+                order = list(range(self.rules.n_players))
+                self.rng.shuffle(order)
+                winds = [None] * self.rules.n_players
+                for i, pid in enumerate(order):
+                    winds[pid] = winds_cycle[i]
+                self.seat_winds = winds
+            else:
+                # 固定：P0=東、P1=南、P2=西、P3=北
+                self.seat_winds = winds_cycle[: self.rules.n_players]
+
+        # 由 seat_winds 推導圓桌座次（索引0=東、1=南、2=西、3=北）
+        try:
+            order_map = {w: i for i, w in enumerate(winds_cycle)}
+            pairs = [(order_map.get(w, 99), pid) for pid, w in enumerate(self.seat_winds)]
+            pairs.sort()
+            self.seating_order = [pid for _, pid in pairs if _ != 99]
+        except Exception:
+            self.seating_order = list(range(self.rules.n_players))
+        # 反查：pid -> 座位索引
+        self._seat_index = {pid: i for i, pid in enumerate(self.seating_order)}
+
+        preset_dealer_pid = getattr(self, "preset_dealer_pid", None)
+        if isinstance(preset_dealer_pid, int) and 0 <= preset_dealer_pid < self.rules.n_players:
+            self.dealer_pid = int(preset_dealer_pid)
+        else:
+            # 開局莊家為東（座次索引0）
+            self.dealer_pid = self.seating_order[0] if self.seating_order else 0
+
+        # 圈風：優先採用外部預設；預設 'E'
+        self.quan_feng: str = (getattr(self, "preset_quan_feng", None) or getattr(self, "quan_feng", "E") or "E")
+        # 連莊次數：優先採用外部預設（起手 0）
+        ds = getattr(self, "preset_dealer_streak", None)
+        self.dealer_streak = int(ds) if isinstance(ds, int) else 0
+        self.winner_is_dealer: bool = False
+
+        # 起手回合從莊家開始
+        self.turn = self.dealer_pid
         self.phase = "TURN"  # or "REACTION"
         self.reaction_queue: List[int] = []   # 要依序詢問反應的玩家（丟牌者之下一家開始）
         self.reaction_idx: int = 0
         self.claims: List[Dict[str, Any]] = []
 
         # 發牌：每家 16 張（補花到非花）；直接放入手牌
+        # 按座次（ESWN）之順序發牌
+        order_pids: List[int] = list(self.seating_order) if getattr(self, "seating_order", None) else list(range(self.rules.n_players))
         for _ in range(self.rules.initial_hand):
-            for pid in range(self.rules.n_players):
+            for pid in order_pids:
                 self._draw_into_hand(pid)
 
         # 莊家先摸一張至 drawn（16+drawn=17）
-        self._draw_to_drawn(0)
+        self._draw_to_drawn(self.dealer_pid)
 
         self.last_discard: Optional[Dict[str, Any]] = None
         self.done = False
@@ -190,7 +237,7 @@ class Mahjong16Env:
                     acts.append({"type":"HU"})
                 return acts
             # Chi（僅限下家）
-            if (not ting_locked) and ((pid - discard["pid"]) % self.rules.n_players) == 1 and self.rules.allow_chi:
+            if (not ting_locked) and (self._seat_index.get(pid) == (self._seat_index.get(discard["pid"], -999) + 1) % self.rules.n_players) and self.rules.allow_chi:
                 for a,b in chi_options(tile, self.players[pid]["hand"]):
                     acts.append({"type":"CHI", "use":[a,b]})
             # Pon
@@ -226,6 +273,8 @@ class Mahjong16Env:
                 # 自摸的胡牌就是當前 drawn
                 self.win_tile = self.players[pid]["drawn"]
                 self.turn_at_win = pid
+                # 是否為莊家胡
+                self.winner_is_dealer = (pid == getattr(self, "dealer_pid", 0))
                 # 槓上自摸判定
                 if self._recent_gang_draw_pid == pid:
                     self.win_by_gang_draw = True
@@ -277,7 +326,7 @@ class Mahjong16Env:
                 self.pending_kakan = {"pid": pid, "tile": t}
                 self.last_discard = {"pid": pid, "tile": t}
                 self.phase = "REACTION"
-                self.reaction_queue = [ (pid + i) % self.rules.n_players for i in (1,2,3) ]
+                self.reaction_queue = [ self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players] for i in (1,2,3) ]
                 self.reaction_idx = 0
                 self.claims = []
                 next_pid = self.reaction_queue[self.reaction_idx]
@@ -308,7 +357,7 @@ class Mahjong16Env:
 
             # 開啟反應視窗
             self.phase = "REACTION"
-            self.reaction_queue = [ (pid + i) % self.rules.n_players for i in (1,2,3) ]  # 下家起
+            self.reaction_queue = [ self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players] for i in (1,2,3) ]  # 下家起
             self.reaction_idx = 0
             self.claims = []
             # 丟牌之後重置槓上的候選狀態
@@ -328,8 +377,8 @@ class Mahjong16Env:
             if a_type != "PASS":
                 # 記錄宣告（用於最後決議）
                 claim = {"pid": pid, "type": a_type}
-                # 距離：越小越近
-                dist = (pid - self.last_discard["pid"]) % self.rules.n_players
+                # 距離：越小越近（依座次）
+                dist = (self._seat_index.get(pid, 0) - self._seat_index.get(self.last_discard["pid"], 0)) % self.rules.n_players
                 if dist == 0: dist = self.rules.n_players  # 不應發生
                 claim["distance"] = dist
                 claim["priority"] = PRIORITY[a_type]
@@ -380,7 +429,8 @@ class Mahjong16Env:
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {}
                     # 無人宣告：進入下一家摸牌（不得侵犯尾牌留置；若無法摸則流局）
                     self.phase = "TURN"
-                    self.turn = (self.last_discard["pid"] + 1) % self.rules.n_players
+                    base_idx = self._seat_index.get(self.last_discard["pid"], 0)
+                    self.turn = self.seating_order[(base_idx + 1) % self.rules.n_players]
                     self._draw_to_drawn(self.turn)
                     if self.players[self.turn]["drawn"] is None:
                         # 無法摸牌（已達尾牌留置）→ 立刻流局
@@ -473,6 +523,8 @@ class Mahjong16Env:
                         self.win_source = "RON"
                         self.winner = claimer
                         self.turn_at_win = discarder_pid
+                        # 是否為莊家胡
+                        self.winner_is_dealer = (claimer == getattr(self, "dealer_pid", 0))
                         # 搶槓胡的標記
                         if self.qiang_gang_mode:
                             self.win_by_qiang_gang = True

@@ -135,7 +135,12 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     if getattr(ctx, "win_by_qiang_gang", False):
         add("qiang_gang")
     if ctx.winner_is_dealer:
-        add("dealer")
+        # 動態莊家台：若已連 N 莊 → 2N+1 台（N=0 時為 1 台）
+        try:
+            n = int(getattr(ctx, "dealer_streak", 0) or 0)
+        except Exception:
+            n = 0
+        add("dealer", base=(2 * n + 1))
 
     # ting (聽牌)
     tenpai_before_draw = False
@@ -234,10 +239,74 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     if trips == 3 and pairs == 1:
         add("xiao_si_xi")
+    is_da_si_xi = False
     if trips == 4:
         add("da_si_xi")
+        is_da_si_xi = True
 
     # excludes/includes constraints can be enforced later if needed
+
+    # ====== 風位與圈風台 ======
+    # - 圈風牌（當前圈的風做成刻/槓） +1
+    # - 門風牌（自己的門風做成刻/槓） +1
+    # 若為大四喜，按照常見約定不另計圈風/門風（已由大四喜吃掉）。
+    if not is_da_si_xi and getattr(ctx.rules, "enable_wind_flower_scoring", False):
+        try:
+            qf = (getattr(ctx, "quan_feng", None) or "").upper()
+            seat_winds = list(getattr(ctx, "seat_winds", []) or [])
+            my_wind = (seat_winds[winner] if 0 <= winner < len(seat_winds) else None)
+        except Exception:
+            qf, my_wind = None, None
+
+        def _has_wind_triplet(label: str | None) -> bool:
+            if not label:
+                return False
+            return _cnt_wind(label) // 3 >= 1
+
+        if _has_wind_triplet(qf):
+            add("quan_feng_ke")
+        if _has_wind_triplet(my_wind):
+            add("men_feng_ke")
+
+    # ====== 正花 / 花槓 ======
+    # - 正花：依門風對應的兩朵花（東: 春/梅、南: 夏/蘭、西: 秋/菊、北: 冬/竹）每張 +1
+    # - 花槓：集齊四季或四君子，各計一次
+    if flowers and getattr(ctx.rules, "enable_wind_flower_scoring", False):
+        # 解析 F1..F8 標籤並映射到 1..8 的序號
+        def _flower_no(x: int) -> int | None:
+            s = tile_to_str(x)
+            if s and s.startswith("F"):
+                try:
+                    return int(s[1:])
+                except Exception:
+                    return None
+            return None
+
+        fnums = sorted([n for n in (_flower_no(t) for t in flowers) if isinstance(n, int)])
+        fset = set(fnums)
+        # 正花對應表（以常見順序：F1~F4=春夏秋冬，F5~F8=梅蘭菊竹）
+        zheng_map = {
+            "E": {1, 5},  # 春、梅
+            "S": {2, 6},  # 夏、蘭
+            "W": {3, 7},  # 秋、菊
+            "N": {4, 8},  # 冬、竹
+        }
+        # 正花計數
+        try:
+            my_wind = (getattr(ctx, "seat_winds", None) or [None])[winner]
+        except Exception:
+            my_wind = None
+        if isinstance(my_wind, str):
+            targets = zheng_map.get(my_wind.upper(), set())
+            cnt_zheng = len(fset.intersection(targets))
+            if cnt_zheng > 0:
+                add("zheng_hua", count=cnt_zheng)
+        # 花槓：四季 or 四君子
+        has_seasons = {1, 2, 3, 4}.issubset(fset)
+        has_gentlemen = {5, 6, 7, 8}.issubset(fset)
+        hua_gang_cnt = int(has_seasons) + int(has_gentlemen)
+        if hua_gang_cnt:
+            add("hua_gang", count=hua_gang_cnt)
 
     rewards = [0] * ctx.rules.n_players
     total = sum(item.get("points", 0) for item in bd)

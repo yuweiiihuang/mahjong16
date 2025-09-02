@@ -95,6 +95,11 @@ class ScoringContext:
     winner_is_dealer: bool = False
     win_by_gang_draw: bool = False
     win_by_qiang_gang: bool = False
+    # 新增：圈風、門風、莊家資訊（供風牌/莊家台計算）
+    quan_feng: str | None = None         # 'E' | 'S' | 'W' | 'N'
+    seat_winds: list[str] | None = None  # 索引為 pid，值為 'E'/'S'/'W'/'N'
+    dealer_pid: int | None = None
+    dealer_streak: int = 0
 
     @staticmethod
     def from_env(env, table: ScoringTable) -> "ScoringContext":
@@ -144,4 +149,8 @@ class ScoringContext:
             winner_is_dealer=bool(getattr(env, "winner_is_dealer", False)),
             win_by_gang_draw=bool(getattr(env, "win_by_gang_draw", False)),
             win_by_qiang_gang=bool(getattr(env, "win_by_qiang_gang", False)),
+            quan_feng=getattr(env, "quan_feng", None),
+            seat_winds=getattr(env, "seat_winds", None),
+            dealer_pid=getattr(env, "dealer_pid", None),
+            dealer_streak=int(getattr(env, "dealer_streak", 0) or 0),
         )
