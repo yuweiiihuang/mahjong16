@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.box import ROUNDED
 
-from core.tiles import tile_to_str, tile_sort_key
+from core.tiles import tile_to_str, tile_sort_key, is_flower
 from core.hand import waits_after_discard_17, waits_for_hand_16
 from core import Ruleset
 from typing import Tuple
@@ -21,6 +21,8 @@ def _style_for_tile(t: int) -> str:
     s = tile_to_str(t)
     if not s:
         return ""
+    if is_flower(t):      # 花牌
+        return "yellow"
     if len(s) == 1:       # 字牌
         return "magenta"
     suit = s[-1]          # W/D/B
@@ -166,6 +168,14 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     console.print(hand_line)
     console.print(drawn_line)
     console.print(melds_line)
+    # flowers below melds
+    flowers = list(obs.get("flowers") or [])
+    flowers.sort(key=tile_sort_key)
+    flowers_line = Text.assemble(
+        Text("Flowers: ", style="bold"),
+        _join_tiles(flowers) if flowers else Text("(none)", style="dim"),
+    )
+    console.print(flowers_line)
 
     # 若已宣告聽，列出目前等待及剩餘數
     if bool(obs.get("declared_ting", False)):
@@ -438,6 +448,14 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
         _render_melds(pl.get("melds") or [], mask_concealed=(not is_me))
     )
 
+    # 花牌（公開資訊，放在副露之下）
+    flowers = list(pl.get("flowers") or [])
+    flowers.sort(key=tile_sort_key)
+    flowers_line = Text.assemble(
+        Text("flowers: ", style="bold"),
+        _join_tiles(flowers) if flowers else Text("(empty)", style="dim"),
+    )
+
     # 河牌（若最後一張等於 last_discard 且此家就是丟牌者，反白）
     river = list(pl.get("river") or [])
     river_line = Text("river: ", style="bold")
@@ -457,6 +475,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
     body.add_row(hand_line)
     body.add_row(drawn_line)
     body.add_row(melds_line)
+    body.add_row(flowers_line)
     body.add_row(river_line)
 
     return Panel(body, title=title, box=ROUNDED, padding=(0, 1))
@@ -608,6 +627,9 @@ def render_reveal(env) -> None:
                                  _join_tiles(hand) if hand else Text("(empty)", style="dim"))
         melds_txt = Text.assemble(Text("melds: ", style="bold"),
                                   _render_melds(pl.get("melds") or []))
+        flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+        flowers_txt = Text.assemble(Text("flowers: ", style="bold"),
+                                    _join_tiles(flowers) if flowers else Text("(empty)", style="dim"))
         river = list(pl.get("river") or [])
         river_txt = Text.assemble(Text("river: ", style="bold"),
                                   _join_tiles(river) if river else Text("(empty)", style="dim"))
@@ -615,6 +637,7 @@ def render_reveal(env) -> None:
         body = Table.grid(padding=(0, 1))
         body.add_row(hand_txt)
         body.add_row(melds_txt)
+        body.add_row(flowers_txt)
         body.add_row(river_txt)
 
         # 若是贏家，附上胡牌資訊
@@ -634,4 +657,98 @@ def render_reveal(env) -> None:
             body.add_row(win_line)
 
         panel = Panel(body, title=title, box=ROUNDED, padding=(0, 1))
+        console.print(panel)
+
+
+def render_winners_summary(records: List[Dict[str, Any]]) -> None:
+    """Render a post-session winners summary using Rich.
+
+    Each record expects keys: hand_index, winner, win_source, ron_from, win_tile,
+    hand (List[int]), melds (List[dict]), flowers (List[int]), breakdown (List[items]).
+    """
+    if not records:
+        return
+    console.rule("[bold]winners summary")
+    for rec in records:
+        hid = rec.get("hand_index")
+        wpid = rec.get("winner")
+        src = (rec.get("win_source") or "").upper()
+        ron_from = rec.get("ron_from")
+        wt = rec.get("win_tile")
+        qf = rec.get("quan_feng")
+        dealer_pid = rec.get("dealer_pid")
+        dealer_wind = rec.get("dealer_wind")
+
+        # Build Quan/Dealer line
+        qmap = {"E": "東", "S": "南", "W": "西", "N": "北"}
+        qcn = qmap.get(str(qf).upper(), str(qf) if qf is not None else "?")
+        dcn = f"P{dealer_pid}" if isinstance(dealer_pid, int) else "?"
+        if isinstance(dealer_wind, str) and dealer_wind:
+            dcn += f"({qmap.get(dealer_wind.upper(), dealer_wind)})"
+
+        body = Table.grid(padding=(0, 1))
+        # Draw/flow case: no winner
+        if wpid is None or str(rec.get("result")).upper() == "DRAW":
+            body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
+            body.add_row(Text("流局", style="bold"))
+            panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
+            console.print(panel)
+            continue
+
+        # Header line inside the panel for a normal win
+        # Quan/Dealer row first
+        body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
+        header = Text.assemble(Text(f"Winner P{wpid} | ", style="bold"))
+        if src == "RON":
+            header.append("RON ")
+            if isinstance(wt, int):
+                header.append(_text_tile(wt, highlight=True))
+            if isinstance(ron_from, int):
+                header.append(Text(f" from P{ron_from}", style="italic"))
+        elif src == "TSUMO":
+            header.append("TSUMO ")
+            if isinstance(wt, int):
+                header.append(_text_tile(wt, highlight=True))
+        else:
+            if src:
+                header.append(Text(src))
+            if isinstance(wt, int):
+                header.append(Text(" "))
+                header.append(_text_tile(wt, highlight=True))
+        body.add_row(header)
+
+        # Hand line
+        htiles = sorted(list(rec.get("hand") or []), key=tile_sort_key)
+        body.add_row(Text.assemble(Text("hand: ", style="bold"),
+                                   _join_tiles(htiles) if htiles else Text("(empty)", style="dim")))
+
+        # Melds line
+        melds = rec.get("melds") or []
+        if melds:
+            body.add_row(Text.assemble(Text("melds: ", style="bold"), _render_melds(melds)))
+        else:
+            body.add_row(Text.assemble(Text("melds: ", style="bold"), Text("(none)", style="dim")))
+
+        # Flowers line
+        flowers = sorted(list(rec.get("flowers") or []), key=tile_sort_key)
+        body.add_row(Text.assemble(Text("flowers: ", style="bold"),
+                                   _join_tiles(flowers) if flowers else Text("(none)", style="dim")))
+
+        # Breakdown
+        items = rec.get("breakdown") or []
+        if items:
+            body.add_row(Text("breakdown:", style="bold"))
+            total = 0
+            for item in items:
+                label = item.get("label", item.get("key"))
+                base = int(item.get("base", 0))
+                count = int(item.get("count", 1))
+                points = int(item.get("points", base * count))
+                total += points
+                body.add_row(Text(f"  - {label}: {base} x {count} = {points}"))
+            body.add_row(Text(f"  total = {total}"))
+        else:
+            body.add_row(Text.assemble(Text("breakdown: ", style="bold"), Text("(none)", style="dim")))
+
+        panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
         console.print(panel)

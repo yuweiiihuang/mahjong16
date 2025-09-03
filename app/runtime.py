@@ -1,11 +1,11 @@
 from __future__ import annotations
 from typing import Dict, Any, Optional
 from core import Mahjong16Env, Ruleset
-from core.tiles import tile_to_str
+from core.tiles import tile_to_str, tile_sort_key
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
 from core.scoring.engine import score_with_breakdown
-from ui.console import render_public_view, render_reveal
+from ui.console import render_public_view, render_reveal, render_winners_summary
 from .table import TableManager
 from .strategies import build_strategies
 
@@ -75,6 +75,9 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
     tm = TableManager(rules, seed=seed)
     tm.initialize(env.rules.n_players)
     strategies = build_strategies(env.rules.n_players, human_pid, bot)
+
+    # Collect per-hand winner summaries to print after all hands complete
+    hand_summaries: list = []
 
     for hand_idx in range(hands):
         obs = tm.start_hand(env)
@@ -152,6 +155,64 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                         points = item.get("points", base * count)
                         print(f"  - {label}: {base} x {count} = {points}")
                     print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
+                    # Record winner summary for later printing
+                    try:
+                        pl = env.players[winner]
+                        hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
+                        melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
+                        flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+                        win_src = (getattr(env, "win_source", None) or "").upper()
+                        ron_from = getattr(env, "turn_at_win", None) if win_src == "RON" else None
+                        win_tile = getattr(env, "win_tile", None)
+                        # table info
+                        qf = getattr(env, "quan_feng", None)
+                        dealer_pid = getattr(env, "dealer_pid", None)
+                        seat_winds = getattr(env, "seat_winds", None)
+                        dealer_wind = None
+                        try:
+                            if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
+                                dealer_wind = seat_winds[dealer_pid]
+                        except Exception:
+                            dealer_wind = None
+                        hand_summaries.append({
+                            "hand_index": hand_idx + 1,
+                            "winner": winner,
+                            "win_source": win_src,
+                            "ron_from": ron_from,
+                            "win_tile": win_tile,
+                            "hand": hand_tiles,
+                            "melds": melds,
+                            "flowers": flowers,
+                            "breakdown": list(bd.get(winner, [])),
+                            "quan_feng": qf,
+                            "dealer_pid": dealer_pid,
+                            "dealer_wind": dealer_wind,
+                        })
+                    except Exception:
+                        # Best-effort; avoid crashing summary collection
+                        pass
+                else:
+                    # Flow/draw hand: record a simple summary entry
+                    try:
+                        qf = getattr(env, "quan_feng", None)
+                        dealer_pid = getattr(env, "dealer_pid", None)
+                        seat_winds = getattr(env, "seat_winds", None)
+                        dealer_wind = None
+                        try:
+                            if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
+                                dealer_wind = seat_winds[dealer_pid]
+                        except Exception:
+                            dealer_wind = None
+                        hand_summaries.append({
+                            "hand_index": hand_idx + 1,
+                            "winner": None,
+                            "result": "DRAW",
+                            "quan_feng": qf,
+                            "dealer_pid": dealer_pid,
+                            "dealer_wind": dealer_wind,
+                        })
+                    except Exception:
+                        pass
                 # ROUND_END: reveal and stop
                 render_reveal(env)
                 # Update table state and possibly continue to next hand
@@ -161,5 +222,9 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
             if discard_id > 2000:
                 print("=== stop (safety break) ===")
                 break
+
+    # After all hands complete, print winners summary across hands
+    if hand_summaries:
+        render_winners_summary(hand_summaries)
 
     print("=== demo finished ===")

@@ -26,6 +26,12 @@ if __name__ == "__main__":
         choices=["auto", "greedy", "human"],
         help="Bot strategy for non-human players. Default: greedy",
     )
+    parser.add_argument(
+        "--hands",
+        type=int,
+        default=1,
+        help="Number of hands to play (>=1). Default: 1",
+    )
     args = parser.parse_args()
 
     human_str = (args.human or "").strip().lower()
@@ -39,4 +45,7 @@ if __name__ == "__main__":
         if human_pid not in (0, 1, 2, 3):
             raise SystemExit("Invalid --human value. Must be 0,1,2,3 or 'none'.")
 
-    run_demo(seed=args.seed, human_pid=human_pid, bot=args.bot)
+    if args.hands is not None and args.hands < 1:
+        raise SystemExit("Invalid --hands value. Must be >= 1.")
+
+    run_demo(seed=args.seed, human_pid=human_pid, bot=args.bot, hands=args.hands)
