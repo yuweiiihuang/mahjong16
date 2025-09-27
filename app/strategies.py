@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple, Protocol
 from bots import GreedyBotStrategy
 from ui.console import prompt_turn_action, prompt_reaction_action
+from core import Action, Observation
 
 # Reaction priority: HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -10,7 +11,7 @@ PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 class Strategy(Protocol):
     """Protocol for strategies used by the demo gameplay loop."""
 
-    def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+    def choose(self, obs: Observation) -> Action:
         """Select an action given an observation.
 
         Args:
@@ -28,8 +29,8 @@ class AutoStrategy:
     TURN phase: HU if present, otherwise discard drawn, else first legal discard.
     """
 
-    def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        acts = obs.get("legal_actions", []) or []
+    def choose(self, obs: Observation) -> Action:
+        acts: List[Action] = obs.get("legal_actions", []) or []
         phase = obs.get("phase")
         if phase == "REACTION":
             cand = [a for a in acts if (a.get("type") or "").upper() != "PASS"]
@@ -55,8 +56,8 @@ class AutoStrategy:
 class HumanStrategy:
     """Interactive console strategy that renders waits and prompts for input."""
 
-    def choose(self, obs: Dict[str, Any]) -> Dict[str, Any]:
-        acts = obs.get("legal_actions", []) or []
+    def choose(self, obs: Observation) -> Action:
+        acts: List[Action] = obs.get("legal_actions", []) or []
         phase = obs.get("phase")
         if not acts:
             return {"type": "PASS"}
