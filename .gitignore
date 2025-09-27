@@ -33,6 +33,8 @@ env/
 ENV/
 env.bak/
 venv.bak/
+*.toml
+*.lock
 
 # 文件產出 / 文件站台
 /site

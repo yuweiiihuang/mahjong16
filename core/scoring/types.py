@@ -76,6 +76,7 @@ class ScoringContext:
       win_source: 'TSUMO' | 'RON' | None.
       win_tile: Id of the winning tile if known.
       last_discard: Original last discard dict (for ron inference).
+      turn_at_win: Active player id when win occurred (discarder for RON).
       wall_len: Remaining wall size.
       n_gang: Number of ganged melds on table (affects reserved tail in gang_plus_one).
       table: ScoringTable for this profile.
@@ -89,6 +90,7 @@ class ScoringContext:
     win_source: Optional[str]
     win_tile: Optional[int]
     last_discard: Optional[Dict[str, Any]]
+    turn_at_win: Optional[int]
     wall_len: int
     n_gang: int
     table: ScoringTable
@@ -143,6 +145,7 @@ class ScoringContext:
             win_source=getattr(env, "win_source", None),
             win_tile=getattr(env, "win_tile", None),
             last_discard=getattr(env, "last_discard", None),
+            turn_at_win=getattr(env, "turn_at_win", None),
             wall_len=len(getattr(env, "wall", []) or []),
             n_gang=getattr(env, "n_gang", 0),
             table=table,

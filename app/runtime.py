@@ -4,7 +4,7 @@ from core import Mahjong16Env, Ruleset
 from core.tiles import tile_to_str, tile_sort_key
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
-from core.scoring.engine import score_with_breakdown
+from core.scoring.engine import score_with_breakdown, compute_payments
 from ui.console import render_public_view, render_reveal, render_winners_summary
 from .table import TableManager
 from .strategies import build_strategies
@@ -35,7 +35,13 @@ def summarize_resolved_claim(info: Dict[str, Any]) -> Optional[Dict[str, str]]:
     return {"who": f"P{pid}", "type": t, "detail": detail}
 
 
-def update_ui(env: Mahjong16Env, human_pid: Optional[int], discard_id: int, last_action: Optional[Dict[str, Any]] = None) -> None:
+def update_ui(
+    env: Mahjong16Env,
+    human_pid: Optional[int],
+    discard_id: int,
+    last_action: Optional[Dict[str, Any]] = None,
+    score_state: Optional[Dict[str, Any]] = None,
+) -> None:
     """Render the public view and optionally annotate the latest action.
 
     Args:
@@ -45,10 +51,22 @@ def update_ui(env: Mahjong16Env, human_pid: Optional[int], discard_id: int, last
       last_action: Optional {who,type,detail} summary to show.
     """
     pov = (human_pid if human_pid is not None else 0)
-    render_public_view(env, pov_pid=pov, did=discard_id, last_action=last_action)
+    render_public_view(
+        env,
+        pov_pid=pov,
+        did=discard_id,
+        last_action=last_action,
+        score_state=score_state,
+    )
 
 
-def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: int = 1):
+def run_demo(
+    seed=None,
+    human_pid: Optional[int] = 0,
+    bot: str = "auto",
+    hands: int = 1,
+    start_points: int = 1000,
+):
     """Run a simple console demo with auto/human play and scoring breakdown.
 
     Args:
@@ -76,16 +94,40 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
     tm.initialize(env.rules.n_players)
     strategies = build_strategies(env.rules.n_players, human_pid, bot)
 
+    # Session score state (per-player totals + last hand delta)
+    n_players = env.rules.n_players
+    try:
+        start_points_int = int(start_points)
+    except Exception:  # pragma: no cover - defensive fallback
+        start_points_int = 1000
+    if start_points_int <= 0:
+        start_points_int = 1
+    totals = [start_points_int for _ in range(n_players)]
+    hand_delta = [0 for _ in range(n_players)]
+    score_state = {"totals": totals, "deltas": hand_delta}
+
+    play_until_negative = (hands == -1)
+    max_hands = None if play_until_negative else hands
+
     # Collect per-hand winner summaries to print after all hands complete
     hand_summaries: list = []
 
-    for hand_idx in range(hands):
+    hand_idx = 0
+    while True:
+        if max_hands is not None and hand_idx >= max_hands:
+            break
+
+        hand_idx += 1
         obs = tm.start_hand(env)
+        hand_delta = [0 for _ in range(n_players)]
+        score_state["deltas"] = hand_delta
         discard_id = 0
         last_seen_discard: Optional[tuple] = None  # (pid, tile)
 
         # quick header per hand
-        print(f"--- Hand {hand_idx+1} | Quan={getattr(env,'quan_feng','?')} | Dealer=P{getattr(env,'dealer_pid',0)} | Streak={getattr(env,'dealer_streak',0)} ---")
+        print(
+            f"--- Hand {hand_idx} | Quan={getattr(env,'quan_feng','?')} | Dealer=P{getattr(env,'dealer_pid',0)} | Streak={getattr(env,'dealer_streak',0)} ---"
+        )
 
         while True:
 
@@ -102,7 +144,7 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
             event = summarize_resolved_claim(info) if isinstance(info, dict) else None
             if event:
                 # RESOLVED_CLAIM: a reaction decision (HU/GANG/PONG/CHI or PASS-all)
-                update_ui(env, human_pid, discard_id, last_action=event)
+                update_ui(env, human_pid, discard_id, last_action=event, score_state=score_state)
 
             if atype == "DISCARD" and pre_tile is not None:
                 # Record the explicit discard we just took
@@ -113,6 +155,7 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                     human_pid,
                     discard_id,
                     last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)},
+                    score_state=score_state,
                 )
 
             # If a new reaction window opens for the human due to someone else's discard
@@ -139,22 +182,32 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                                 "type": "DISCARD",
                                 "detail": tile_to_str(ld.get("tile")),
                             },
+                            score_state=score_state,
                         )
 
             if done:
-                print("=== round end ===")
-                print(f"rewards: {rew}")
-                rewards2, bd = score_with_breakdown(ScoringContext.from_env(env, table))
+                ctx = ScoringContext.from_env(env, table)
+                rewards2, bd = score_with_breakdown(ctx)
+                payments_raw, _ = compute_payments(
+                    ctx,
+                    getattr(env.rules, "base_points", 100),
+                    getattr(env.rules, "tai_points", 20),
+                    rewards=rewards2,
+                    breakdown=bd,
+                )
+                # Normalize payments to match player count and update session totals
+                payments = [0 for _ in range(n_players)]
+                for pid in range(n_players):
+                    delta = 0
+                    try:
+                        delta = int(payments_raw[pid])
+                    except Exception:
+                        delta = 0
+                    payments[pid] = delta
+                    totals[pid] += delta
+                    hand_delta[pid] = delta
                 winner = env.winner
                 if winner is not None:
-                    print(f"breakdown for P{winner}:")
-                    for item in bd.get(winner, []):
-                        label = item.get("label", item.get("key"))
-                        base = item.get("base", 0)
-                        count = item.get("count", 1)
-                        points = item.get("points", base * count)
-                        print(f"  - {label}: {base} x {count} = {points}")
-                    print(f"total = {sum(i.get('points', 0) for i in bd.get(winner, []))}")
                     # Record winner summary for later printing
                     try:
                         pl = env.players[winner]
@@ -169,13 +222,18 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                         dealer_pid = getattr(env, "dealer_pid", None)
                         seat_winds = getattr(env, "seat_winds", None)
                         dealer_wind = None
+                        winner_wind = None
                         try:
-                            if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
-                                dealer_wind = seat_winds[dealer_pid]
+                            if isinstance(seat_winds, list):
+                                if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
+                                    dealer_wind = seat_winds[dealer_pid]
+                                if 0 <= winner < len(seat_winds):
+                                    winner_wind = seat_winds[winner]
                         except Exception:
                             dealer_wind = None
+                            winner_wind = None
                         hand_summaries.append({
-                            "hand_index": hand_idx + 1,
+                            "hand_index": hand_idx,
                             "winner": winner,
                             "win_source": win_src,
                             "ron_from": ron_from,
@@ -184,9 +242,14 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                             "melds": melds,
                             "flowers": flowers,
                             "breakdown": list(bd.get(winner, [])),
+                            "payments": list(payments),
+                            "base_points": getattr(env.rules, "base_points", None),
+                            "tai_points": getattr(env.rules, "tai_points", None),
                             "quan_feng": qf,
                             "dealer_pid": dealer_pid,
                             "dealer_wind": dealer_wind,
+                            "winner_wind": winner_wind,
+                            "totals_after_hand": list(totals),
                         })
                     except Exception:
                         # Best-effort; avoid crashing summary collection
@@ -204,25 +267,45 @@ def run_demo(seed=None, human_pid: Optional[int] = 0, bot: str = "auto", hands: 
                         except Exception:
                             dealer_wind = None
                         hand_summaries.append({
-                            "hand_index": hand_idx + 1,
+                            "hand_index": hand_idx,
                             "winner": None,
                             "result": "DRAW",
+                            "payments": list(payments),
+                            "base_points": getattr(env.rules, "base_points", None),
+                            "tai_points": getattr(env.rules, "tai_points", None),
                             "quan_feng": qf,
                             "dealer_pid": dealer_pid,
                             "dealer_wind": dealer_wind,
+                            "totals_after_hand": list(totals),
                         })
                     except Exception:
                         pass
-                # ROUND_END: reveal and stop
-                render_reveal(env)
+                # ROUND_END: reveal and stop（將該局贏家的 breakdown 一併呈現在面板裡）
+                render_reveal(
+                    env,
+                    breakdown=bd,
+                    payments=payments,
+                    base_points=getattr(env.rules, "base_points", None),
+                    tai_points=getattr(env.rules, "tai_points", None),
+                    totals=list(totals),
+                )
                 # Update table state and possibly continue to next hand
                 tm.finish_hand(env)
+                if play_until_negative and any(pt < 0 for pt in totals):
+                    # Negative balance reached; stop the session.
+                    print("=== stop (negative points reached) ===")
+                    return _finalize_demo(hand_summaries)
                 break
 
             if discard_id > 2000:
                 print("=== stop (safety break) ===")
                 break
 
+    return _finalize_demo(hand_summaries)
+
+
+def _finalize_demo(hand_summaries: list) -> None:
+    """Render post-session summaries and finish the demo run."""
     # After all hands complete, print winners summary across hands
     if hand_summaries:
         render_winners_summary(hand_summaries)

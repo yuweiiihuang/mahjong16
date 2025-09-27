@@ -20,6 +20,8 @@ class Ruleset:
       dead_wall_mode: 'fixed' or 'gang_plus_one' (one extra reserved per gang).
       dead_wall_base: Base reserved tiles for the dead wall (commonly 16).
       scoring_profile: Key used to load a scoring table from JSON.
+      base_points: Flat amount each opponent pays before multiplying tai.
+      tai_points: Monetary value per tai point.
       see_flower_see_wind: Variant switch for certain rules (placeholder).
       scoring_overrides_path: Optional explicit scoring JSON path.
     """
@@ -44,6 +46,8 @@ class Ruleset:
 
     # ====== 新增：混合式台數計算設定 ======
     scoring_profile: str = "taiwan_base"
+    base_points: int = 100
+    tai_points: int = 20
     # 是否採用見花見字（影響部份台型的定義；預設 True 以符合一般台灣 16 張）
     see_flower_see_wind: bool = True
     # 外部 JSON 覆蓋檔路徑（可為 None；若提供則優先）
@@ -52,5 +56,5 @@ class Ruleset:
     # 風位/莊家與計分擴充（預設關閉以維持既有測試行為）
     # - randomize_seating_and_dealer: True 時，重置時隨機莊家與門風座位
     # - enable_wind_flower_scoring: True 時，開啟圈風/門風/正花/花槓等台數計算
-    randomize_seating_and_dealer: bool = True
+    randomize_seating_and_dealer: bool = False
     enable_wind_flower_scoring: bool = True

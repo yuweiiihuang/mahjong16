@@ -50,6 +50,16 @@ def _join_tiles(tiles: List[int], *, highlight_tile: Optional[int] = None) -> Te
             parts.append(Text(" "))
     return Text.assemble(*parts)
 
+
+def _format_amount(amount: int | float) -> Text:
+    try:
+        val = int(amount)
+    except Exception:
+        val = 0
+    style = "green" if val > 0 else "red" if val < 0 else "dim"
+    sign = "+" if val > 0 else ""
+    return Text(f"{sign}{val}", style=style)
+
 def _render_melds(melds: List[Dict[str, Any]], *, mask_concealed: bool = False) -> RenderableType:
     if not melds:
         return Text("[]", style="dim")
@@ -480,7 +490,13 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
 
     return Panel(body, title=title, box=ROUNDED, padding=(0, 1))
 
-def _top_bar(env, *, did: Optional[int], last_action: Optional[Dict[str, Any]]) -> Panel:
+def _top_bar(
+    env,
+    *,
+    did: Optional[int],
+    last_action: Optional[Dict[str, Any]],
+    score_state: Optional[Dict[str, Any]] = None,
+) -> Panel:
     """Build the top status panel with turn, remaining tiles, deadwall, and last action."""
     n_rem = len(env.wall)
     # 牆尾留置
@@ -526,6 +542,16 @@ def _top_bar(env, *, did: Optional[int], last_action: Optional[Dict[str, Any]]) 
         Text(f"Remaining: {n_rem}  |  DeadWall: {reserved}"),
         Text(f"D{did:03d}" if isinstance(did, int) else ""),
     )
+    if score_state:
+        totals = list(score_state.get("totals") or [])
+        if totals:
+            parts: List[Text] = []
+            for pid, total in enumerate(totals):
+                if pid != 0:
+                    parts.append(Text("  "))
+                parts.append(Text(f"P{pid}=", style="bold"))
+                parts.append(Text(str(total), style="cyan"))
+            t.add_row(Text.assemble(Text("points: ", style="bold"), *parts), Text(""), Text(""))
     t.add_row(la_txt, Text(""), Text(""))
     return Panel(t, title="Status", box=ROUNDED)
 
@@ -560,6 +586,7 @@ def render_public_view(
     *,
     did: Optional[int] = None,
     last_action: Optional[Dict[str, Any]] = None,
+    score_state: Optional[Dict[str, Any]] = None,
     layout: str = "1x4",   # 預設直向 1 欄 4 列；option: "2x2"
 ) -> None:
     """
@@ -572,10 +599,13 @@ def render_public_view(
     last_discard = getattr(env, "last_discard", None)
 
     # 上方狀態列
-    console.print(_top_bar(env, did=did, last_action=last_action))
+    console.print(_top_bar(env, did=did, last_action=last_action, score_state=score_state))
 
     # 四家面板：依東南西北順序排列
     seat_winds = getattr(env, "seat_winds", None)
+    dealer_pid = getattr(env, "dealer_pid", None)
+    dealer_pid = getattr(env, "dealer_pid", None)
+    dealer_pid = getattr(env, "dealer_pid", None)
     order_pids = []
     try:
         if isinstance(seat_winds, list):
@@ -599,9 +629,34 @@ def render_public_view(
         for pan in panels:
             console.print(pan)
 
-def render_reveal(env) -> None:
-    """終局亮牌（4x1 直向）：依序列出 P0→P3，每家一個獨立面板。"""
+def render_reveal(
+    env,
+    breakdown: Optional[Dict[int, List[Dict[str, Any]]]] = None,
+    *,
+    payments: Optional[List[int]] = None,
+    base_points: Optional[int] = None,
+    tai_points: Optional[int] = None,
+    totals: Optional[List[int]] = None,
+) -> None:
+    """終局亮牌（4x1 直向）：依序列出 P0→P3，每家一個獨立面板。
+
+    Args:
+      env: 遊戲環境。
+      breakdown: 可選的計分明細，鍵為玩家 pid，值為該玩家的明細列表。
+      payments: Optional net payouts per player（正負顯示）。
+      base_points: 底分，用於標註支付公式。
+      tai_points: 台分，顯示每台金額。
+    """
     console.rule("[bold]reveal hands")
+    if payments is not None and (base_points is not None or tai_points is not None):
+        msg = "settlement"
+        if base_points is not None and tai_points is not None:
+            msg += f" | base {base_points} | tai {tai_points}"
+        elif base_points is not None:
+            msg += f" | base {base_points}"
+        elif tai_points is not None:
+            msg += f" | tai {tai_points}"
+        console.print(Text(msg, style="dim"))
     winner: Optional[int] = getattr(env, "winner", None)
     win_src: Optional[str] = getattr(env, "win_source", None)
     win_tile: Optional[int] = getattr(env, "win_tile", None)
@@ -609,6 +664,7 @@ def render_reveal(env) -> None:
 
     # 依東南西北順序列出
     seat_winds = getattr(env, "seat_winds", None)
+    dealer_pid = getattr(env, "dealer_pid", None)
     order_pids: List[int] = []
     try:
         if isinstance(seat_winds, list):
@@ -640,8 +696,20 @@ def render_reveal(env) -> None:
         body.add_row(flowers_txt)
         body.add_row(river_txt)
 
-        # 若是贏家，附上胡牌資訊
+        # 若是贏家，附上胡牌資訊與（若提供）計分明細
         title = f"P{pid}"
+        seat_tag = None
+        try:
+            if isinstance(seat_winds, list) and 0 <= pid < len(seat_winds):
+                sw = seat_winds[pid]
+                if isinstance(sw, str) and sw:
+                    seat_tag = sw.upper()
+        except Exception:
+            seat_tag = None
+        if seat_tag:
+            title += f" [{seat_tag}]"
+        if pid == dealer_pid:
+            title += " (莊)"
         if winner == pid:
             title += " (WINNER)"
             # 顯示 TSUMO/RON 與胡的那張牌；若為榮和可加註放槍者
@@ -655,6 +723,31 @@ def render_reveal(env) -> None:
             if src == "RON" and isinstance(turn_at_win, int):
                 win_line.append(Text(f" from P{turn_at_win}", style="dim"))
             body.add_row(win_line)
+
+            # 若有提供該局的 breakdown，依 winners summary 的格式顯示在贏家面板中
+            if breakdown and isinstance(breakdown.get(pid), list) and breakdown.get(pid):
+                body.add_row(Text("breakdown:", style="bold"))
+                total = 0
+                for item in breakdown.get(pid) or []:
+                    label = item.get("label", item.get("key"))
+                    base = int(item.get("base", 0))
+                    count = int(item.get("count", 1))
+                    points = int(item.get("points", base * count))
+                    total += points
+                    body.add_row(Text(f"  - {label}: {base} x {count} = {points}"))
+                body.add_row(Text(f"  total = {total}"))
+
+        point_parts: List[Text] = []
+        if isinstance(payments, (list, tuple)) and pid < len(payments):
+            point_parts.append(Text("Δ=", style="dim"))
+            point_parts.append(_format_amount(payments[pid]))
+        if isinstance(totals, (list, tuple)) and pid < len(totals):
+            if point_parts:
+                point_parts.append(Text("  "))
+            point_parts.append(Text("total=", style="dim"))
+            point_parts.append(Text(str(totals[pid]), style="cyan"))
+        if point_parts:
+            body.add_row(Text.assemble(Text("points: ", style="bold"), *point_parts))
 
         panel = Panel(body, title=title, box=ROUNDED, padding=(0, 1))
         console.print(panel)
@@ -678,6 +771,7 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
         qf = rec.get("quan_feng")
         dealer_pid = rec.get("dealer_pid")
         dealer_wind = rec.get("dealer_wind")
+        winner_wind = rec.get("winner_wind")
 
         # Build Quan/Dealer line
         qmap = {"E": "東", "S": "南", "W": "西", "N": "北"}
@@ -688,9 +782,39 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
 
         body = Table.grid(padding=(0, 1))
         # Draw/flow case: no winner
+        payments = rec.get("payments")
+        base_pts = rec.get("base_points")
+        tai_pts = rec.get("tai_points")
+        totals_after = rec.get("totals_after_hand")
+
+        def add_totals_row() -> None:
+            if isinstance(totals_after, (list, tuple)) and totals_after:
+                parts: List[Text] = []
+                for idx, amt in enumerate(totals_after):
+                    if idx != 0:
+                        parts.append(Text("  "))
+                    parts.append(Text(f"P{idx}=", style="dim"))
+                    parts.append(Text(str(amt), style="cyan"))
+                body.add_row(Text.assemble(Text("totals: ", style="bold"), *parts))
         if wpid is None or str(rec.get("result")).upper() == "DRAW":
             body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
             body.add_row(Text("流局", style="bold"))
+            if isinstance(payments, (list, tuple)):
+                prefix = "payments"
+                if base_pts is not None and tai_pts is not None:
+                    prefix += f" (base {base_pts}, tai {tai_pts})"
+                elif base_pts is not None:
+                    prefix += f" (base {base_pts})"
+                elif tai_pts is not None:
+                    prefix += f" (tai {tai_pts})"
+                parts: List[Text] = []
+                for idx, amt in enumerate(payments):
+                    if idx != 0:
+                        parts.append(Text("  "))
+                    parts.append(Text(f"P{idx}=", style="dim"))
+                    parts.append(_format_amount(amt))
+                body.add_row(Text.assemble(Text(f"{prefix}: ", style="bold"), *parts))
+            add_totals_row()
             panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
             console.print(panel)
             continue
@@ -698,7 +822,10 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
         # Header line inside the panel for a normal win
         # Quan/Dealer row first
         body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
-        header = Text.assemble(Text(f"Winner P{wpid} | ", style="bold"))
+        prefix = f"Winner P{wpid}"
+        if isinstance(winner_wind, str) and winner_wind:
+            prefix += f" （{qmap.get(winner_wind.upper(), winner_wind.upper())}）"
+        header = Text.assemble(Text(prefix, style="bold"), Text(" | ", style="bold"))
         if src == "RON":
             header.append("RON ")
             if isinstance(wt, int):
@@ -749,6 +876,24 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
             body.add_row(Text(f"  total = {total}"))
         else:
             body.add_row(Text.assemble(Text("breakdown: ", style="bold"), Text("(none)", style="dim")))
+
+        if isinstance(payments, (list, tuple)):
+            prefix = "payments"
+            if base_pts is not None and tai_pts is not None:
+                prefix += f" (base {base_pts}, tai {tai_pts})"
+            elif base_pts is not None:
+                prefix += f" (base {base_pts})"
+            elif tai_pts is not None:
+                prefix += f" (tai {tai_pts})"
+            parts: List[Text] = []
+            for idx, amt in enumerate(payments):
+                if idx != 0:
+                    parts.append(Text("  "))
+                parts.append(Text(f"P{idx}=", style="dim"))
+                parts.append(_format_amount(amt))
+            body.add_row(Text.assemble(Text(f"{prefix}: ", style="bold"), *parts))
+
+        add_totals_row()
 
         panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
         console.print(panel)

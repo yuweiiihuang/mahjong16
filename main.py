@@ -30,7 +30,13 @@ if __name__ == "__main__":
         "--hands",
         type=int,
         default=1,
-        help="Number of hands to play (>=1). Default: 1",
+        help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: 1",
+    )
+    parser.add_argument(
+        "--start-points",
+        type=int,
+        default=1000,
+        help="Starting points allocated to each player. Default: 1000",
     )
     args = parser.parse_args()
 
@@ -45,7 +51,21 @@ if __name__ == "__main__":
         if human_pid not in (0, 1, 2, 3):
             raise SystemExit("Invalid --human value. Must be 0,1,2,3 or 'none'.")
 
-    if args.hands is not None and args.hands < 1:
-        raise SystemExit("Invalid --hands value. Must be >= 1.")
+    if args.hands is not None and (args.hands == 0 or args.hands < -1):
+        raise SystemExit("Invalid --hands value. Must be -1 or >= 1.")
 
-    run_demo(seed=args.seed, human_pid=human_pid, bot=args.bot, hands=args.hands)
+    try:
+        start_points = int(args.start_points)
+    except Exception:  # pragma: no cover - argparse already enforces int
+        raise SystemExit("Invalid --start-points value. Must be an integer.")
+
+    if start_points <= 0:
+        raise SystemExit("Invalid --start-points value. Must be > 0.")
+
+    run_demo(
+        seed=args.seed,
+        human_pid=human_pid,
+        bot=args.bot,
+        hands=args.hands,
+        start_points=start_points,
+    )

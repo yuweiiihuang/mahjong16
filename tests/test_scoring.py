@@ -2,7 +2,7 @@ import pytest
 
 from core import Mahjong16Env, Ruleset
 from core.scoring.tables import load_scoring_assets
-from core.scoring.engine import score_with_breakdown
+from core.scoring.engine import score_with_breakdown, compute_payments
 from core.scoring.types import ScoringContext
 from core.tiles import tile_to_str
 
@@ -16,11 +16,22 @@ def _tid(label: str) -> int:
 
 
 def _fresh_env(include_flowers=True):
-    rules = Ruleset(include_flowers=include_flowers, dead_wall_mode="fixed", dead_wall_base=16)
+    rules = Ruleset(
+        include_flowers=include_flowers,
+        dead_wall_mode="fixed",
+        dead_wall_base=16,
+        enable_wind_flower_scoring=False,
+    )
     env = Mahjong16Env(rules, seed=0)
     env.reset()
     table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     return env, table
+
+
+def _dummy_breakdown(n_players: int, winner: int, points: int):
+    bd = {i: [] for i in range(n_players)}
+    bd[winner] = [{"key": "dummy", "label": "Dummy", "base": points, "count": 1, "points": points}]
+    return bd
 
 
 def _set_winner_basic(env, pid=0, win_source="RON"):
@@ -273,3 +284,100 @@ def test_da_si_xi_only_16():
     )
     rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
     assert rewards[0] == 16
+
+
+def test_payments_example1_tsumo_nondealer():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="TSUMO")
+    env.dealer_pid = 1
+    env.dealer_streak = 0
+    env.winner_is_dealer = False
+    env.turn_at_win = 0
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[0] = 4
+    breakdown = _dummy_breakdown(n, 0, 4)
+    payments, bd = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [560, -200, -180, -180]
+    assert bd == breakdown
+
+
+def test_payments_example2_tsumo_dealer_streak():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="TSUMO")
+    env.dealer_pid = 0
+    env.dealer_streak = 2
+    env.winner_is_dealer = True
+    env.turn_at_win = 0
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[0] = 8  # menqing_zimo 3 + dealer(2N+1=5)
+    breakdown = _dummy_breakdown(n, 0, 8)
+    payments, _ = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [780, -260, -260, -260]
+
+
+def test_payments_example3_ron_from_dealer():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=1, win_source="RON")
+    env.dealer_pid = 0
+    env.dealer_streak = 3
+    env.winner_is_dealer = False
+    env.turn_at_win = 0
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[1] = 2
+    breakdown = _dummy_breakdown(n, 1, 2)
+    payments, _ = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [-280, 280, 0, 0]
+
+
+def test_payments_example4_ron_between_guests():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=1, win_source="RON")
+    env.dealer_pid = 0
+    env.dealer_streak = 0
+    env.winner_is_dealer = False
+    env.turn_at_win = 2
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[1] = 4
+    breakdown = _dummy_breakdown(n, 1, 4)
+    payments, _ = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [0, 180, -180, 0]
+
+
+def test_payments_example5_tsumo_from_guest_hits_dealer():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=1, win_source="TSUMO")
+    env.dealer_pid = 0
+    env.dealer_streak = 1
+    env.winner_is_dealer = False
+    env.turn_at_win = 1
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[1] = 3
+    breakdown = _dummy_breakdown(n, 1, 3)
+    payments, _ = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [-220, 540, -160, -160]
+
+
+def test_payments_dealer_ron_single_payer():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    env.dealer_pid = 0
+    env.dealer_streak = 0
+    env.winner_is_dealer = True
+    env.turn_at_win = 1
+    ctx = ScoringContext.from_env(env, table)
+    n = ctx.rules.n_players
+    rewards = [0] * n
+    rewards[0] = 3  # 牌面 3 台（例：莊家台+平胡）
+    breakdown = _dummy_breakdown(n, 0, 3)
+    payments, _ = compute_payments(ctx, 100, 20, rewards=rewards, breakdown=breakdown)
+    assert payments == [160, -160, 0, 0]
