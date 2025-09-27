@@ -1,6 +1,7 @@
 # file: ui/console.py
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
 from rich.console import Console, RenderableType
 from rich.panel import Panel
 from rich.columns import Columns
@@ -8,139 +9,32 @@ from rich.table import Table
 from rich.text import Text
 from rich.box import ROUNDED
 
-from core.tiles import tile_to_str, tile_sort_key, is_flower
+from core import Action, Observation, Ruleset, DiscardPublic
+from core.analysis import (
+    simulate_after_discard,
+    visible_count_after,
+    visible_count_global,
+)
 from core.hand import waits_after_discard_17, waits_for_hand_16
-from core import Ruleset
-from typing import Tuple
+from core.tiles import tile_sort_key, tile_to_str
+from ui.rich_helpers import format_amount, join_tiles, render_melds, text_for_tile
 
 console = Console()
 
-# ---------- 小工具：牌面排序 / 著色 ----------
-
-def _style_for_tile(t: int) -> str:
-    s = tile_to_str(t)
-    if not s:
-        return ""
-    if is_flower(t):      # 花牌
-        return "yellow"
-    if len(s) == 1:       # 字牌
-        return "magenta"
-    suit = s[-1]          # W/D/B
-    return {"W": "red", "D": "blue", "B": "green"}.get(suit, "")
-
-def _text_tile(t: int, *, highlight: bool = False, dim: bool = False) -> Text:
-    s = tile_to_str(t)
-    style = _style_for_tile(t)
-    txt = Text(s, style=style)
-    if dim:
-        txt.stylize("dim")
-    if highlight:
-        txt.stylize("reverse bold")
-    return txt
-
-def _join_tiles(tiles: List[int], *, highlight_tile: Optional[int] = None) -> Text:
-    parts: List[Text] = []
-    highlighted = False
-    for i, t in enumerate(tiles):
-        hl = (not highlighted) and (highlight_tile is not None) and (t == highlight_tile)
-        parts.append(_text_tile(t, highlight=hl))
-        if hl:
-            highlighted = True
-        if i != len(tiles) - 1:
-            parts.append(Text(" "))
-    return Text.assemble(*parts)
-
-
-def _format_amount(amount: int | float) -> Text:
-    try:
-        val = int(amount)
-    except Exception:
-        val = 0
-    style = "green" if val > 0 else "red" if val < 0 else "dim"
-    sign = "+" if val > 0 else ""
-    return Text(f"{sign}{val}", style=style)
-
-def _render_melds(melds: List[Dict[str, Any]], *, mask_concealed: bool = False) -> RenderableType:
-    if not melds:
-        return Text("[]", style="dim")
-    # 例如：[PONG 3W-3W-3W] [CHI 6D-7D-8D]
-    chunks: List[Text] = []
-    for m in melds:
-        mtype = (m.get("type") or "").upper()
-        tiles = list(m.get("tiles") or [])
-        tiles.sort()
-        parts: List[Text] = []
-        parts.append(Text("[", style="dim"))
-        parts.append(Text(mtype or "MELD", style="bold"))
-        if tiles:
-            parts.append(Text(" ", style="dim"))
-            for i, t in enumerate(tiles):
-                if mask_concealed and mtype == "ANGANG":
-                    parts.append(Text("##", style="dim"))
-                else:
-                    parts.append(_text_tile(t))
-                if i != len(tiles) - 1:
-                    parts.append(Text("-", style="dim"))
-        parts.append(Text("]", style="dim"))
-        chunks.append(Text.assemble(*parts))
-        chunks.append(Text(" "))
-    if chunks:
-        chunks.pop()  # 移除尾端多餘空白
-    return Text.assemble(*chunks)
-
 # ---------- 互動式選單（HumanStrategy 專用） ----------
 
-def _after_discard(hand0: List[int], drawn0: Optional[int], tile0: int, src0: str) -> List[int]:
-    """模擬丟出某張牌後，concealed 手牌的狀態（供 TING 候選剩餘計算用）。"""
-    h = list(hand0)
-    if (src0 or "hand").lower() == "drawn":
-        return h
-    if tile0 in h:
-        h.remove(tile0)
-    if drawn0 is not None:
-        h.append(drawn0)
-    return h
-
-def _visible_count_global(tile_id: int, obs: Dict[str, Any]) -> int:
-    """統計目前桌上可見的該牌數量（手牌+副露+河），用於已宣告 TING 的提示。"""
-    cnt = sum(1 for t in (obs.get("hand") or []) if t == tile_id)
-    for meld_list in (obs.get("melds_all") or []):
-        for m in (meld_list or []):
-            for x in (m.get("tiles") or []):
-                if x == tile_id:
-                    cnt += 1
-    for rv in (obs.get("rivers") or []):
-        for x in rv:
-            if x == tile_id:
-                cnt += 1
-    return cnt
-
-def _visible_count_after(tile_id: int, hand_after: List[int], obs: Dict[str, Any]) -> int:
-    """丟掉某張之後的可見數（手牌 after + 副露 + 各家河）。"""
-    cnt = sum(1 for t in hand_after if t == tile_id)
-    for meld_list in (obs.get("melds_all") or []):
-        for m in (meld_list or []):
-            for t in (m.get("tiles") or []):
-                if t == tile_id:
-                    cnt += 1
-    for rv in (obs.get("rivers") or []):
-        for t in rv:
-            if t == tile_id:
-                cnt += 1
-    return cnt
-
-def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
+def prompt_turn_action(obs: Observation) -> Action:
     """以 Rich 在命令列提示自己的回合操作（丟牌/胡/宣告聽）。"""
-    acts: List[Dict[str, Any]] = obs.get("legal_actions", []) or []
+    acts: List[Action] = obs.get("legal_actions", []) or []
     player = obs.get("player")
     hand: List[int] = list(obs.get("hand") or [])
     drawn: Optional[int] = obs.get("drawn")
 
     # 取得可選的行動
     hu_action = next((a for a in acts if (a.get("type") or "").upper() == "HU"), None)
-    discards_all: List[Dict[str, Any]] = [a for a in acts if (a.get("type") or "").upper() == "DISCARD"]
+    discards_all: List[Action] = [a for a in acts if (a.get("type") or "").upper() == "DISCARD"]
 
-    def key_disc(a: Dict[str, Any]) -> Tuple:
+    def key_disc(a: Action) -> Tuple:
         t = a.get("tile")
         src = a.get("from", "hand")
         return (0 if src == "hand" else 1, *tile_sort_key(t))
@@ -148,7 +42,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     discards_all.sort(key=key_disc)
 
     # 計算每個丟法對應的聽牌
-    display_actions: List[Dict[str, Any]] = []
+    display_actions: List[Action] = []
     display_tiles: List[int] = []
     waits_list: List[List[int]] = []
     for a in discards_all:
@@ -169,12 +63,12 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     # 版頭
     console.print(f"\n[bold]=== Your Turn | P{player} ===[/bold]")
     sorted_hand = sorted(hand, key=tile_sort_key)
-    hand_line = Text.assemble(Text("Hand: ", style="bold"), _join_tiles(sorted_hand))
+    hand_line = Text.assemble(Text("Hand: ", style="bold"), join_tiles(sorted_hand))
     drawn_line = Text.assemble(
         Text("Drawn: ", style="bold"),
-        _text_tile(drawn) if drawn is not None else Text("None", style="dim")
+        text_for_tile(drawn) if drawn is not None else Text("None", style="dim")
     )
-    melds_line = Text.assemble(Text("Melds: ", style="bold"), _render_melds(obs.get("melds") or [], mask_concealed=False))
+    melds_line = Text.assemble(Text("Melds: ", style="bold"), render_melds(obs.get("melds") or [], mask_concealed=False))
     console.print(hand_line)
     console.print(drawn_line)
     console.print(melds_line)
@@ -183,7 +77,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     flowers.sort(key=tile_sort_key)
     flowers_line = Text.assemble(
         Text("Flowers: ", style="bold"),
-        _join_tiles(flowers) if flowers else Text("(none)", style="dim"),
+        join_tiles(flowers) if flowers else Text("(none)", style="dim"),
     )
     console.print(flowers_line)
 
@@ -194,25 +88,25 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
             parts: List[Text] = []
             parts.append(Text("TING: ", style="bold"))
             for i, w in enumerate(sorted(waits_now, key=tile_sort_key)):
-                vis = _visible_count_global(w, obs)
+                vis = visible_count_global(w, obs)
                 rem = max(0, 4 - min(4, vis))
-                parts.append(_text_tile(w))
+                parts.append(text_for_tile(w))
                 parts.append(Text(f"({rem})"))
                 if i != len(waits_now) - 1:
                     parts.append(Text(" "))
             console.print(Text.assemble(*parts))
 
     # 收集可進入 TING 的丟法
-    ting_candidates: List[Tuple[Dict[str, Any], List[int]]] = [
+    ting_candidates: List[Tuple[Action, List[int]]] = [
         (a, ws) for a, ws in zip(display_actions, waits_list) if ws
     ]
 
     # 若未宣告且存在候選，提供宣告 TING 流程
     if (not bool(obs.get("declared_ting", False))) and ting_candidates:
         # 嘗試找出可 ANGANG / KAKAN
-        acts = obs.get("legal_actions", []) or []
-        angangs = [a for a in acts if (a.get("type") or "").upper() == "ANGANG"]
-        kakans = [a for a in acts if (a.get("type") or "").upper() == "KAKAN"]
+        actions_all: List[Action] = obs.get("legal_actions", []) or []
+        angangs = [a for a in actions_all if (a.get("type") or "").upper() == "ANGANG"]
+        kakans = [a for a in actions_all if (a.get("type") or "").upper() == "KAKAN"]
         extras = []
         if angangs:
             extras.append("[A] ANGANG")
@@ -230,7 +124,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
                 # 多個暗槓候選 → 選其中之一
                 console.print(Text("ANGANG options:", style="bold"))
                 for i, a in enumerate(angangs):
-                    console.print(Text.assemble(Text(f"  [{i}] ANGANG "), _text_tile(a.get("tile"))))
+                    console.print(Text.assemble(Text(f"  [{i}] ANGANG "), text_for_tile(a.get("tile"))))
                 while True:
                     sel = console.input("Pick ANGANG index: ").strip()
                     if sel.isdigit():
@@ -243,7 +137,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
                     return dict(kakans[0])
                 console.print(Text("KAKAN options:", style="bold"))
                 for i, a in enumerate(kakans):
-                    console.print(Text.assemble(Text(f"  [{i}] KAKAN "), _text_tile(a.get("tile"))))
+                    console.print(Text.assemble(Text(f"  [{i}] KAKAN "), text_for_tile(a.get("tile"))))
                 while True:
                     sel = console.input("Pick KAKAN index: ").strip()
                     if sel.isdigit():
@@ -257,17 +151,17 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
                 for i, (a, ws) in enumerate(ting_candidates):
                     t = a.get("tile")
                     src = a.get("from", "hand")
-                    hand_after = _after_discard(hand, drawn, t, src)
+                    hand_after = simulate_after_discard(hand, drawn, t, src)
                     cells: List[Text] = []
                     cells.append(Text(f"[{i}] DISCARD "))
-                    cells.append(_text_tile(t))
+                    cells.append(text_for_tile(t))
                     if src == "drawn":
                         cells.append(Text("*", style="dim"))
                     cells.append(Text(" → TING: "))
                     for j, w in enumerate(sorted(ws, key=tile_sort_key)):
-                        vis = _visible_count_after(w, hand_after, obs)
+                        vis = visible_count_after(w, hand_after, obs)
                         rem = max(0, 4 - min(4, vis))
-                        cells.append(_text_tile(w))
+                        cells.append(text_for_tile(w))
                         cells.append(Text(f"({rem})"))
                         if j != len(ws) - 1:
                             cells.append(Text(" "))
@@ -290,9 +184,9 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     # 丟牌/胡/暗槓/加槓 選單
     if hu_action is not None:
         console.print(Text("ACTIONS → ", style="bold") + Text("[H] HU"))
-    acts = obs.get("legal_actions", []) or []
-    angangs = [a for a in acts if (a.get("type") or "").upper() == "ANGANG"]
-    kakans = [a for a in acts if (a.get("type") or "").upper() == "KAKAN"]
+    actions_all: List[Action] = obs.get("legal_actions", []) or []
+    angangs = [a for a in actions_all if (a.get("type") or "").upper() == "ANGANG"]
+    kakans = [a for a in actions_all if (a.get("type") or "").upper() == "KAKAN"]
     if angangs or kakans:
         extra_parts: List[Text] = []
         if angangs:
@@ -303,7 +197,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
     line_parts: List[Text] = []
     for i, tid in enumerate(display_tiles):
         star = (display_actions[i].get("from") == "drawn")
-        cell = Text.assemble(Text(f"[{i}] "), _text_tile(tid))
+        cell = Text.assemble(Text(f"[{i}] "), text_for_tile(tid))
         if star:
             cell.append(Text("*", style="dim"))
         line_parts.append(cell)
@@ -320,7 +214,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
                 return dict(angangs[0])
             console.print(Text("ANGANG options:", style="bold"))
             for i, a in enumerate(angangs):
-                console.print(Text.assemble(Text(f"  [{i}] ANGANG "), _text_tile(a.get("tile"))))
+                console.print(Text.assemble(Text(f"  [{i}] ANGANG "), text_for_tile(a.get("tile"))))
             sel = console.input("Pick ANGANG index: ").strip()
             if sel.isdigit() and 0 <= int(sel) < len(angangs):
                 return dict(angangs[int(sel)])
@@ -331,7 +225,7 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
                 return dict(kakans[0])
             console.print(Text("KAKAN options:", style="bold"))
             for i, a in enumerate(kakans):
-                console.print(Text.assemble(Text(f"  [{i}] KAKAN "), _text_tile(a.get("tile"))))
+                console.print(Text.assemble(Text(f"  [{i}] KAKAN "), text_for_tile(a.get("tile"))))
             sel = console.input("Pick KAKAN index: ").strip()
             if sel.isdigit() and 0 <= int(sel) < len(kakans):
                 return dict(kakans[int(sel)])
@@ -350,15 +244,15 @@ def prompt_turn_action(obs: Dict[str, Any]) -> Dict[str, Any]:
         console.print(Text("無效輸入，請輸入索引或合法牌面（例如 7W）。", style="yellow"))
 
 
-def prompt_reaction_action(obs: Dict[str, Any]) -> Dict[str, Any]:
+def prompt_reaction_action(obs: Observation) -> Action:
     """以 Rich 在命令列提示反應（HU/GANG/PONG/CHI/PASS）。"""
-    acts = obs.get("legal_actions", []) or []
+    acts: List[Action] = obs.get("legal_actions", []) or []
     player = obs.get("player")
     prio = {"HU": 0, "GANG": 1, "PONG": 2, "CHI": 3, "PASS": 9}
     ld = obs.get("last_discard") or {}
     ld_tile = ld.get("tile")
 
-    def key_react(a: Dict[str, Any]):
+    def key_react(a: Action):
         t = (a.get("type") or "").upper()
         if t == "CHI":
             use = a.get("use", [])
@@ -366,10 +260,13 @@ def prompt_reaction_action(obs: Dict[str, Any]) -> Dict[str, Any]:
             return (prio[t], s)
         return (prio.get(t, 99),)
 
-    pass_action: Dict[str, Any] = next((a for a in acts if (a.get("type") or "").upper() == "PASS"), {"type": "PASS"})
-    others_sorted = sorted([a for a in acts if (a.get("type") or "").upper() != "PASS"], key=key_react)
+    pass_action: Action = next((a for a in acts if (a.get("type") or "").upper() == "PASS"), {"type": "PASS"})
+    others_sorted: List[Action] = sorted(
+        [a for a in acts if (a.get("type") or "").upper() != "PASS"],
+        key=key_react,
+    )
 
-    def label_for(a: Dict[str, Any]) -> Text:
+    def label_for(a: Action) -> Text:
         t = (a.get("type") or "").upper()
         if t == "PASS":
             return Text("PASS")
@@ -377,23 +274,23 @@ def prompt_reaction_action(obs: Dict[str, Any]) -> Dict[str, Any]:
             use = a.get("use", [])
             if isinstance(use, list) and len(use) == 2:
                 txt = Text("CHI ")
-                txt.append(_text_tile(use[0])); txt.append(Text("-")); txt.append(_text_tile(use[1]))
+                txt.append(text_for_tile(use[0])); txt.append(Text("-")); txt.append(text_for_tile(use[1]))
                 if ld_tile is not None:
                     txt.append(Text("  "))
-                    txt.append(_text_tile(ld_tile))
+                    txt.append(text_for_tile(ld_tile))
                 return txt
             return Text("CHI")
         if t in ("PONG", "GANG", "HU"):
             txt = Text(f"{t} ")
             if ld_tile is not None:
-                txt.append(_text_tile(ld_tile))
+                txt.append(text_for_tile(ld_tile))
             return txt
         return Text("PASS")
 
-    menu_actions: List[Dict[str, Any]] = [pass_action] + others_sorted
+    menu_actions: List[Action] = [pass_action] + others_sorted
     labels: List[Text] = [label_for(a) for a in menu_actions]
 
-    console.print(f"\n[bold]=== Your Reaction | P{player} → to [/bold]", _text_tile(ld_tile) if ld_tile is not None else Text("?"))
+    console.print(f"\n[bold]=== Your Reaction | P{player} → to [/bold]", text_for_tile(ld_tile) if ld_tile is not None else Text("?"))
     menu_line = Text.assemble(*[Text.assemble(Text(f"[{i}] "), labels[i], Text("  ")) for i in range(len(labels))])
     console.print(menu_line)
 
@@ -409,7 +306,7 @@ def prompt_reaction_action(obs: Dict[str, Any]) -> Dict[str, Any]:
 
 # ---------- 公開視角渲染 ----------
 
-def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, Any]]) -> Panel:
+def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[DiscardPublic]) -> Panel:
     """
     - 自己(pov)：顯示完整手牌（排序）、drawn、melds、river。
     - 他家：手牌以「(N tiles)」表示；drawn=Hidden；顯示副露＆棄牌河。
@@ -442,9 +339,9 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
     if is_me:
         hand = sorted(list(pl["hand"]), key=tile_sort_key)
         drawn = pl.get("drawn")
-        hand_line = Text.assemble(Text("hand: ", style="bold"), _join_tiles(hand))
+        hand_line = Text.assemble(Text("hand: ", style="bold"), join_tiles(hand))
         drawn_line = Text.assemble(Text("drawn: ", style="bold"),
-                                   _text_tile(drawn) if drawn is not None else Text("None", style="dim"))
+                                   text_for_tile(drawn) if drawn is not None else Text("None", style="dim"))
     else:
         hand_line = Text.assemble(
             Text("hand: ", style="bold"),
@@ -455,7 +352,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
     # 副露
     melds_line = Text.assemble(
         Text("melds: ", style="bold"),
-        _render_melds(pl.get("melds") or [], mask_concealed=(not is_me))
+        render_melds(pl.get("melds") or [], mask_concealed=(not is_me))
     )
 
     # 花牌（公開資訊，放在副露之下）
@@ -463,7 +360,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
     flowers.sort(key=tile_sort_key)
     flowers_line = Text.assemble(
         Text("flowers: ", style="bold"),
-        _join_tiles(flowers) if flowers else Text("(empty)", style="dim"),
+        join_tiles(flowers) if flowers else Text("(empty)", style="dim"),
     )
 
     # 河牌（若最後一張等於 last_discard 且此家就是丟牌者，反白）
@@ -475,7 +372,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[Dict[str, 
         if last_discard and last_discard.get("pid") == pid and river[-1] == last_discard.get("tile"):
             highlight_idx = len(river) - 1
         for i, t in enumerate(river):
-            river_line.append(_text_tile(t, highlight=(i == highlight_idx)))
+            river_line.append(text_for_tile(t, highlight=(i == highlight_idx)))
             if i != len(river) - 1:
                 river_line.append(Text(" "))
     else:
@@ -568,15 +465,15 @@ def _win_marker_line(env, pid: int) -> Optional[Text]:
     line = Text.assemble(Text("win: ", style="bold"))
     if win_src == "TSUMO":
         line.append("TSUMO ")
-        line.append(_text_tile(win_tile, highlight=True))
+        line.append(text_for_tile(win_tile, highlight=True))
     elif win_src == "RON":
         line.append("RON ")
-        line.append(_text_tile(win_tile, highlight=True))
+        line.append(text_for_tile(win_tile, highlight=True))
         if from_pid is not None:
             line.append(Text(f" from P{from_pid}", style="italic"))
     else:
         # 不明來源時也至少標出牌
-        line.append(_text_tile(win_tile, highlight=True))
+        line.append(text_for_tile(win_tile, highlight=True))
     return line
 
 
@@ -680,15 +577,15 @@ def render_reveal(
         # hand / melds / river
         hand = sorted(list(pl["hand"]), key=tile_sort_key)
         hand_txt = Text.assemble(Text("hand: ", style="bold"),
-                                 _join_tiles(hand) if hand else Text("(empty)", style="dim"))
+                                 join_tiles(hand) if hand else Text("(empty)", style="dim"))
         melds_txt = Text.assemble(Text("melds: ", style="bold"),
-                                  _render_melds(pl.get("melds") or []))
+                                  render_melds(pl.get("melds") or []))
         flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
         flowers_txt = Text.assemble(Text("flowers: ", style="bold"),
-                                    _join_tiles(flowers) if flowers else Text("(empty)", style="dim"))
+                                    join_tiles(flowers) if flowers else Text("(empty)", style="dim"))
         river = list(pl.get("river") or [])
         river_txt = Text.assemble(Text("river: ", style="bold"),
-                                  _join_tiles(river) if river else Text("(empty)", style="dim"))
+                                  join_tiles(river) if river else Text("(empty)", style="dim"))
 
         body = Table.grid(padding=(0, 1))
         body.add_row(hand_txt)
@@ -718,7 +615,7 @@ def render_reveal(
             win_line = Text.assemble(Text("win: ", style="bold"),
                                      Text(src if src else "WIN"),
                                      Text(" "),
-                                     Text(wt, style=_style_for_tile(win_tile) if isinstance(win_tile, int) else ""))
+                                     text_for_tile(win_tile, highlight=True) if isinstance(win_tile, int) else Text(wt))
             # 榮和可附註放槍者（若拿得到）
             if src == "RON" and isinstance(turn_at_win, int):
                 win_line.append(Text(f" from P{turn_at_win}", style="dim"))
@@ -740,7 +637,7 @@ def render_reveal(
         point_parts: List[Text] = []
         if isinstance(payments, (list, tuple)) and pid < len(payments):
             point_parts.append(Text("Δ=", style="dim"))
-            point_parts.append(_format_amount(payments[pid]))
+            point_parts.append(format_amount(payments[pid]))
         if isinstance(totals, (list, tuple)) and pid < len(totals):
             if point_parts:
                 point_parts.append(Text("  "))
@@ -812,7 +709,7 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
                     if idx != 0:
                         parts.append(Text("  "))
                     parts.append(Text(f"P{idx}=", style="dim"))
-                    parts.append(_format_amount(amt))
+                    parts.append(format_amount(amt))
                 body.add_row(Text.assemble(Text(f"{prefix}: ", style="bold"), *parts))
             add_totals_row()
             panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
@@ -829,37 +726,37 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
         if src == "RON":
             header.append("RON ")
             if isinstance(wt, int):
-                header.append(_text_tile(wt, highlight=True))
+                header.append(text_for_tile(wt, highlight=True))
             if isinstance(ron_from, int):
                 header.append(Text(f" from P{ron_from}", style="italic"))
         elif src == "TSUMO":
             header.append("TSUMO ")
             if isinstance(wt, int):
-                header.append(_text_tile(wt, highlight=True))
+                header.append(text_for_tile(wt, highlight=True))
         else:
             if src:
                 header.append(Text(src))
             if isinstance(wt, int):
                 header.append(Text(" "))
-                header.append(_text_tile(wt, highlight=True))
+                header.append(text_for_tile(wt, highlight=True))
         body.add_row(header)
 
         # Hand line
         htiles = sorted(list(rec.get("hand") or []), key=tile_sort_key)
         body.add_row(Text.assemble(Text("hand: ", style="bold"),
-                                   _join_tiles(htiles) if htiles else Text("(empty)", style="dim")))
+                                   join_tiles(htiles) if htiles else Text("(empty)", style="dim")))
 
         # Melds line
         melds = rec.get("melds") or []
         if melds:
-            body.add_row(Text.assemble(Text("melds: ", style="bold"), _render_melds(melds)))
+            body.add_row(Text.assemble(Text("melds: ", style="bold"), render_melds(melds)))
         else:
             body.add_row(Text.assemble(Text("melds: ", style="bold"), Text("(none)", style="dim")))
 
         # Flowers line
         flowers = sorted(list(rec.get("flowers") or []), key=tile_sort_key)
         body.add_row(Text.assemble(Text("flowers: ", style="bold"),
-                                   _join_tiles(flowers) if flowers else Text("(none)", style="dim")))
+                                   join_tiles(flowers) if flowers else Text("(none)", style="dim")))
 
         # Breakdown
         items = rec.get("breakdown") or []
@@ -890,7 +787,7 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
                 if idx != 0:
                     parts.append(Text("  "))
                 parts.append(Text(f"P{idx}=", style="dim"))
-                parts.append(_format_amount(amt))
+                parts.append(format_amount(amt))
             body.add_row(Text.assemble(Text(f"{prefix}: ", style="bold"), *parts))
 
         add_totals_row()

@@ -6,6 +6,7 @@ import random
 from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
+from .types import Action, Observation
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -84,7 +85,7 @@ class Mahjong16Env:
         return len(self.wall) > self._dead_wall_reserved()
 
     # ====== API ======
-    def reset(self) -> Dict[str, Any]:
+    def reset(self) -> Observation:
         """Reset the table, deal hands, and return the first observation for the dealer."""
         self.wall: List[int] = full_wall(self.rules.include_flowers, self.rng)
         self.discard_pile: List[int] = []
@@ -169,14 +170,14 @@ class Mahjong16Env:
 
         return self._obs(self.turn)
 
-    def legal_actions(self, pid: Optional[int]=None) -> List[Dict[str, Any]]:
+    def legal_actions(self, pid: Optional[int]=None) -> List[Action]:
         """List legal actions for current player (TURN) or current reactor (REACTION)."""
         if getattr(self, "done", False):
             return []
         if self.phase == "TURN":
             pid = self.turn if pid is None else pid
             me = self.players[pid]
-            acts: List[Dict[str, Any]] = []
+            acts: List[Action] = []
             declared_ting = bool(me.get("declared_ting", False))
             if me["drawn"] is not None:
                 # 自摸（TSUMO）
@@ -225,7 +226,7 @@ class Mahjong16Env:
                 return []
             # 當前要回應的玩家
             pid = self.reaction_queue[self.reaction_idx]
-            acts: List[Dict[str, Any]] = [{"type":"PASS"}]
+            acts: List[Action] = [{"type":"PASS"}]
             discard = self.last_discard
             if discard is None:
                 return acts
@@ -251,7 +252,7 @@ class Mahjong16Env:
                 acts.append({"type":"HU"})
             return acts
 
-    def step(self, action: Dict[str, Any]):
+    def step(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
         """Apply an action and advance the environment.
 
         Returns: (obs, rewards, done, info)
@@ -591,7 +592,7 @@ class Mahjong16Env:
         self.claims.sort(key=lambda c: (-c["priority"], c["distance"], c["pid"]))
         return self.claims[0]
 
-    def _obs(self, pid: int) -> Dict[str, Any]:
+    def _obs(self, pid: int) -> Observation:
         """Build the observation for a given player id, including public info and legal actions."""
         me = self.players[pid]
         is_done = getattr(self, "done", False)
