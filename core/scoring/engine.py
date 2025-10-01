@@ -366,11 +366,16 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     win_src = (ctx.win_source or "").upper()
     discards = max(0, int(getattr(ctx, "discard_count", 0) or 0))
+    open_melds = max(0, int(getattr(ctx, "open_meld_count", 0) or 0))
     if win_src in ("TSUMO", "ZIMO") and discards == 0:
         add("tian_hu")
     elif discards == 1 and win_src in ("RON", "TSUMO", "ZIMO"):
         add("di_hu")
-    elif discards > 1 and discards <= ctx.rules.n_players:
+    elif (
+        discards > 1
+        and discards <= ctx.rules.n_players
+        and open_melds == 0
+    ):
         add("ren_hu")
 
     rewards = [0] * ctx.rules.n_players

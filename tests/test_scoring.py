@@ -362,6 +362,52 @@ def test_du_ting_detected():
     assert _find_item(bd0, "du_ting") is not None
 
 
+def test_ren_hu_detected_before_any_melds():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = []
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("1W")] * 4 +
+        [_tid("2W")] * 4 +
+        [_tid("3W")] * 4 +
+        [_tid("4D")] * 3 +
+        [_tid("E")]
+    )
+    env.last_discard = {"player": 1, "tile": _tid("E")}
+    env.discard_count = 3
+    env.total_open_melds = 0
+    table_custom = ScoringTable(values=dict(table.values), labels=dict(table.labels))
+    table_custom.values["ren_hu"] = 16
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table_custom))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "ren_hu") is not None
+
+
+def test_ren_hu_blocked_after_open_meld():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = [{"type": "PONG", "tiles": [_tid("1W")] * 3}]
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("2W")] * 3 +
+        [_tid("3W")] * 3 +
+        [_tid("4W")] * 3 +
+        [_tid("5W")] * 2 +
+        [_tid("6W")] * 2
+    )
+    env.last_discard = {"player": 1, "tile": _tid("6W")}
+    env.discard_count = 3
+    env.total_open_melds = 1
+    table_custom = ScoringTable(values=dict(table.values), labels=dict(table.labels))
+    table_custom.values["ren_hu"] = 16
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table_custom))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "ren_hu") is None
+
+
 def test_he_di_detected():
     env, table = _fresh_env()
     _set_winner_basic(env, pid=0, win_source="RON")
