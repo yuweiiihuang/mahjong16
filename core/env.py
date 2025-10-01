@@ -89,6 +89,8 @@ class Mahjong16Env:
         """Reset the table, deal hands, and return the first observation for the dealer."""
         self.wall: List[int] = full_wall(self.rules.include_flowers, self.rng)
         self.discard_pile: List[int] = []
+        self.discard_count: int = 0
+        self.total_open_melds: int = 0
         self.players: List[Dict[str, Any]] = [self._new_player(i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
         # ====== 風位與莊家 / 座次 ======
@@ -350,11 +352,14 @@ class Mahjong16Env:
             # 進捨牌河與記錄
             self.players[pid]["river"].append(tile)
             self.discard_pile.append(tile)
+            self.discard_count += 1
             self.last_discard = {"pid": pid, "tile": tile}
 
             # 若為宣告聽，鎖定之後只能丟 drawn
             if a_type == "TING":
                 self.players[pid]["declared_ting"] = True
+                self.players[pid]["ting_declared_at"] = self.discard_count
+                self.players[pid]["ting_declared_open_melds"] = self.total_open_melds
 
             # 開啟反應視窗
             self.phase = "REACTION"
@@ -481,6 +486,7 @@ class Mahjong16Env:
                         self.players[claimer]["melds"].append(
                             {"type":"CHI","tiles":[a,b,tile], "from_pid": discarder}
                         )
+                        self.total_open_melds += 1
                         self.players[claimer]["drawn"] = None  # 由吃入，非摸牌
                         self.turn = claimer
                         self.phase = "TURN"  # 直接要求丟牌
@@ -493,6 +499,7 @@ class Mahjong16Env:
                         self.players[claimer]["melds"].append(
                             {"type":"PONG","tiles":[tile,tile,tile], "from_pid": discarder}
                         )
+                        self.total_open_melds += 1
                         self.players[claimer]["drawn"] = None
                         self.turn = claimer
                         self.phase = "TURN"
@@ -504,6 +511,7 @@ class Mahjong16Env:
                         self.players[claimer]["melds"].append(
                             {"type":"GANG","tiles":[tile,tile,tile,tile], "from_pid": discarder}
                         )
+                        self.total_open_melds += 1
                         self.n_gang += 1  # 記錄場上槓數以調整尾牌留置（「一槓一」）
                         self.players[claimer]["drawn"] = None
                         self.turn = claimer
@@ -551,6 +559,8 @@ class Mahjong16Env:
             "river": [],
             "score": 0,
             "declared_ting": False,
+            "ting_declared_at": None,
+            "ting_declared_open_melds": None,
         }
 
     def _draw_into_hand(self, pid: int):

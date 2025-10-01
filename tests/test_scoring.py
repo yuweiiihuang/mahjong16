@@ -3,7 +3,7 @@ import pytest
 from core import Mahjong16Env, Ruleset
 from core.scoring.tables import load_scoring_assets
 from core.scoring.engine import score_with_breakdown, compute_payments
-from core.scoring.types import ScoringContext
+from core.scoring.types import ScoringContext, ScoringTable
 from core.tiles import tile_to_str
 
 
@@ -34,6 +34,10 @@ def _dummy_breakdown(n_players: int, winner: int, points: int):
     return bd
 
 
+def _find_item(breakdown, key: str):
+    return next((item for item in breakdown if item.get("key") == key), None)
+
+
 def _set_winner_basic(env, pid=0, win_source="RON"):
     env.winner = pid
     env.win_source = win_source
@@ -61,8 +65,12 @@ def test_menqing_tsumo_is_3_only():
     p["drawn"] = _tid("E")
     # 非海底
     env.wall = [0] * (env.rules.dead_wall_base + 1)
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 3 and sum(rewards) == 3
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "menqing_zimo")
+    assert item and item["points"] == 3
+    assert _find_item(bd0, "menqing") is None
+    assert _find_item(bd0, "zimo") is None
 
 
 def test_tsumo_non_closed_is_1():
@@ -82,8 +90,11 @@ def test_tsumo_non_closed_is_1():
     ]
     p["drawn"] = _tid("3W")                 
     env.wall = [0] * (env.rules.dead_wall_base + 10)  # 不是海底
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 1
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "zimo")
+    assert item and item["points"] == 1
+    assert _find_item(bd0, "menqing") is None
 
 
 def test_menqing_ron_is_1():
@@ -137,8 +148,10 @@ def test_haitei_tsumo_plus_one():
     # 牆牌數量 = 尾牌留置 → 海底
     reserved = env.rules.dead_wall_base
     env.wall = [0] * reserved
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 2
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "zimo") and _find_item(bd0, "zimo")["points"] == 1
+    assert _find_item(bd0, "hai_di") and _find_item(bd0, "hai_di")["points"] == 1
 
 
 def test_peng_peng_hu_ron_from_discard():
@@ -163,8 +176,10 @@ def test_peng_peng_hu_ron_from_discard():
     # 指定別家剛丟出來、被我們榮的那張（補上面少的 3D）
     env.last_discard = {"player": 1, "tile": _tid("3D")}
 
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 4
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "peng_peng_hu")
+    assert item and item["points"] == 4
 
 
 def test_ping_hu_is_2():
@@ -202,8 +217,10 @@ def test_qing_yi_se_only_8():
     p["flowers"] = []
     # 手牌全部同一花色（萬），且不超過四張同牌（總手牌 11 張）
     p["hand"] = [_tid("1W")]*3 + [_tid("6W")]*3 + [_tid("7W")]*3 + [_tid("8W")]*2
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 8
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "qing_yi_se")
+    assert item and item["points"] == 8
 
 
 def test_hun_yi_se_only_4():
@@ -218,8 +235,10 @@ def test_hun_yi_se_only_4():
     p["flowers"] = []
     # 單一花色（萬） + 字牌作將（例如東東），總手牌 11 張
     p["hand"] = [_tid("1W")]*4 + [_tid("6W")]*3 + [_tid("7W")]*2 + [_tid("E")]*2
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 4
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "hun_yi_se")
+    assert item and item["points"] == 4
 
 
 def test_xiao_san_yuan_only_4():
@@ -236,8 +255,11 @@ def test_xiao_san_yuan_only_4():
         [_tid("P")] * 2 +  # 白白（將）
         [_tid("4D")] * 3 + [_tid("5B")] * 3  # 其他墊牌，避免清/混一色
     )
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 4
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "xiao_san_yuan")
+    assert item and item["points"] == 4
+    assert _find_item(bd0, "dragon_pung") is None
 
 
 def test_da_san_yuan_only_8():
@@ -251,8 +273,11 @@ def test_da_san_yuan_only_8():
         [_tid("C")] * 3 + [_tid("F")] * 3 + [_tid("P")] * 3 +
         [_tid("4D")] * 3 + [_tid("5B")] * 2
     )
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 8
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "da_san_yuan")
+    assert item and item["points"] == 8
+    assert _find_item(bd0, "dragon_pung") is None
 
 
 def test_xiao_si_xi_only_8():
@@ -267,8 +292,12 @@ def test_xiao_si_xi_only_8():
         [_tid("N")] * 2 +  # 北作將
         [_tid("4D")] * 3
     )
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 8
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "xiao_si_xi")
+    assert item and item["points"] == 8
+    assert _find_item(bd0, "quan_feng_ke") is None
+    assert _find_item(bd0, "men_feng_ke") is None
 
 
 def test_da_si_xi_only_16():
@@ -282,8 +311,99 @@ def test_da_si_xi_only_16():
         [_tid("E")] * 3 + [_tid("S")] * 3 + [_tid("W")] * 3 + [_tid("N")] * 3 +
         [_tid("4D")] * 2
     )
-    rewards, _ = score_with_breakdown(ScoringContext.from_env(env, table))
-    assert rewards[0] == 16
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "da_si_xi")
+    assert item and item["points"] == 16
+    assert _find_item(bd0, "quan_feng_ke") is None
+    assert _find_item(bd0, "men_feng_ke") is None
+
+
+def test_san_an_ke_detected():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = [
+        {"type": "CHI", "tiles": [_tid("1W"), _tid("2W"), _tid("3W")]},
+        {"type": "CHI", "tiles": [_tid("4W"), _tid("5W"), _tid("6W")]},
+    ]
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("7W")] * 3 +
+        [_tid("8W")] * 3 +
+        [_tid("9W")] * 3 +
+        [_tid("C")] * 2
+    )
+    env.last_discard = {"player": 1, "tile": _tid("C")}
+    env.discard_count = 6
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "san_an_ke")
+    assert item and item["points"] == table.get("san_an_ke", 0)
+
+
+def test_du_ting_detected():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = []
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("1W")] * 4 +
+        [_tid("2W")] * 4 +
+        [_tid("3W")] * 4 +
+        [_tid("4D")] * 3 +
+        [_tid("E")]
+    )
+    env.last_discard = {"player": 1, "tile": _tid("E")}
+    env.discard_count = 5
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "du_ting") is not None
+
+
+def test_he_di_detected():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = [{"type": "PONG", "tiles": [_tid("1W")] * 3}]
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("2W")] * 3 +
+        [_tid("3W")] * 3 +
+        [_tid("4W")] * 3 +
+        [_tid("5W")] * 2 +
+        [_tid("6W")] * 2
+    )
+    env.last_discard = {"player": 1, "tile": _tid("5W")}
+    env.wall = [0] * env.rules.dead_wall_base
+    env.discard_count = 10
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "he_di") is not None
+
+
+def test_zi_yi_se_detected():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = []
+    p["flowers"] = []
+    p["hand"] = (
+        [_tid("E")] * 3 +
+        [_tid("S")] * 3 +
+        [_tid("W")] * 3 +
+        [_tid("N")] * 3 +
+        [_tid("C")] * 2
+    )
+    env.last_discard = {"player": 1, "tile": _tid("C")}
+    env.discard_count = 12
+    table_custom = ScoringTable(values=dict(table.values), labels=dict(table.labels))
+    table_custom.values["zi_yi_se"] = 8
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table_custom))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "zi_yi_se")
+    assert item and item["points"] == 8
 
 
 def test_payments_example1_tsumo_nondealer():

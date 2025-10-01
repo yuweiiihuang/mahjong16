@@ -65,7 +65,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     pl = ctx.players[winner]
     tsumo = str(ctx.win_source).upper() in ("TSUMO", "ZIMO")
     melds: List[Meld] = pl.melds or []
-    flowers = pl.flowers or []  # not used currently, placeholder for variants
+    melds_dicts = [{"type": m.type, "tiles": list(m.tiles or [])} for m in melds]
+    flowers = pl.flowers or []
     hand = list(pl.hand or [])
     drawn = pl.drawn
 
@@ -99,16 +100,15 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     menqing = all((m.type not in ("CHI", "PONG", "GANG", "KAKAN")) for m in melds)
     fixed_melds_pungs = 0
     fixed_melds_chis = 0
-    dragon_pungs = 0
     for m in melds:
         mtype = (m.type or "").upper()
         tiles_m = m.tiles or []
         if mtype in ("PONG", "GANG"):
             fixed_melds_pungs += 1
-            if tiles_m and _is_dragon(tiles_m[0]):
-                dragon_pungs += 1
         elif mtype == "CHI":
             fixed_melds_chis += 1
+
+    counts34 = _counts34(concealed_for_patterns)
 
     # base patterns
     # 槓上自摸：已含自摸，不再重複加計『自摸』；若門清則僅加『門清』
@@ -124,11 +124,10 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             if tsumo:
                 add("zimo")
 
-    if dragon_pungs:
-        add("dragon_pung", count=dragon_pungs)
-
     if tsumo and ctx.wall_len == _dead_wall_reserved(ctx):
         add("hai_di")
+    if (not tsumo) and ctx.wall_len == _dead_wall_reserved(ctx):
+        add("he_di")
 
     if ctx.win_by_gang_draw:
         add("gang_shang")
@@ -146,13 +145,27 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     tenpai_before_draw = False
     if tsumo:
         try:
-            melds_dicts = [{"type": m.type, "tiles": list(m.tiles or [])} for m in (pl.melds or [])]
             waits = waits_for_hand_16(list(pl.hand or []), melds_dicts, ctx.rules, exclude_exhausted=True)
             tenpai_before_draw = bool(waits)
         except Exception:
             tenpai_before_draw = False
     if bool(pl.declared_ting) or tenpai_before_draw:
         add("ting")
+
+    # 獨聽：僅聽唯一一張牌（邊張/嵌張/單吊）。
+    win_tile_id = None
+    if tsumo and isinstance(drawn, int):
+        win_tile_id = drawn
+    elif (not tsumo) and isinstance(ron_tile, int):
+        win_tile_id = ron_tile
+    try:
+        waits_for_du = waits_for_hand_16(list(pl.hand or []), melds_dicts, ctx.rules, exclude_exhausted=False)
+    except Exception:
+        waits_for_du = []
+    if isinstance(win_tile_id, int) and waits_for_du:
+        waits_set = {w for w in waits_for_du if isinstance(w, int)}
+        if len(waits_set) == 1 and win_tile_id in waits_set:
+            add("du_ting")
 
     # pattern-based
     all_tiles = list(concealed_for_patterns)
@@ -166,11 +179,14 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             suits.add(s[1])
     has_honor_total = any(_is_honor(t) for t in all_tiles)
 
-    if fixed_melds > 0:
-        if len(suits) == 1 and not has_honor_total:
-            add("qing_yi_se")
-        elif len(suits) == 1 and has_honor_total:
-            add("hun_yi_se")
+    if all_tiles:
+        if all(_is_honor(t) for t in all_tiles):
+            add("zi_yi_se")
+        elif len(suits) == 1:
+            if has_honor_total:
+                add("hun_yi_se")
+            else:
+                add("qing_yi_se")
 
     # peng peng hu
     if fixed_melds_chis == 0 and need >= 0 and required_len is not None:
@@ -183,14 +199,35 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             if mods.count(2) == 1 and all(m in (0, 2) for m in mods):
                 add("peng_peng_hu")
 
+    if (not tsumo):
+        open_from_others = [m for m in melds if (m.type or "").upper() in ("CHI", "PONG", "GANG", "KAKAN") and m.from_pid is not None]
+        concealed_melds = [m for m in melds if (m.type or "").upper() == "ANGANG"]
+        if len(open_from_others) >= 5 and not concealed_melds and len(concealed_tiles) <= 1:
+            add("quan_qiu_ren")
+
     # ping hu
     if fixed_melds_pungs == 0 and fixed_melds_chis > 0 and need >= 0 and required_len is not None:
         if len(concealed_for_patterns) == required_len:
-            counts34 = _counts34(concealed_for_patterns)
             if sum(counts34) == len(concealed_for_patterns):
                 # DFS over only chows (reuse menqing-style helper not needed here)
                 if _dfs_only_chows(tuple(counts34), need, False):
                     add("ping_hu")
+
+    # 三暗刻 / 四暗刻 / 五暗刻
+    concealed_triplets = 0
+    if need >= 0 and required_len is not None and len(concealed_for_patterns) == required_len:
+        max_triplets = _max_concealed_triplets(tuple(counts34), need, False)
+        if max_triplets > 0:
+            concealed_triplets += max_triplets
+        elif max_triplets == 0:
+            concealed_triplets += 0
+    concealed_triplets += sum(1 for m in melds if (m.type or "").upper() == "ANGANG")
+    if concealed_triplets >= 5:
+        add("wu_an_ke")
+    elif concealed_triplets >= 4:
+        add("si_an_ke")
+    elif concealed_triplets >= 3:
+        add("san_an_ke")
 
     # xiao/da san yuan and si xi
     def _cnt_total(label: str) -> int:
@@ -215,10 +252,16 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     triplets = tripC + tripF + tripP
     has_pair = pairC or pairF or pairP
 
+    is_xiao_san_yuan = False
+    is_da_san_yuan = False
     if triplets == 2 and has_pair:
         add("xiao_san_yuan")
+        is_xiao_san_yuan = True
     if triplets == 3:
         add("da_san_yuan")
+        is_da_san_yuan = True
+    if triplets > 0 and not (is_xiao_san_yuan or is_da_san_yuan):
+        add("dragon_pung", count=triplets)
 
     def _cnt_wind(label: str) -> int:
         tile_id = None
@@ -307,6 +350,28 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         hua_gang_cnt = int(has_seasons) + int(has_gentlemen)
         if hua_gang_cnt:
             add("hua_gang", count=hua_gang_cnt)
+        unique_flowers = len(fset)
+        if unique_flowers >= 8:
+            add("ba_xian")
+        if unique_flowers >= 7:
+            add("qi_qiang_yi")
+
+    ting_declared_at = getattr(pl, "ting_declared_at", None)
+    ting_open_melds = getattr(pl, "ting_declared_open_melds", None)
+    if isinstance(ting_declared_at, int):
+        if ting_declared_at <= 1:
+            add("tian_ting")
+        elif ting_declared_at <= 8 and int(ting_open_melds or 0) == 0:
+            add("di_ting")
+
+    win_src = (ctx.win_source or "").upper()
+    discards = max(0, int(getattr(ctx, "discard_count", 0) or 0))
+    if win_src in ("TSUMO", "ZIMO") and discards == 0:
+        add("tian_hu")
+    elif discards == 1 and win_src in ("RON", "TSUMO", "ZIMO"):
+        add("di_hu")
+    elif discards > 1 and discards <= ctx.rules.n_players:
+        add("ren_hu")
 
     rewards = [0] * ctx.rules.n_players
     total = sum(item.get("points", 0) for item in bd)
@@ -458,3 +523,51 @@ def _dfs_only_chows(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
         if _dfs_only_chows(tuple(lst), need, True):
             return True
     return False
+
+
+@lru_cache(maxsize=None)
+def _max_concealed_triplets(state: Tuple[int, ...], need: int, eye_used: bool) -> int:
+    """Return the maximum concealed triplet count for a given state."""
+
+    if need < 0:
+        return -1
+    if need == 0:
+        total = sum(state)
+        if total == 0 and eye_used:
+            return 0
+        if not eye_used and total == 2 and any(c == 2 for c in state):
+            return 0
+        return -1
+
+    i = next((idx for idx, c in enumerate(state) if c > 0), -1)
+    if i == -1:
+        return -1
+
+    best = -1
+
+    if state[i] >= 3:
+        lst = list(state)
+        lst[i] -= 3
+        res = _max_concealed_triplets(tuple(lst), need - 1, eye_used)
+        if res >= 0:
+            best = max(best, res + 1)
+
+    if _same_suit_triplet_ok(i):
+        i1, i2 = i + 1, i + 2
+        if state[i1] > 0 and state[i2] > 0:
+            lst = list(state)
+            lst[i] -= 1
+            lst[i1] -= 1
+            lst[i2] -= 1
+            res = _max_concealed_triplets(tuple(lst), need - 1, eye_used)
+            if res >= 0:
+                best = max(best, res)
+
+    if not eye_used and state[i] >= 2:
+        lst = list(state)
+        lst[i] -= 2
+        res = _max_concealed_triplets(tuple(lst), need, True)
+        if res >= 0:
+            best = max(best, res)
+
+    return best

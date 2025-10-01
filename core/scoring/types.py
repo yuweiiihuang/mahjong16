@@ -63,6 +63,8 @@ class PlayerView:
     flowers: List[int]
     river: List[int]
     declared_ting: bool
+    ting_declared_at: Optional[int] = None
+    ting_declared_open_melds: Optional[int] = None
 
 
 @dataclass
@@ -97,6 +99,8 @@ class ScoringContext:
     winner_is_dealer: bool = False
     win_by_gang_draw: bool = False
     win_by_qiang_gang: bool = False
+    discard_count: int = 0
+    open_meld_count: int = 0
     # 新增：圈風、門風、莊家資訊（供風牌/莊家台計算）
     quan_feng: str | None = None         # 'E' | 'S' | 'W' | 'N'
     seat_winds: list[str] | None = None  # 索引為 pid，值為 'E'/'S'/'W'/'N'
@@ -136,6 +140,8 @@ class ScoringContext:
                     flowers=list(p.get("flowers") or []),
                     river=list(p.get("river") or []),
                     declared_ting=bool(p.get("declared_ting", False)),
+                    ting_declared_at=p.get("ting_declared_at"),
+                    ting_declared_open_melds=p.get("ting_declared_open_melds"),
                 )
             )
         return ScoringContext(
@@ -156,4 +162,6 @@ class ScoringContext:
             seat_winds=getattr(env, "seat_winds", None),
             dealer_pid=getattr(env, "dealer_pid", None),
             dealer_streak=int(getattr(env, "dealer_streak", 0) or 0),
+            discard_count=int(getattr(env, "discard_count", 0) or 0),
+            open_meld_count=int(getattr(env, "total_open_melds", 0) or 0),
         )
