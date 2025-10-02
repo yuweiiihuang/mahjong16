@@ -70,6 +70,19 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     has_flowers_total = any(isinstance(f, int) and is_flower(f) for f in flowers) or bool(flowers)
     hand = list(pl.hand or [])
     drawn = pl.drawn
+    flower_win_type = getattr(ctx, "flower_win_type", None)
+
+    if flower_win_type:
+        if flower_win_type == "ba_xian":
+            add("ba_xian")
+        elif flower_win_type == "qi_qiang_yi":
+            add("qi_qiang_yi")
+        else:
+            add(str(flower_win_type))
+        rewards = [0] * ctx.rules.n_players
+        total = sum(item.get("points", 0) for item in bd)
+        rewards[winner] = total
+        return rewards, breakdown_by_player
 
     # concealed tiles
     concealed_tiles = list(hand)
@@ -352,10 +365,11 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         if hua_gang_cnt:
             add("hua_gang", count=hua_gang_cnt)
         unique_flowers = len(fset)
-        if unique_flowers >= 8:
-            add("ba_xian")
-        if unique_flowers >= 7:
-            add("qi_qiang_yi")
+        if flower_win_type is None:
+            if unique_flowers == 8:
+                add("ba_xian")
+            elif unique_flowers == 7:
+                add("qi_qiang_yi")
 
     ting_declared_at = getattr(pl, "ting_declared_at", None)
     ting_open_melds = getattr(pl, "ting_declared_open_melds", None)

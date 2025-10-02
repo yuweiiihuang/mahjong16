@@ -117,6 +117,42 @@ def test_menqing_ron_is_1():
     assert rewards[0] == 1
 
 
+def test_ba_xian_scoring_only_counts_flower_win():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="TSUMO")
+    env.flower_win_type = "ba_xian"
+    p = env.players[0]
+    p["melds"] = []
+    p["flowers"] = [_tid(f"F{i}") for i in range(1, 9)]
+    p["hand"] = []
+    p["drawn"] = None
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert rewards[0] == table.get("ba_xian", 0)
+    assert _find_item(bd0, "ba_xian") is not None or table.get("ba_xian", 0) == 0
+    assert _find_item(bd0, "qi_qiang_yi") is None
+    assert _find_item(bd0, "zimo") is None
+    assert _find_item(bd0, "menqing") is None
+
+
+def test_qi_qiang_scoring_only_counts_flower_win():
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    env.flower_win_type = "qi_qiang_yi"
+    p = env.players[0]
+    p["melds"] = []
+    p["flowers"] = [_tid(f"F{i}") for i in range(1, 8)]
+    p["hand"] = []
+    p["drawn"] = None
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert rewards[0] == table.get("qi_qiang_yi", 0)
+    assert _find_item(bd0, "qi_qiang_yi") is not None or table.get("qi_qiang_yi", 0) == 0
+    assert _find_item(bd0, "ba_xian") is None
+    assert _find_item(bd0, "menqing") is None
+    assert _find_item(bd0, "zimo") is None
+
+
 def test_dragon_pung():
     """三元牌 +1"""
     env, table = _fresh_env()

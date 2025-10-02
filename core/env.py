@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
 import random
 
-from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
+from .tiles import full_wall, is_flower, tile_to_str, hand_to_str, N_TILES, N_FLOWERS
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
 from .types import Action, Observation
@@ -91,6 +91,9 @@ class Mahjong16Env:
         self.discard_pile: List[int] = []
         self.discard_count: int = 0
         self.total_open_melds: int = 0
+        self.flower_win_type: str | None = None
+        self._flower_sets: List[set[int]] = [set() for _ in range(self.rules.n_players)]
+        self._flower_union: set[int] = set()
         self.players: List[Dict[str, Any]] = [self._new_player(i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
         # ====== 風位與莊家 / 座次 ======
@@ -150,9 +153,14 @@ class Mahjong16Env:
         for _ in range(self.rules.initial_hand):
             for pid in order_pids:
                 self._draw_into_hand(pid)
+                if getattr(self, "done", False):
+                    break
+            if getattr(self, "done", False):
+                break
 
         # 莊家先摸一張至 drawn（16+drawn=17）
-        self._draw_to_drawn(self.dealer_pid)
+        if not getattr(self, "done", False):
+            self._draw_to_drawn(self.dealer_pid)
 
         self.last_discard: Optional[Dict[str, Any]] = None
         self.done = False
@@ -563,12 +571,115 @@ class Mahjong16Env:
             "ting_declared_open_melds": None,
         }
 
+    def _flower_no(self, tile: int) -> int | None:
+        """Map a flower tile id to its ordinal number (F1..F8 -> 1..8)."""
+        if not is_flower(tile):
+            return None
+        return tile - N_TILES + 1
+
+    def _find_flower_holder(self, flower_no: int) -> tuple[int | None, int | None]:
+        """Return (pid, tile_id) for the player holding a specific flower number."""
+        for pid, player in enumerate(self.players):
+            for t in player.get("flowers", []):
+                if self._flower_no(t) == flower_no:
+                    return pid, t
+        return None, None
+
+    def _resolve_flower_win(
+        self,
+        winner_pid: int,
+        loser_pid: int | None,
+        win_tile: int | None,
+        flower_type: str,
+        win_source: str,
+    ) -> None:
+        """Finalize a round resolved by a flower-specific win condition."""
+
+        self.flower_win_type = flower_type
+        self.winner = winner_pid
+        self.win_source = win_source
+        self.win_tile = win_tile
+        self.turn = winner_pid
+        self.turn_at_win = winner_pid if win_source == "TSUMO" else loser_pid
+        self.winner_is_dealer = (winner_pid == getattr(self, "dealer_pid", 0))
+        self.win_by_gang_draw = False
+        self.win_by_qiang_gang = False
+        self.last_discard = None
+        self.done = True
+        self.phase = "DONE"
+        self.reaction_queue = []
+        self.reaction_idx = 0
+        self.claims = []
+        self.qiang_gang_mode = False
+        self.pending_kakan = None
+
+    def _register_flower(self, pid: int, tile: int) -> bool:
+        """Add a flower to the player's collection and check special win cases.
+
+        Returns True when a flower-based win ends the round and drawing should stop.
+        """
+
+        self.players[pid]["flowers"].append(tile)
+
+        if not getattr(self.rules, "enable_flower_wins", True):
+            return False
+
+        flower_no = self._flower_no(tile)
+        if flower_no is None:
+            return False
+
+        if pid < len(self._flower_sets):
+            self._flower_sets[pid].add(flower_no)
+        else:
+            self._flower_sets.append({flower_no})
+        self._flower_union.add(flower_no)
+
+        if getattr(self, "done", False):
+            return True
+
+        if len(self._flower_union) < N_FLOWERS:
+            return False
+
+        # 八仙過海：任一玩家集齊八朵花 → 自摸結束
+        for candidate, fset in enumerate(self._flower_sets):
+            if len(fset) == N_FLOWERS:
+                win_tile = tile if candidate == pid else None
+                self._resolve_flower_win(
+                    winner_pid=candidate,
+                    loser_pid=candidate,
+                    win_tile=win_tile,
+                    flower_type="ba_xian",
+                    win_source="TSUMO",
+                )
+                return True
+
+        # 七搶一：有玩家集齊七朵花，最後一朵在其他人身上
+        for candidate, fset in enumerate(self._flower_sets):
+            if len(fset) == N_FLOWERS - 1:
+                missing = list(self._flower_union - fset)
+                if not missing:
+                    continue
+                holder_pid, held_tile = self._find_flower_holder(missing[0])
+                if holder_pid is None:
+                    continue
+                self._resolve_flower_win(
+                    winner_pid=candidate,
+                    loser_pid=holder_pid,
+                    win_tile=held_tile,
+                    flower_type="qi_qiang_yi",
+                    win_source="RON",
+                )
+                return True
+
+        return False
+
     def _draw_into_hand(self, pid: int):
         """Draw from wall into hand, auto‑handling flowers (replacing immediately)."""
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
-                self.players[pid]["flowers"].append(t)
+                if self._register_flower(pid, t):
+                    return
                 continue
             self.players[pid]["hand"].append(t)
             break
@@ -579,7 +690,8 @@ class Mahjong16Env:
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
-                self.players[pid]["flowers"].append(t)
+                if self._register_flower(pid, t):
+                    return
                 continue
             self.players[pid]["drawn"] = t
             break

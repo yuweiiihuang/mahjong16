@@ -106,6 +106,7 @@ class ScoringContext:
     seat_winds: list[str] | None = None  # 索引為 pid，值為 'E'/'S'/'W'/'N'
     dealer_pid: int | None = None
     dealer_streak: int = 0
+    flower_win_type: Optional[str] = None
 
     @staticmethod
     def from_env(env, table: ScoringTable) -> "ScoringContext":
@@ -164,4 +165,5 @@ class ScoringContext:
             dealer_streak=int(getattr(env, "dealer_streak", 0) or 0),
             discard_count=int(getattr(env, "discard_count", 0) or 0),
             open_meld_count=int(getattr(env, "total_open_melds", 0) or 0),
+            flower_win_type=getattr(env, "flower_win_type", None),
         )

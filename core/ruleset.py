@@ -58,3 +58,5 @@ class Ruleset:
     # - enable_wind_flower_scoring: True 時，開啟圈風/門風/正花/花槓等台數計算
     randomize_seating_and_dealer: bool = False
     enable_wind_flower_scoring: bool = True
+    # - enable_flower_wins: True 時，啟用七搶一／八仙過海的自動結算判斷
+    enable_flower_wins: bool = True
