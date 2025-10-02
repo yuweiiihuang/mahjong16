@@ -52,18 +52,19 @@ def _build_log_fieldnames(max_players: int) -> List[str]:
         "winner",
         "win_source",
         "ron_from",
+        "dealer_pid",
         "win_tile",
+        "remain_tiles",
         "winner_total_tai",
+        "breakdown_tags",
         "winner_hand",
         "winner_melds",
         "winner_flowers",
-        "dealer_pid",
         "quan_feng",
         "dealer_wind",
         "winner_wind",
         "base_points",
         "tai_points",
-        "breakdown_tags",
     ]
     delta_fields = [f"delta_p{i}" for i in range(max_players)]
     total_fields = [f"total_p{i}" for i in range(max_players)]
@@ -110,6 +111,7 @@ def _hand_summary_to_row(summary: Dict[str, Any], max_players: int) -> Dict[str,
     row["breakdown_tags"] = "|".join(
         f"{item.get('key')}={int(item.get('points', 0))}" for item in breakdown
     )
+    row["remain_tiles"] = summary.get("remain_tiles", "")
 
     payments = summary.get("payments") or []
     totals = summary.get("totals_after_hand") or []
