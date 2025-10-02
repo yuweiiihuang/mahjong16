@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
-from ..tiles import tile_to_str, is_flower
-from ..hand import waits_for_hand_16, _counts34  # reuse pure helpers
+from ..tiles import tile_to_str
+from .state import DerivedScoringState, build_state
 from .types import ScoringContext, Meld
 
 
@@ -42,6 +42,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     if winner is None:
         return [0] * ctx.rules.n_players, {i: [] for i in range(ctx.rules.n_players)}
 
+    state: DerivedScoringState = build_state(ctx)
+
     table = ctx.table
     labels = table.labels
 
@@ -62,15 +64,13 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         bd.append(item)
         return pts
 
-    pl = ctx.players[winner]
-    tsumo = str(ctx.win_source).upper() in ("TSUMO", "ZIMO")
-    melds: List[Meld] = pl.melds or []
-    melds_dicts = [{"type": m.type, "tiles": list(m.tiles or [])} for m in melds]
-    flowers = pl.flowers or []
-    has_flowers_total = any(isinstance(f, int) and is_flower(f) for f in flowers) or bool(flowers)
-    hand = list(pl.hand or [])
+    pl = state.player
+    tsumo = state.win.tsumo
+    melds = state.melds
+    flowers = state.flowers
+    has_flowers_total = state.has_flowers_total
     drawn = pl.drawn
-    flower_win_type = getattr(ctx, "flower_win_type", None)
+    flower_win_type = state.flower_win_type
 
     if flower_win_type:
         if flower_win_type == "ba_xian":
@@ -85,46 +85,17 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         return rewards, breakdown_by_player
 
     # concealed tiles
-    concealed_tiles = list(hand)
-    if tsumo and (drawn is not None):
-        concealed_tiles.append(drawn)
-
-    fixed_melds = sum(1 for m in (melds or []) if (m.type or "").upper() in ("CHI", "PONG", "GANG", "ANGANG", "KAKAN"))
-    need = 5 - fixed_melds
-    required_len = need * 3 + 2 if need >= 0 else None
-
-    # ron tile
-    ron_tile = None
-    if not tsumo:
-        wt = ctx.win_tile
-        if isinstance(wt, int):
-            ron_tile = wt
-        else:
-            ld = ctx.last_discard
-            if isinstance(ld, dict):
-                ron_tile = ld.get("tile")
-
-    concealed_for_patterns = list(concealed_tiles)
-    if (not tsumo) and isinstance(ron_tile, int) and (required_len is not None):
-        if len(concealed_for_patterns) == required_len - 1:
-            concealed_for_patterns.append(ron_tile)
-
-    # stats
-    # 門清：不可含明副露。明槓（大明槓 GANG、加槓 KAKAN）視為明副露；暗槓（ANGANG）不破門清。
-    menqing = all((m.type not in ("CHI", "PONG", "GANG", "KAKAN")) for m in melds)
-    fixed_melds_pungs = 0
-    fixed_melds_chis = 0
-    for m in melds:
-        mtype = (m.type or "").upper()
-        tiles_m = m.tiles or []
-        if mtype in ("PONG", "GANG"):
-            fixed_melds_pungs += 1
-        elif mtype == "CHI":
-            fixed_melds_chis += 1
-
-    counts34 = _counts34(concealed_for_patterns)
-    counts34_concealed = _counts34(concealed_tiles)
-    ron_tile_idx = ron_tile if (not tsumo) and isinstance(ron_tile, int) and 0 <= ron_tile < 34 else None
+    concealed_tiles = state.hand.concealed_tiles
+    concealed_for_patterns = state.hand.concealed_for_patterns
+    need = state.hand.need
+    required_len = state.hand.required_len
+    menqing = state.hand.menqing
+    fixed_melds_pungs = state.hand.fixed_melds_pungs
+    fixed_melds_chis = state.hand.fixed_melds_chis
+    counts34 = state.hand.counts34
+    counts34_concealed = state.hand.counts34_concealed
+    ron_tile = state.win.ron_tile
+    ron_tile_idx = state.win.ron_tile_idx
 
     # base patterns
     # 槓上自摸：已含自摸，不再重複加計『自摸』；若門清則僅加『門清』
@@ -158,38 +129,14 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         add("dealer", base=(2 * n + 1))
 
     # ting (聽牌)
-    tenpai_before_draw = False
-    if tsumo:
-        try:
-            waits = waits_for_hand_16(list(pl.hand or []), melds_dicts, ctx.rules, exclude_exhausted=True)
-            tenpai_before_draw = bool(waits)
-        except Exception:
-            tenpai_before_draw = False
+    tenpai_before_draw = state.win.tenpai_before_draw
     if bool(pl.declared_ting) or tenpai_before_draw:
         add("ting")
 
     # 獨聽：僅聽唯一一張牌（邊張/嵌張/單吊）。
-    win_tile_id = None
-    if tsumo and isinstance(drawn, int):
-        win_tile_id = drawn
-    elif (not tsumo) and isinstance(ron_tile, int):
-        win_tile_id = ron_tile
-    base_hand_for_waits = list(pl.hand or [])
-    if (
-        isinstance(win_tile_id, int)
-        and required_len is not None
-        and len(base_hand_for_waits) == required_len
-    ):
-        try:
-            base_hand_for_waits.remove(win_tile_id)
-        except ValueError:
-            pass
-    counts16 = _counts34(base_hand_for_waits)
-    try:
-        waits_for_du = waits_for_hand_16(base_hand_for_waits, melds_dicts, ctx.rules, exclude_exhausted=False)
-    except Exception:
-        waits_for_du = []
-    waits_for_du_set = {w for w in waits_for_du if isinstance(w, int)}
+    win_tile_id = state.win.win_tile_id
+    counts16 = state.hand.counts16
+    waits_for_du_set = state.win.waits_for_du_set
     if isinstance(win_tile_id, int) and waits_for_du_set:
         if len(waits_for_du_set) == 1 and win_tile_id in waits_for_du_set:
             add("du_ting")
@@ -225,16 +172,13 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         return False
 
     # pattern-based
-    all_tiles = list(concealed_for_patterns)
-    for m in melds:
-        all_tiles.extend(m.tiles or [])
-
+    all_tiles = state.all_tiles
     suits = set()
     for t in all_tiles:
         s = tile_to_str(t)
         if len(s) == 2:
             suits.add(s[1])
-    has_honor_total = any(_is_honor(t) for t in all_tiles)
+    has_honor_total = state.has_honor_total
 
     if all_tiles:
         if all(_is_honor(t) for t in all_tiles):
@@ -438,7 +382,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         elif ting_declared_at <= 8 and int(ting_open_melds or 0) == 0:
             add("di_ting")
 
-    win_src = (ctx.win_source or "").upper()
+    win_src = state.win.win_source
     discards = max(0, int(getattr(ctx, "discard_count", 0) or 0))
     open_melds = max(0, int(getattr(ctx, "open_meld_count", 0) or 0))
     if win_src in ("TSUMO", "ZIMO") and discards == 0:
