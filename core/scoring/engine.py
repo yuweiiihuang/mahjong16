@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple
 
 from ..tiles import tile_to_str
 from .state import DerivedScoringState, build_state
+from .breakdown import ScoreAccumulator
 from .types import ScoringContext, Meld
 
 
@@ -45,24 +46,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     state: DerivedScoringState = build_state(ctx)
 
     table = ctx.table
-    labels = table.labels
-
-    def P(key: str, default: int) -> int:
-        return int(table.get(key, default))
-
-    breakdown_by_player: Dict[int, List[Dict[str, Any]]] = {i: [] for i in range(ctx.rules.n_players)}
-    bd: List[Dict[str, Any]] = breakdown_by_player[winner]
-
-    def add(key: str, base: int | None = None, count: int = 1, meta: Dict[str, Any] | None = None) -> int:
-        b = int(P(key, 0) if base is None else base)
-        if b == 0 or count == 0:
-            return 0
-        pts = b * count
-        item = {"key": key, "label": labels.get(key, key), "base": b, "count": count, "points": pts}
-        if meta:
-            item["meta"] = meta
-        bd.append(item)
-        return pts
+    accumulator = ScoreAccumulator(table, winner, ctx.rules.n_players)
 
     pl = state.player
     tsumo = state.win.tsumo
@@ -74,15 +58,15 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     if flower_win_type:
         if flower_win_type == "ba_xian":
-            add("ba_xian")
+            accumulator.add("ba_xian")
         elif flower_win_type == "qi_qiang_yi":
-            add("qi_qiang_yi")
+            accumulator.add("qi_qiang_yi")
         else:
-            add(str(flower_win_type))
+            accumulator.add(str(flower_win_type))
         rewards = [0] * ctx.rules.n_players
-        total = sum(item.get("points", 0) for item in bd)
+        total = accumulator.total()
         rewards[winner] = total
-        return rewards, breakdown_by_player
+        return rewards, accumulator.to_breakdown()
 
     # concealed tiles
     concealed_tiles = state.hand.concealed_tiles
@@ -101,37 +85,37 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     # 槓上自摸：已含自摸，不再重複加計『自摸』；若門清則僅加『門清』
     if tsumo and getattr(ctx, "win_by_gang_draw", False):
         if menqing:
-            add("menqing")
+            accumulator.add("menqing")
     else:
-        if menqing and tsumo and P("menqing_zimo", 3):
-            add("menqing_zimo")
+        if menqing and tsumo and table.get("menqing_zimo", 3):
+            accumulator.add("menqing_zimo")
         else:
             if menqing:
-                add("menqing")
+                accumulator.add("menqing")
             if tsumo:
-                add("zimo")
+                accumulator.add("zimo")
 
     if tsumo and ctx.wall_len == _dead_wall_reserved(ctx):
-        add("hai_di")
+        accumulator.add("hai_di")
     if (not tsumo) and ctx.wall_len == _dead_wall_reserved(ctx):
-        add("he_di")
+        accumulator.add("he_di")
 
     if ctx.win_by_gang_draw:
-        add("gang_shang")
+        accumulator.add("gang_shang")
     if getattr(ctx, "win_by_qiang_gang", False):
-        add("qiang_gang")
+        accumulator.add("qiang_gang")
     if ctx.winner_is_dealer:
         # 動態莊家台：若已連 N 莊 → 2N+1 台（N=0 時為 1 台）
         try:
             n = int(getattr(ctx, "dealer_streak", 0) or 0)
         except Exception:
             n = 0
-        add("dealer", base=(2 * n + 1))
+        accumulator.add("dealer", base=(2 * n + 1))
 
     # ting (聽牌)
     tenpai_before_draw = state.win.tenpai_before_draw
     if bool(pl.declared_ting) or tenpai_before_draw:
-        add("ting")
+        accumulator.add("ting")
 
     # 獨聽：僅聽唯一一張牌（邊張/嵌張/單吊）。
     win_tile_id = state.win.win_tile_id
@@ -139,7 +123,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     waits_for_du_set = state.win.waits_for_du_set
     if isinstance(win_tile_id, int) and waits_for_du_set:
         if len(waits_for_du_set) == 1 and win_tile_id in waits_for_du_set:
-            add("du_ting")
+            accumulator.add("du_ting")
 
     def _is_two_sided_ping_hu_wait(win_tile: int | None) -> bool:
         if not isinstance(win_tile, int):
@@ -182,12 +166,12 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     if all_tiles:
         if all(_is_honor(t) for t in all_tiles):
-            add("zi_yi_se")
+            accumulator.add("zi_yi_se")
         elif len(suits) == 1:
             if has_honor_total:
-                add("hun_yi_se")
+                accumulator.add("hun_yi_se")
             else:
-                add("qing_yi_se")
+                accumulator.add("qing_yi_se")
 
     # peng peng hu
     if fixed_melds_chis == 0 and need >= 0 and required_len is not None:
@@ -198,13 +182,13 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
                 cnt[s] = cnt.get(s, 0) + 1
             mods = [c % 3 for c in cnt.values()]
             if mods.count(2) == 1 and all(m in (0, 2) for m in mods):
-                add("peng_peng_hu")
+                accumulator.add("peng_peng_hu")
 
     if (not tsumo):
         open_from_others = [m for m in melds if (m.type or "").upper() in ("CHI", "PONG", "GANG", "KAKAN") and m.from_pid is not None]
         concealed_melds = [m for m in melds if (m.type or "").upper() == "ANGANG"]
         if len(open_from_others) >= 5 and not concealed_melds and len(concealed_tiles) <= 1:
-            add("quan_qiu_ren")
+            accumulator.add("quan_qiu_ren")
 
     # ping hu
     ping_hu_two_sided = _is_two_sided_ping_hu_wait(win_tile_id)
@@ -221,7 +205,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             if sum(counts34) == len(concealed_for_patterns):
                 # DFS over only chows (reuse menqing-style helper not needed here)
                 if _dfs_only_chows(tuple(counts34), need, False):
-                    add("ping_hu")
+                    accumulator.add("ping_hu")
 
     # 三暗刻 / 四暗刻 / 五暗刻
     concealed_triplets = 0
@@ -240,11 +224,11 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             concealed_triplets += 0
     concealed_triplets += sum(1 for m in melds if (m.type or "").upper() == "ANGANG")
     if concealed_triplets >= 5:
-        add("wu_an_ke")
+        accumulator.add("wu_an_ke")
     elif concealed_triplets >= 4:
-        add("si_an_ke")
+        accumulator.add("si_an_ke")
     elif concealed_triplets >= 3:
-        add("san_an_ke")
+        accumulator.add("san_an_ke")
 
     # xiao/da san yuan and si xi
     def _cnt_total(label: str) -> int:
@@ -272,13 +256,13 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     is_xiao_san_yuan = False
     is_da_san_yuan = False
     if triplets == 2 and has_pair:
-        add("xiao_san_yuan")
+        accumulator.add("xiao_san_yuan")
         is_xiao_san_yuan = True
     if triplets == 3:
-        add("da_san_yuan")
+        accumulator.add("da_san_yuan")
         is_da_san_yuan = True
     if triplets > 0 and not (is_xiao_san_yuan or is_da_san_yuan):
-        add("dragon_pung", count=triplets)
+        accumulator.add("dragon_pung", count=triplets)
 
     def _cnt_wind(label: str) -> int:
         tile_id = None
@@ -298,10 +282,10 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     pairs = ((cntE % 3) == 2) + ((cntS % 3) == 2) + ((cntW % 3) == 2) + ((cntN % 3) == 2)
 
     if trips == 3 and pairs == 1:
-        add("xiao_si_xi")
+        accumulator.add("xiao_si_xi")
     is_da_si_xi = False
     if trips == 4:
-        add("da_si_xi")
+        accumulator.add("da_si_xi")
         is_da_si_xi = True
 
     # excludes/includes constraints can be enforced later if needed
@@ -324,9 +308,9 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             return _cnt_wind(label) // 3 >= 1
 
         if _has_wind_triplet(qf):
-            add("quan_feng_ke")
+            accumulator.add("quan_feng_ke")
         if _has_wind_triplet(my_wind):
-            add("men_feng_ke")
+            accumulator.add("men_feng_ke")
 
     # ====== 正花 / 花槓 ======
     # - 正花：依門風對應的兩朵花（東: 春/梅、南: 夏/蘭、西: 秋/菊、北: 冬/竹）每張 +1
@@ -360,46 +344,46 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             targets = zheng_map.get(my_wind.upper(), set())
             cnt_zheng = len(fset.intersection(targets))
             if cnt_zheng > 0:
-                add("zheng_hua", count=cnt_zheng)
+                accumulator.add("zheng_hua", count=cnt_zheng)
         # 花槓：四季 or 四君子
         has_seasons = {1, 2, 3, 4}.issubset(fset)
         has_gentlemen = {5, 6, 7, 8}.issubset(fset)
         hua_gang_cnt = int(has_seasons) + int(has_gentlemen)
         if hua_gang_cnt:
-            add("hua_gang", count=hua_gang_cnt)
+            accumulator.add("hua_gang", count=hua_gang_cnt)
         unique_flowers = len(fset)
         if flower_win_type is None:
             if unique_flowers == 8:
-                add("ba_xian")
+                accumulator.add("ba_xian")
             elif unique_flowers == 7:
-                add("qi_qiang_yi")
+                accumulator.add("qi_qiang_yi")
 
     ting_declared_at = getattr(pl, "ting_declared_at", None)
     ting_open_melds = getattr(pl, "ting_declared_open_melds", None)
     if isinstance(ting_declared_at, int):
         if ting_declared_at <= 1:
-            add("tian_ting")
+            accumulator.add("tian_ting")
         elif ting_declared_at <= 8 and int(ting_open_melds or 0) == 0:
-            add("di_ting")
+            accumulator.add("di_ting")
 
     win_src = state.win.win_source
     discards = max(0, int(getattr(ctx, "discard_count", 0) or 0))
     open_melds = max(0, int(getattr(ctx, "open_meld_count", 0) or 0))
     if win_src in ("TSUMO", "ZIMO") and discards == 0:
-        add("tian_hu")
+        accumulator.add("tian_hu")
     elif discards == 1 and win_src in ("RON", "TSUMO", "ZIMO"):
-        add("di_hu")
+        accumulator.add("di_hu")
     elif (
         discards > 1
         and discards <= ctx.rules.n_players
         and open_melds == 0
     ):
-        add("ren_hu")
+        accumulator.add("ren_hu")
 
     rewards = [0] * ctx.rules.n_players
-    total = sum(item.get("points", 0) for item in bd)
+    total = accumulator.total()
     rewards[winner] = total
-    return rewards, breakdown_by_player
+    return rewards, accumulator.to_breakdown()
 
 
 def compute_payments(
