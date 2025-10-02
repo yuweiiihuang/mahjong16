@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..breakdown import ScoreAccumulator
-from ..common import _dfs_only_chows
+from ..utils import _dfs_only_chows
 from ..state import DerivedScoringState
 from ..types import ScoringContext
 
