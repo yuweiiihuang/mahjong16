@@ -124,12 +124,145 @@ def run_demo(
         discard_id = 0
         last_seen_discard: Optional[tuple] = None  # (pid, tile)
 
+
+        def process_hand_end() -> bool:
+            """Finalize current hand: scoring, rendering, table update.
+
+            Returns True when the session should terminate early (e.g. negative points trigger).
+            """
+
+            ctx = ScoringContext.from_env(env, table)
+            rewards2, bd = score_with_breakdown(ctx)
+            payments_raw, _ = compute_payments(
+                ctx,
+                getattr(env.rules, "base_points", 100),
+                getattr(env.rules, "tai_points", 20),
+                rewards=rewards2,
+                breakdown=bd,
+            )
+            payments = [0 for _ in range(n_players)]
+            for pid in range(n_players):
+                delta = 0
+                try:
+                    delta = int(payments_raw[pid])
+                except Exception:
+                    delta = 0
+                payments[pid] = delta
+                totals[pid] += delta
+                hand_delta[pid] = delta
+
+            winner = env.winner
+            if winner is not None:
+                try:
+                    pl = env.players[winner]
+                    hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
+                    melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
+                    flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+                    win_src = (getattr(env, "win_source", None) or "").upper()
+                    ron_from = getattr(env, "turn_at_win", None) if win_src == "RON" else None
+                    win_tile = getattr(env, "win_tile", None)
+                    qf = getattr(env, "quan_feng", None)
+                    dealer_pid = getattr(env, "dealer_pid", None)
+                    seat_winds = getattr(env, "seat_winds", None)
+                    dealer_wind = None
+                    winner_wind = None
+                    try:
+                        if isinstance(seat_winds, list):
+                            if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
+                                dealer_wind = seat_winds[dealer_pid]
+                            if 0 <= winner < len(seat_winds):
+                                winner_wind = seat_winds[winner]
+                    except Exception:
+                        dealer_wind = None
+                        winner_wind = None
+                    hand_summaries.append({
+                        "hand_index": hand_idx,
+                        "winner": winner,
+                        "win_source": win_src,
+                        "ron_from": ron_from,
+                        "win_tile": win_tile,
+                        "hand": hand_tiles,
+                        "melds": melds,
+                        "flowers": flowers,
+                        "breakdown": list(bd.get(winner, [])),
+                        "payments": list(payments),
+                        "base_points": getattr(env.rules, "base_points", None),
+                        "tai_points": getattr(env.rules, "tai_points", None),
+                        "quan_feng": qf,
+                        "dealer_pid": dealer_pid,
+                        "dealer_wind": dealer_wind,
+                        "winner_wind": winner_wind,
+                        "totals_after_hand": list(totals),
+                    })
+                except Exception:
+                    pass
+            else:
+                try:
+                    qf = getattr(env, "quan_feng", None)
+                    dealer_pid = getattr(env, "dealer_pid", None)
+                    seat_winds = getattr(env, "seat_winds", None)
+                    dealer_wind = None
+                    try:
+                        if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
+                            dealer_wind = seat_winds[dealer_pid]
+                    except Exception:
+                        dealer_wind = None
+                    hand_summaries.append({
+                        "hand_index": hand_idx,
+                        "winner": None,
+                        "result": "DRAW",
+                        "payments": list(payments),
+                        "base_points": getattr(env.rules, "base_points", None),
+                        "tai_points": getattr(env.rules, "tai_points", None),
+                        "quan_feng": qf,
+                        "dealer_pid": dealer_pid,
+                        "dealer_wind": dealer_wind,
+                        "totals_after_hand": list(totals),
+                    })
+                except Exception:
+                    pass
+
+            render_reveal(
+                env,
+                breakdown=bd,
+                payments=payments,
+                base_points=getattr(env.rules, "base_points", None),
+                tai_points=getattr(env.rules, "tai_points", None),
+                totals=list(totals),
+            )
+
+            tm.finish_hand(env)
+            if play_until_negative and any(pt < 0 for pt in totals):
+                print("=== stop (negative points reached) ===")
+                return True
+            return False
+
+        if getattr(env, "done", False):
+            if process_hand_end():
+                return _finalize_demo(hand_summaries)
+            continue
+
         # quick header per hand
         print(
             f"--- Hand {hand_idx} | Quan={getattr(env,'quan_feng','?')} | Dealer=P{getattr(env,'dealer_pid',0)} | Streak={getattr(env,'dealer_streak',0)} ---"
         )
 
         while True:
+            acts_current = obs.get("legal_actions") or []
+            if not acts_current:
+                recalculated = env.legal_actions()
+                if recalculated:
+                    obs = dict(obs)
+                    obs["legal_actions"] = recalculated
+                    acts_current = recalculated
+                elif getattr(env, "done", False):
+                    if process_hand_end():
+                        return _finalize_demo(hand_summaries)
+                    break
+                else:
+                    raise AssertionError(
+                        f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}."
+                    )
 
             act = strategies[obs.get("player")].choose(obs)
 
@@ -186,114 +319,7 @@ def run_demo(
                         )
 
             if done:
-                ctx = ScoringContext.from_env(env, table)
-                rewards2, bd = score_with_breakdown(ctx)
-                payments_raw, _ = compute_payments(
-                    ctx,
-                    getattr(env.rules, "base_points", 100),
-                    getattr(env.rules, "tai_points", 20),
-                    rewards=rewards2,
-                    breakdown=bd,
-                )
-                # Normalize payments to match player count and update session totals
-                payments = [0 for _ in range(n_players)]
-                for pid in range(n_players):
-                    delta = 0
-                    try:
-                        delta = int(payments_raw[pid])
-                    except Exception:
-                        delta = 0
-                    payments[pid] = delta
-                    totals[pid] += delta
-                    hand_delta[pid] = delta
-                winner = env.winner
-                if winner is not None:
-                    # Record winner summary for later printing
-                    try:
-                        pl = env.players[winner]
-                        hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
-                        melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
-                        flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
-                        win_src = (getattr(env, "win_source", None) or "").upper()
-                        ron_from = getattr(env, "turn_at_win", None) if win_src == "RON" else None
-                        win_tile = getattr(env, "win_tile", None)
-                        # table info
-                        qf = getattr(env, "quan_feng", None)
-                        dealer_pid = getattr(env, "dealer_pid", None)
-                        seat_winds = getattr(env, "seat_winds", None)
-                        dealer_wind = None
-                        winner_wind = None
-                        try:
-                            if isinstance(seat_winds, list):
-                                if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
-                                    dealer_wind = seat_winds[dealer_pid]
-                                if 0 <= winner < len(seat_winds):
-                                    winner_wind = seat_winds[winner]
-                        except Exception:
-                            dealer_wind = None
-                            winner_wind = None
-                        hand_summaries.append({
-                            "hand_index": hand_idx,
-                            "winner": winner,
-                            "win_source": win_src,
-                            "ron_from": ron_from,
-                            "win_tile": win_tile,
-                            "hand": hand_tiles,
-                            "melds": melds,
-                            "flowers": flowers,
-                            "breakdown": list(bd.get(winner, [])),
-                            "payments": list(payments),
-                            "base_points": getattr(env.rules, "base_points", None),
-                            "tai_points": getattr(env.rules, "tai_points", None),
-                            "quan_feng": qf,
-                            "dealer_pid": dealer_pid,
-                            "dealer_wind": dealer_wind,
-                            "winner_wind": winner_wind,
-                            "totals_after_hand": list(totals),
-                        })
-                    except Exception:
-                        # Best-effort; avoid crashing summary collection
-                        pass
-                else:
-                    # Flow/draw hand: record a simple summary entry
-                    try:
-                        qf = getattr(env, "quan_feng", None)
-                        dealer_pid = getattr(env, "dealer_pid", None)
-                        seat_winds = getattr(env, "seat_winds", None)
-                        dealer_wind = None
-                        try:
-                            if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
-                                dealer_wind = seat_winds[dealer_pid]
-                        except Exception:
-                            dealer_wind = None
-                        hand_summaries.append({
-                            "hand_index": hand_idx,
-                            "winner": None,
-                            "result": "DRAW",
-                            "payments": list(payments),
-                            "base_points": getattr(env.rules, "base_points", None),
-                            "tai_points": getattr(env.rules, "tai_points", None),
-                            "quan_feng": qf,
-                            "dealer_pid": dealer_pid,
-                            "dealer_wind": dealer_wind,
-                            "totals_after_hand": list(totals),
-                        })
-                    except Exception:
-                        pass
-                # ROUND_END: reveal and stop（將該局贏家的 breakdown 一併呈現在面板裡）
-                render_reveal(
-                    env,
-                    breakdown=bd,
-                    payments=payments,
-                    base_points=getattr(env.rules, "base_points", None),
-                    tai_points=getattr(env.rules, "tai_points", None),
-                    totals=list(totals),
-                )
-                # Update table state and possibly continue to next hand
-                tm.finish_hand(env)
-                if play_until_negative and any(pt < 0 for pt in totals):
-                    # Negative balance reached; stop the session.
-                    print("=== stop (negative points reached) ===")
+                if process_hand_end():
                     return _finalize_demo(hand_summaries)
                 break
 

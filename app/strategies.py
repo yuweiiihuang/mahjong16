@@ -38,19 +38,41 @@ class AutoStrategy:
                 return {"type": "PASS"}
             cand.sort(key=lambda a: PRIORITY.get((a.get("type") or "").upper(), -1), reverse=True)
             return cand[0]
-        hu = next((a for a in acts if (a.get("type") or "").upper() == "HU"), None)
+        if not acts:
+            # TURN phase should always provide at least one legal action, but fall back defensively.
+            return {"type": "PASS"}
+
+        def find_action(kind: str, predicate=None) -> Optional[Action]:
+            for candidate in acts:
+                if (candidate.get("type") or "").upper() != kind:
+                    continue
+                if predicate is None or predicate(candidate):
+                    return candidate
+            return None
+
+        hu = find_action("HU")
         if hu is not None:
             return hu
-        drawn_discard = next(
-            (a for a in acts if (a.get("type") or "").upper() == "DISCARD" and a.get("from") == "drawn"),
-            None
-        )
+
+        drawn_discard = find_action("DISCARD", lambda a: a.get("from") == "drawn")
         if drawn_discard is not None:
             return drawn_discard
-        for a in acts:
-            if (a.get("type") or "").upper() == "DISCARD":
-                return a
-        return {"type": "PASS"}
+
+        hand_discard = find_action("DISCARD")
+        if hand_discard is not None:
+            return hand_discard
+
+        ting = find_action("TING")
+        if ting is not None:
+            return ting
+
+        gang_like = find_action("ANGANG") or find_action("KAKAN")
+        if gang_like is not None:
+            return gang_like
+
+        # If we reach here, the action list only contains options the heuristic does not recognise.
+        # Choose the first one to avoid emitting an illegal PASS back to the environment.
+        return acts[0]
 
 
 class HumanStrategy:
