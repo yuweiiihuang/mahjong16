@@ -77,4 +77,21 @@ def apply_patterns_rules(
     elif concealed_triplets >= 3:
         acc.add("san_an_ke")
 
+    if not state.win.tsumo:
+        open_from_others = [
+            m
+            for m in state.melds
+            if (m.type or "").upper() in ("CHI", "PONG", "GANG", "KAKAN")
+            and m.from_pid is not None
+        ]
+        concealed_melds = [
+            m for m in state.melds if (m.type or "").upper() == "ANGANG"
+        ]
+        if (
+            len(open_from_others) >= 5
+            and not concealed_melds
+            and len(state.hand.concealed_tiles) <= 1
+        ):
+            acc.add("quan_qiu_ren")
+
     return True

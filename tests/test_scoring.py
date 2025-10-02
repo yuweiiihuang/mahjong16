@@ -218,6 +218,36 @@ def test_peng_peng_hu_ron_from_discard():
     assert item and item["points"] == 4
 
 
+def test_quan_qiu_ren_from_fully_open_ron():
+    """放槍胡時已向他家取至少五副牌且無暗槓，手牌僅剩一張 → 全求人。"""
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    env.win_tile = _tid("9W")
+    env.last_discard = {"player": 1, "tile": _tid("9W")}
+
+    p = env.players[0]
+    p["flowers"] = []
+    p["melds"] = [
+        {"type": "CHI", "tiles": [_tid("1W"), _tid("2W"), _tid("3W")], "from_pid": 1},
+        {"type": "CHI", "tiles": [_tid("4W"), _tid("5W"), _tid("6W")], "from_pid": 2},
+        {"type": "CHI", "tiles": [_tid("7W"), _tid("8W"), _tid("9W")], "from_pid": 3},
+        {"type": "PONG", "tiles": [_tid("1D")] * 3, "from_pid": 1},
+        {"type": "PONG", "tiles": [_tid("2D")] * 3, "from_pid": 2},
+    ]
+    p["hand"] = [_tid("9W")]
+    p["drawn"] = None
+
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    item = _find_item(bd0, "quan_qiu_ren")
+    expected = table.get("quan_qiu_ren", 0)
+    if expected:
+        assert item is not None
+        assert item["points"] == expected
+    else:
+        assert item is None
+
+
 def test_ping_hu_is_2():
     """平胡（全順子 + 一對，副露不可含 PONG/GANG，可含 CHI）→ +2。"""
     env, table = _fresh_env()
