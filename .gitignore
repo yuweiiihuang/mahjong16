@@ -16,6 +16,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.python-version
 
 # 封裝/建置
 build/
@@ -32,10 +33,11 @@ env/
 ENV/
 env.bak/
 venv.bak/
+*.toml
+*.lock
 
 # 文件產出 / 文件站台
 /site
-/log
 
 # 測試 / 型別 / 工具快取
 .pytest_cache/

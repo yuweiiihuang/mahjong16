@@ -123,8 +123,6 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             fixed_melds_chis += 1
 
     counts34 = _counts34(concealed_for_patterns)
-    counts34_concealed = _counts34(concealed_tiles)
-    ron_tile_idx = ron_tile if (not tsumo) and isinstance(ron_tile, int) and 0 <= ron_tile < 34 else None
 
     # base patterns
     # 槓上自摸：已含自摸，不再重複加計『自摸』；若門清則僅加『門清』
@@ -174,55 +172,14 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         win_tile_id = drawn
     elif (not tsumo) and isinstance(ron_tile, int):
         win_tile_id = ron_tile
-    base_hand_for_waits = list(pl.hand or [])
-    if (
-        isinstance(win_tile_id, int)
-        and required_len is not None
-        and len(base_hand_for_waits) == required_len
-    ):
-        try:
-            base_hand_for_waits.remove(win_tile_id)
-        except ValueError:
-            pass
-    counts16 = _counts34(base_hand_for_waits)
     try:
-        waits_for_du = waits_for_hand_16(base_hand_for_waits, melds_dicts, ctx.rules, exclude_exhausted=False)
+        waits_for_du = waits_for_hand_16(list(pl.hand or []), melds_dicts, ctx.rules, exclude_exhausted=False)
     except Exception:
         waits_for_du = []
-    waits_for_du_set = {w for w in waits_for_du if isinstance(w, int)}
-    if isinstance(win_tile_id, int) and waits_for_du_set:
-        if len(waits_for_du_set) == 1 and win_tile_id in waits_for_du_set:
+    if isinstance(win_tile_id, int) and waits_for_du:
+        waits_set = {w for w in waits_for_du if isinstance(w, int)}
+        if len(waits_set) == 1 and win_tile_id in waits_set:
             add("du_ting")
-
-    def _is_two_sided_ping_hu_wait(win_tile: int | None) -> bool:
-        if not isinstance(win_tile, int):
-            return False
-        if win_tile < 0 or win_tile >= 34:
-            return False
-        if win_tile not in waits_for_du_set:
-            return False
-        if win_tile >= 27:
-            return False
-
-        for a in range(33):
-            b = a + 1
-            if b >= 34:
-                break
-            if counts16[a] <= 0 or counts16[b] <= 0:
-                continue
-            if (a // 9) != (b // 9):
-                continue
-            left = a - 1 if (a % 9) != 0 else None
-            right = b + 1 if (b % 9) != 8 else None
-            if left is None or right is None:
-                continue
-            if (left // 9) != (a // 9) or (right // 9) != (a // 9):
-                continue
-            if win_tile == left and right in waits_for_du_set:
-                return True
-            if win_tile == right and left in waits_for_du_set:
-                return True
-        return False
 
     # pattern-based
     all_tiles = list(concealed_for_patterns)
@@ -263,16 +220,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             add("quan_qiu_ren")
 
     # ping hu
-    ping_hu_two_sided = _is_two_sided_ping_hu_wait(win_tile_id)
-
-    if (
-        fixed_melds_pungs == 0
-        and fixed_melds_chis > 0
-        and need >= 0
-        and required_len is not None
-        and ping_hu_two_sided
-        and not tsumo  # 平胡僅限榮牌
-    ):
+    if fixed_melds_pungs == 0 and fixed_melds_chis > 0 and need >= 0 and required_len is not None:
         if len(concealed_for_patterns) == required_len and not has_flowers_total and not has_honor_total:
             if sum(counts34) == len(concealed_for_patterns):
                 # DFS over only chows (reuse menqing-style helper not needed here)
@@ -283,13 +231,6 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     concealed_triplets = 0
     if need >= 0 and required_len is not None and len(concealed_for_patterns) == required_len:
         max_triplets = _max_concealed_triplets(tuple(counts34), need, False)
-        if ron_tile_idx is not None and max_triplets > 0:
-            if (
-                counts34[ron_tile_idx] >= 3
-                and counts34_concealed[ron_tile_idx] < 3
-                and counts34[ron_tile_idx] == counts34_concealed[ron_tile_idx] + 1
-            ):
-                max_triplets = max(max_triplets - 1, 0)
         if max_triplets > 0:
             concealed_triplets += max_triplets
         elif max_triplets == 0:

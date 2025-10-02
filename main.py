@@ -38,17 +38,6 @@ if __name__ == "__main__":
         default=1000,
         help="Starting points allocated to each player. Default: 1000",
     )
-    parser.add_argument(
-        "--log-dir",
-        type=str,
-        default=None,
-        help="Optional directory for per-hand summary logs (timestamped CSV). Default: disabled",
-    )
-    parser.add_argument(
-        "--no-ui",
-        action="store_true",
-        help="Run headless (disable interactive console UI). Implies logging unless overridden.",
-    )
     args = parser.parse_args()
 
     human_str = (args.human or "").strip().lower()
@@ -73,19 +62,10 @@ if __name__ == "__main__":
     if start_points <= 0:
         raise SystemExit("Invalid --start-points value. Must be > 0.")
 
-    enable_ui = not args.no_ui
-    log_dir = args.log_dir
-    if not enable_ui and not log_dir:
-        log_dir = "logs"
-    if not enable_ui:
-        human_pid = None
-
     run_demo(
         seed=args.seed,
         human_pid=human_pid,
         bot=args.bot,
         hands=args.hands,
         start_points=start_points,
-        log_dir=log_dir,
-        enable_ui=enable_ui,
     )
