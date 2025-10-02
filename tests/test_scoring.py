@@ -204,6 +204,28 @@ def test_ping_hu_is_2():
     assert rewards[0] == 2
 
 
+def test_ping_hu_requires_no_flowers():
+    """平胡需同時滿足『無字無花』，有任何花牌即不應計分。"""
+    env, table = _fresh_env()
+    _set_winner_basic(env, pid=0, win_source="RON")
+    p = env.players[0]
+    p["melds"] = [
+        {"type": "CHI", "tiles": [_tid("1W"), _tid("2W"), _tid("3W")]},
+        {"type": "CHI", "tiles": [_tid("4W"), _tid("5W"), _tid("6W")]},
+    ]
+    p["flowers"] = [_tid("F1")]
+    p["hand"] = [
+        _tid("2D"), _tid("3D"), _tid("4D"),
+        _tid("5D"), _tid("6D"), _tid("7D"),
+        _tid("2B"), _tid("3B"), _tid("4B"),
+        _tid("9W"), _tid("9W"),
+    ]
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    bd0 = breakdown[0]
+    assert _find_item(bd0, "ping_hu") is None
+    assert rewards[0] == 0
+
+
 def test_qing_yi_se_only_8():
     """清一色 → +8；加入一組 CHI 與一組數牌 PONG 打破平胡/門清，避免疊其他台。"""
     env, table = _fresh_env()

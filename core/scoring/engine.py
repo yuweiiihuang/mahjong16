@@ -67,6 +67,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
     melds: List[Meld] = pl.melds or []
     melds_dicts = [{"type": m.type, "tiles": list(m.tiles or [])} for m in melds]
     flowers = pl.flowers or []
+    has_flowers_total = any(isinstance(f, int) and is_flower(f) for f in flowers) or bool(flowers)
     hand = list(pl.hand or [])
     drawn = pl.drawn
 
@@ -207,7 +208,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
 
     # ping hu
     if fixed_melds_pungs == 0 and fixed_melds_chis > 0 and need >= 0 and required_len is not None:
-        if len(concealed_for_patterns) == required_len:
+        if len(concealed_for_patterns) == required_len and not has_flowers_total and not has_honor_total:
             if sum(counts34) == len(concealed_for_patterns):
                 # DFS over only chows (reuse menqing-style helper not needed here)
                 if _dfs_only_chows(tuple(counts34), need, False):
