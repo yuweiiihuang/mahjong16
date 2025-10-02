@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Dict
 
 from ..breakdown import ScoreAccumulator
-from ..common import _max_concealed_triplets, is_honor, tile_label
+from ..common import is_honor, tile_label
+from ..utils import _max_concealed_triplets
 from ..state import DerivedScoringState
 from ..types import ScoringContext
 
