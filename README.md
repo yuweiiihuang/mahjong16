@@ -1,78 +1,100 @@
 # mahjong16 — 台灣 16 張麻將環境骨架
 
-`mahjong16` 提供可擴充的台灣 16 張麻將模擬環境，適合作為 AI 對局與強化學習的基礎。
+`mahjong16` 提供可擴充的台灣 16 張麻將模擬環境，協助研究 AI 對局、策略搜尋與強化學習。核心模組保持純函式與可測性，周邊程式提供 CLI 範例、bot 策略與訓練骨架。
 
 ## 功能特色
 
-- **drawn 模式**：每位玩家固定 16 張手牌，輪到自己時先摸成 `drawn` 再決定棄牌，莊家開局即持有 `drawn`。
-- **反應視窗與優先權**：棄牌後依距離與「胡>槓>碰>吃」排序，允許其他玩家插入行動。
-- **尾牌留置**：支援固定留牌或「一槓一」模式，若牆剩餘牌不足則流局。
-- **胡牌判定（純函式）**：`core.hand.is_win_16` 實作「五面子一眼」判定；另提供 `waits_*` 計算聽牌等待。
-- **計分引擎（可換表）**：`core/scoring/engine.py` 依 `taiwanese_mahjong_scoring.json` profiles 計分；以 `ScoringContext` 注入環境快照與計分表。
-- **範例對局 bot**：提供隨機策略與簡單啟發式兩種 bot 供測試或自我對弈。
-- **強化學習骨架**：包含 policy‑value 網路、Replay Buffer 與自我對弈資料產生（需自行安裝 PyTorch）。
+- **16 張 drawn 環境與桌局管理**：`core.env.Mahjong16Env` 實作發牌、摸牌、反應與回合流程；`app.table.TableManager` 追加多局輪莊、圈風推進與連莊計數。
+- **反應優先權與插房處理**：棄牌後依距離與「胡 > 槓 > 碰 > 吃」排序查詢，支援搶槓、補槓與聽牌鎖定。
+- **尾牌留置與流局**：支援固定尾牌或「一槓一」模式；牆不足時自動流局並保留計算狀態。
+- **型別化觀察與分析**：`core.types` 定義 Action/Observation schema，`core.analysis` 提供純函式觀察分析，利於 UI、bots 與測試共用。
+- **模組化計分引擎**：`core/scoring` 拆分狀態整理、規則管線與 breakdown 聚合，可替換 JSON 計分表或覆寫規則。
+- **CLI Demo 與紀錄工具**：`main.py` 呼叫 `app.runtime.run_demo` 提供 Rich UI、headless 進度列與 CSV 日誌 (`app.logging.write_hand_log`)；可指定手數、起始分與 bot 策略。
+- **強化學習腳手架**：`rl/` 包含簡易網路、Replay Buffer 與自我對弈流程，對接核心環境即可擴充訓練方案。
 
 ## 快速開始
 
 ```bash
 pip install -r requirements.txt
-python main.py      # CLI 範例
-pytest -q           # 執行測試
+python main.py                # CLI 範例（預設 Rich UI）
+python main.py --no-ui --hands 10 --log-dir logs  # Headless 模式 + CSV
+pytest -q                     # 執行回歸測試
 ```
 
-## 設計重點
+建議以 `python -m 模組` 方式啟動自訂腳本，例如：
 
-- 核心規則與模擬位於 `core/`，與 bots、RL 模組解耦。
-- 環境 API：`reset()` 初始化；`legal_actions()` 產生合法動作；`step(action)` 進行棄牌或反應並回傳新狀態。
-- 手牌判定與計分解耦：`core/hand` 僅提供純計算；計分 IO 僅在 `core/scoring/tables`，計分邏輯在 `core/scoring/engine`。
-- 以 `ScoringContext` 封裝環境必要快照（玩家手牌/副露/來源等），利於注入與單元測試。
-- 狀態欄位包含 `hand`、`drawn`、`flowers`、`melds`、`river` 等，方便後續擴充計算。
+```bash
+python -m core.env            # 確認環境可匯入
+python -m scripts.bench_sim --n 10000
+```
 
-## 專案架構
+## 重構後模組導覽
 
 ```text
 mahjong16/
-├─ core/                          # 規則、模擬與計分核心
-│  ├─ tiles.py                    # 牌編碼、洗牌、轉字串
-│  ├─ ruleset.py                  # 場規設定（含尾牌留置、計分 profile 名稱）
-│  ├─ env.py                      # 單桌環境：reset/step/legal_actions
-│  ├─ hand.py                     # 純手牌判定：is_win_16 / waits_*
+├─ core/                              # 規則、模擬與資料型別核心
+│  ├─ analysis.py                     # 觀察分析 helpers（純函式）
+│  ├─ env.py                          # Mahjong16Env（reset / step / legal_actions）
+│  ├─ hand.py                         # 五面子一眼判定、聽牌搜尋
+│  ├─ ruleset.py                      # 場規設定（尾牌、計分 profile 等）
+│  ├─ tiles.py                        # 牌編碼、洗牌與格式化
+│  ├─ types.py                        # Action/Observation TypedDict 定義
 │  └─ scoring/
-│     ├─ engine.py                # 計分引擎（score_with_breakdown）
-│     ├─ tables.py                # 計分表載入（JSON profiles + labels）
-│     └─ types.py                 # ScoringTable / ScoringContext 型別
-├─ app/                           # Demo 執行與互動策略
-│  ├─ runtime.py                  # Demo 執行流程（預載計分表、顯示結果）
-│  ├─ strategies.py               # Auto/Human 策略（使用 hand.waits_*）
-│  └─ formatting.py               # CLI 顯示用格式化工具
-├─ ui/                            # Rich 終端 UI
-│  └─ console.py                  # 公開資訊與攤牌畫面渲染
-├─ bots/                          # 範例對局 bot
-│  ├─ random_bot.py               # 隨機策略
-│  ├─ rulebot.py                  # 極簡啟發式
-│  └─ greedy.py                   # 貪婪啟發式策略
-├─ rl/                            # 自我對弈與訓練骨架
+│     ├─ engine.py                    # score_with_breakdown、compute_payments
+│     ├─ breakdown.py                 # 台數累加器與輸出格式
+│     ├─ state.py                     # 計分所需衍生狀態
+│     ├─ rules/                       # 花牌、門清等規則節點
+│     ├─ tables.py                    # JSON 計分表載入與覆寫
+│     ├─ types.py                     # ScoringContext / PlayerView 型別
+│     └─ utils.py & common.py         # 共用工具（番種判定、分類）
+├─ app/                               # CLI demo 與互動策略
+│  ├─ runtime.py                      # Gameplay loop、UI 更新、計分整合
+│  ├─ table.py                        # TableManager：多局流程控制
+│  ├─ strategies.py                   # Auto/Human/Greedy 策略封裝
+│  ├─ formatting.py                   # Rich UI 格式化工具
+│  └─ logging.py                      # 手局摘要 CSV 輸出
+├─ ui/
+│  ├─ console.py                      # Rich 終端 UI（公資訊 / 攤牌 / 統計）
+│  └─ rich_helpers.py                 # Rich 元件共用工具
+├─ bots/                              # 範例 bot 策略
+│  ├─ greedy.py
+│  ├─ random_bot.py
+│  └─ rulebot.py
+├─ rl/                                # 自我對弈與訓練骨架
+│  ├─ buffer.py
 │  ├─ net.py
 │  ├─ selfplay.py
-│  ├─ buffer.py
 │  └─ train.py
-├─ scripts/                       # 評估與壓測（樣板）
+├─ tests/                             # pytest 回歸套件
+│  ├─ conftest.py                     # 共享 fixtures
+│  ├─ test_env_basic.py / test_gangs.py / ...
+│  └─ scoring/                        # scoring 引擎拆分測試
+│     ├─ test_engine_regression.py
+│     ├─ test_breakdown.py
+│     ├─ test_rules.py
+│     └─ test_state.py
+├─ scripts/                           # 評估、壓測工具
 │  ├─ eval_league.py
 │  └─ bench_sim.py
-├─ tests/                         # 單元測試
-│  ├─ test_env_basic.py
-│  ├─ test_reaction_basic.py
-│  ├─ test_deadwall.py
-│  ├─ test_tsumo.py
-│  ├─ test_win_basic.py
-│  └─ test_scoring.py
-├─ taiwanese_mahjong_scoring.json # 計分 profiles 與標籤
-├─ main.py                        # CLI Demo 入口
-└─ requirements.txt
+├─ main.py                            # CLI Demo 入口（argparse）
+└─ taiwanese_mahjong_scoring.json     # 計分 profiles 與標籤
 ```
+
+## 重構亮點
+
+- `core.types`、`core.analysis` 將觀察與操作 schema 集中管理，減少跨模組耦合。
+- 計分流程拆分為 `state -> rules -> breakdown` 三層；可針對單一步驟撰寫測試或插入自訂規則。
+- CLI demo 新增 `TableManager`、headless 進度列與 CSV 記錄，方便跑大量自動對局。
+- 測試新增 `tests/scoring` 子套件覆蓋衍生狀態、規則節點與累計台數。
+
+## 測試與開發建議
+
+- 變更核心規則或計分前，請先執行 `pytest -q`；新增番種時補上 regression case。
+- 若修改 `taiwanese_mahjong_scoring.json`，確認鍵名仍符合 `core/scoring/tables.py` 需求。
+- Bot 或 RL 實驗請使用 `Mahjong16Env(seed=...)` 或 `app.table.TableManager(..., seed=...)` 提供可重現的亂數。
 
 ## 待辦事項
 
-- 加槓 / 暗槓、計分與結算、服務部署與模型匯出。
-- 擴充 bot 與搜尋／策略演算法。
-- 完成 `train.py` 強化學習流程。
+- 補齊槓牌相關台數（暗槓/加槓/搶槓）的可配置化規則與測試。
+- 增加更強的策略樣板（Monte Carlo、Simple Search）與自動評估腳本。
+- 完成 `rl/train.py` 範例訓練流程並串接記錄檔分析。

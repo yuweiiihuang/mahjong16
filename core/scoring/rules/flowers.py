@@ -6,7 +6,7 @@ from ..types import ScoringContext
 
 
 def _flower_no(tile: int) -> int | None:
-    from ..tiles import tile_to_str
+    from ...tiles import tile_to_str
 
     label = tile_to_str(tile)
     if label and label.startswith("F"):
