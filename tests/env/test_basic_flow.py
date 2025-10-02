@@ -1,4 +1,5 @@
-from core import Mahjong16Env, Ruleset
+from core import Mahjong16Env
+from core.ruleset import Ruleset
 from core.tiles import flower_ids
 
 def test_reset_and_deal():
@@ -14,7 +15,10 @@ def test_reset_and_deal():
     # 當前行動必為莊家
     assert obs["player"] == 0
     # 合法動作應包含丟 drawn
-    assert any(a["type"]=="DISCARD" and a.get("from")=="drawn" for a in obs["legal_actions"])
+    assert any(
+        action["type"] == "DISCARD" and action.get("from") == "drawn"
+        for action in obs["legal_actions"]
+    )
 
 def test_discard_then_reaction_window_and_pass_all():
     env = Mahjong16Env(Ruleset(), seed=123)
@@ -27,9 +31,9 @@ def test_discard_then_reaction_window_and_pass_all():
     assert obs2["phase"] == "REACTION"
     assert obs2["player"] == 1, "丟牌後應由下家先回應"
     # 三家都 PASS -> 輪到 P1 摸到 drawn，phase 回到 TURN
-    obs3, _, _, _ = env.step({"type":"PASS"})
-    obs4, _, _, _ = env.step({"type":"PASS"})
-    obs5, _, _, _ = env.step({"type":"PASS"})
+    obs3, _, _, _ = env.step({"type": "PASS"})
+    obs4, _, _, _ = env.step({"type": "PASS"})
+    obs5, _, _, _ = env.step({"type": "PASS"})
     assert obs5["phase"] == "TURN"
     assert obs5["player"] == 1
     assert env.players[1]["drawn"] is not None

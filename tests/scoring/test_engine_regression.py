@@ -1,15 +1,9 @@
-from core import Mahjong16Env, Ruleset
+from core import Mahjong16Env
+from core.ruleset import Ruleset
 from core.scoring.engine import compute_payments, score_with_breakdown
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
-from core.tiles import tile_to_str
-
-
-def _tid(label: str) -> int:
-    for i in range(128):
-        if tile_to_str(i) == label:
-            return i
-    raise AssertionError(label)
+from core.tiles import Tile
 
 
 def _prepare_env():
@@ -44,13 +38,13 @@ def test_score_and_payment_consistency_for_menqing_tsumo():
     p0 = env.players[0]
     p0["melds"] = []
     p0["hand"] = (
-        [_tid("1W")] * 4
-        + [_tid("2W")] * 4
-        + [_tid("3W")] * 4
-        + [_tid("4D")] * 3
-        + [_tid("E")]
+        [int(Tile.W1)] * 4
+        + [int(Tile.W2)] * 4
+        + [int(Tile.W3)] * 4
+        + [int(Tile.D4)] * 3
+        + [int(Tile.E)]
     )
-    p0["drawn"] = _tid("E")
+    p0["drawn"] = int(Tile.E)
     env.wall = [0] * (env.rules.dead_wall_base + 5)
 
     ctx = ScoringContext.from_env(env, table)
@@ -68,3 +62,37 @@ def test_score_and_payment_consistency_for_menqing_tsumo():
     assert payments[0] > 0
     assert sum(payments) == 0
     assert bd == breakdown
+
+
+def _points(breakdown, key: str) -> int:
+    for item in breakdown:
+        if item["key"] == key:
+            return item["points"]
+    return 0
+
+
+def test_peng_peng_hu_breakdown_matches_table():
+    env, table = _prepare_env()
+    _set_winner(env, 0, "TSUMO")
+
+    p0 = env.players[0]
+    p0["flowers"] = []
+    p0["melds"] = []
+    p0["hand"] = (
+        [int(Tile.W1)] * 3
+        + [int(Tile.W2)] * 3
+        + [int(Tile.D3)] * 3
+        + [int(Tile.D4)] * 3
+        + [int(Tile.B5)] * 3
+        + [int(Tile.W9)]
+    )
+    p0["drawn"] = int(Tile.W9)
+    env.wall = [int(Tile.W9)] * (env.rules.dead_wall_base + 4)
+
+    ctx = ScoringContext.from_env(env, table)
+    rewards, breakdown = score_with_breakdown(ctx)
+    bd0 = breakdown[0]
+
+    assert _points(bd0, "peng_peng_hu") == table.get("peng_peng_hu", 0)
+    assert _points(bd0, "ping_hu") == 0
+    assert rewards[0] >= table.get("peng_peng_hu", 0)
