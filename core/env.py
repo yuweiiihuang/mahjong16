@@ -147,6 +147,19 @@ class Mahjong16Env:
         self.reaction_idx: int = 0
         self.claims: List[Dict[str, Any]] = []
 
+        # 重置上一局留下的結算狀態，避免影響新局發牌流程
+        self.last_discard: Optional[Dict[str, Any]] = None
+        self.done = False
+        self.winner: Optional[int] = None
+        self.win_source: Optional[str] = None
+        self.win_tile: Optional[int] = None
+        self.turn_at_win: Optional[int] = None
+        self.win_by_gang_draw: bool = False      # 槓上自摸
+        self.win_by_qiang_gang: bool = False     # 搶槓
+        self._recent_gang_draw_pid: Optional[int] = None  # 剛補摸者
+        self.qiang_gang_mode: bool = False       # 是否進入搶槓反應
+        self.pending_kakan: Optional[Dict[str, Any]] = None  # {pid,tile}
+
         # 發牌：每家 16 張（補花到非花）；直接放入手牌
         # 按座次（ESWN）之順序發牌
         order_pids: List[int] = list(self.seating_order) if getattr(self, "seating_order", None) else list(range(self.rules.n_players))
@@ -161,22 +174,6 @@ class Mahjong16Env:
         # 莊家先摸一張至 drawn（16+drawn=17）
         if not getattr(self, "done", False):
             self._draw_to_drawn(self.dealer_pid)
-
-        self.last_discard: Optional[Dict[str, Any]] = None
-        self.done = False
-        self.winner: Optional[int] = None
-        self.win_source: Optional[str] = None
-        # 胡的那張牌（自摸=drawn；榮和=最後那張被胡的棄牌）
-        self.win_tile: Optional[int] = None
-        # 胡牌當下的回合持有者（自摸時等於 winner；榮和時等於丟牌者）
-        self.turn_at_win: Optional[int] = None
-
-        # 進階：槓相關旗標
-        self.win_by_gang_draw: bool = False      # 槓上自摸
-        self.win_by_qiang_gang: bool = False     # 搶槓
-        self._recent_gang_draw_pid: Optional[int] = None  # 剛補摸者
-        self.qiang_gang_mode: bool = False       # 是否進入搶槓反應
-        self.pending_kakan: Optional[Dict[str, Any]] = None  # {pid,tile}
 
         return self._obs(self.turn)
 
