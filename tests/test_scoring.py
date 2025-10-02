@@ -35,7 +35,27 @@ def _dummy_breakdown(n_players: int, winner: int, points: int):
 
 
 def _find_item(breakdown, key: str):
-    return next((item for item in breakdown if item.get("key") == key), None)
+    """Locate a scoring item regardless of dict/ScoreItem representation."""
+
+    for item in breakdown:
+        if isinstance(item, dict):
+            if item.get("key") == key:
+                return item
+            continue
+        # ScoreAccumulator may eventually emit ScoreItem instances directly.
+        if getattr(item, "key", None) == key:
+            data = {
+                "key": item.key,
+                "label": getattr(item, "label", key),
+                "base": getattr(item, "base", 0),
+                "count": getattr(item, "count", 0),
+                "points": getattr(item, "points", 0),
+            }
+            meta = getattr(item, "meta", None)
+            if meta:
+                data["meta"] = dict(meta)
+            return data
+    return None
 
 
 def _set_winner_basic(env, pid=0, win_source="RON"):
