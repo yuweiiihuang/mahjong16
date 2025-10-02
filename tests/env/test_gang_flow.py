@@ -1,16 +1,23 @@
-from core import Mahjong16Env, Ruleset
+from __future__ import annotations
+
+from core import Mahjong16Env
+from core.ruleset import Ruleset
 from core.tiles import Tile
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
 from core.scoring.engine import score_with_breakdown
 
 
-def force_reset_env(include_flowers=False):
+def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:
     env = Mahjong16Env(Ruleset(include_flowers=include_flowers), seed=0)
     env.reset()
     # sanitize players
-    for p in env.players:
-        p["hand"].clear(); p["melds"].clear(); p["river"].clear(); p["flowers"].clear(); p["drawn"] = None
+    for player in env.players:
+        player["hand"].clear()
+        player["melds"].clear()
+        player["river"].clear()
+        player["flowers"].clear()
+        player["drawn"] = None
     env.wall = [int(Tile.W9)] * 32  # safe tail for draws
     env.phase = "TURN"
     env.turn = 0
@@ -95,7 +102,24 @@ def test_scoring_flags_qiang_gang_and_gang_shang():
     env.win_tile = int(Tile.D3)
     env.win_by_qiang_gang = True
     # Give a trivially valid concealed 17 to avoid other scores
-    env.players[pid]["hand"] = [int(Tile.W1), int(Tile.W2), int(Tile.W3), int(Tile.W4), int(Tile.W5), int(Tile.W6), int(Tile.W7), int(Tile.W8), int(Tile.W9), int(Tile.D1), int(Tile.D2), int(Tile.D3), int(Tile.D4), int(Tile.D5), int(Tile.D6), int(Tile.E)]
+    env.players[pid]["hand"] = [
+        int(Tile.W1),
+        int(Tile.W2),
+        int(Tile.W3),
+        int(Tile.W4),
+        int(Tile.W5),
+        int(Tile.W6),
+        int(Tile.W7),
+        int(Tile.W8),
+        int(Tile.W9),
+        int(Tile.D1),
+        int(Tile.D2),
+        int(Tile.D3),
+        int(Tile.D4),
+        int(Tile.D5),
+        int(Tile.D6),
+        int(Tile.E),
+    ]
     env.players[pid]["drawn"] = None
     table = load_scoring_assets(env.rules.scoring_profile, env.rules.scoring_overrides_path)
     rewards, bd = score_with_breakdown(ScoringContext.from_env(env, table))
