@@ -8,6 +8,7 @@ from core.scoring.engine import score_with_breakdown, compute_payments
 from ui.console import render_public_view, render_reveal, render_winners_summary
 from .table import TableManager
 from .strategies import build_strategies
+from .logging import write_hand_log
 
 
 def summarize_resolved_claim(info: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -66,6 +67,7 @@ def run_demo(
     bot: str = "auto",
     hands: int = 1,
     start_points: int = 1000,
+    log_dir: Optional[str] = None,
 ):
     """Run a simple console demo with auto/human play and scoring breakdown.
 
@@ -73,6 +75,7 @@ def run_demo(
       seed: RNG seed.
       human_pid: Which player index is controlled by human (None for all auto).
       bot: Strategy name (currently 'auto').
+      log_dir: Optional directory for per-hand summaries (None disables logging).
     """
     rules = Ruleset(
         include_flowers=True,
@@ -239,7 +242,7 @@ def run_demo(
 
         if getattr(env, "done", False):
             if process_hand_end():
-                return _finalize_demo(hand_summaries)
+                return _finalize_demo(hand_summaries, log_dir=log_dir)
             continue
 
         # quick header per hand
@@ -257,7 +260,7 @@ def run_demo(
                     acts_current = recalculated
                 elif getattr(env, "done", False):
                     if process_hand_end():
-                        return _finalize_demo(hand_summaries)
+                        return _finalize_demo(hand_summaries, log_dir=log_dir)
                     break
                 else:
                     raise AssertionError(
@@ -320,20 +323,27 @@ def run_demo(
 
             if done:
                 if process_hand_end():
-                    return _finalize_demo(hand_summaries)
+                    return _finalize_demo(hand_summaries, log_dir=log_dir)
                 break
 
             if discard_id > 2000:
                 print("=== stop (safety break) ===")
                 break
 
-    return _finalize_demo(hand_summaries)
+    return _finalize_demo(hand_summaries, log_dir=log_dir)
 
 
-def _finalize_demo(hand_summaries: list) -> None:
-    """Render post-session summaries and finish the demo run."""
-    # After all hands complete, print winners summary across hands
+def _finalize_demo(hand_summaries: list, log_dir: Optional[str] = None) -> None:
+    """Render post-session summaries, optionally dump logs, and finish the demo."""
     if hand_summaries:
         render_winners_summary(hand_summaries)
+
+    if log_dir is not None:
+        try:
+            written = write_hand_log(hand_summaries, log_dir)
+            if written is not None:
+                print(f"[log] wrote per-hand summary to {written}")
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            print(f"[warn] failed to write log in {log_dir}: {exc}")
 
     print("=== demo finished ===")

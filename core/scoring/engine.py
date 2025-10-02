@@ -123,7 +123,7 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
             fixed_melds_chis += 1
 
     counts34 = _counts34(concealed_for_patterns)
-    counts34_without_ron = _counts34(concealed_tiles)
+    counts34_concealed = _counts34(concealed_tiles)
     ron_tile_idx = ron_tile if (not tsumo) and isinstance(ron_tile, int) and 0 <= ron_tile < 34 else None
 
     # base patterns
@@ -286,8 +286,8 @@ def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List
         if ron_tile_idx is not None and max_triplets > 0:
             if (
                 counts34[ron_tile_idx] >= 3
-                and counts34_without_ron[ron_tile_idx] < 3
-                and counts34[ron_tile_idx] == counts34_without_ron[ron_tile_idx] + 1
+                and counts34_concealed[ron_tile_idx] < 3
+                and counts34[ron_tile_idx] == counts34_concealed[ron_tile_idx] + 1
             ):
                 max_triplets = max(max_triplets - 1, 0)
         if max_triplets > 0:

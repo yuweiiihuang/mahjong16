@@ -38,6 +38,12 @@ if __name__ == "__main__":
         default=1000,
         help="Starting points allocated to each player. Default: 1000",
     )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Optional directory for per-hand summary logs (timestamped CSV). Default: disabled",
+    )
     args = parser.parse_args()
 
     human_str = (args.human or "").strip().lower()
@@ -68,4 +74,5 @@ if __name__ == "__main__":
         bot=args.bot,
         hands=args.hands,
         start_points=start_points,
+        log_dir=args.log_dir,
     )
