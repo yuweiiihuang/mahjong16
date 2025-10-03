@@ -235,8 +235,15 @@ def _points(breakdown: list[dict], key: str) -> int:
 
 def test_apply_base_rules_prefers_menqing_zimo():
     ctx = _make_context(win_source="TSUMO")
-    hand = _hand_state(concealed_tiles=[_tid("1W")] * 16, menqing=True)
-    win = _win_state(tsumo=True, drawn=_tid("1W"), win_tile_id=_tid("1W"))
+    concealed = (
+        [_tid("1W")] * 4
+        + [_tid("2W")] * 4
+        + [_tid("3W")] * 4
+        + [_tid("4W")] * 3
+        + [_tid("5W")]
+    )
+    hand = _hand_state(concealed_tiles=concealed, menqing=True)
+    win = _win_state(tsumo=True, drawn=_tid("4W"), win_tile_id=_tid("4W"))
     state = _state(ctx, hand=hand, win=win)
     acc = _acc(ctx)
 
@@ -258,7 +265,14 @@ def test_apply_base_rules_handles_tail_and_dealer_bonus():
         dealer_streak=2,
         turn_at_win=1,
     )
-    hand = _hand_state(concealed_tiles=[_tid("1W")] * 14, menqing=False)
+    concealed = (
+        [_tid("1W")] * 3
+        + [_tid("2W")] * 3
+        + [_tid("3W")] * 3
+        + [_tid("4W")] * 3
+        + [_tid("5W")] * 2
+    )
+    hand = _hand_state(concealed_tiles=concealed, menqing=False)
     win = _win_state(tsumo=False, win_source="RON", ron_tile=_tid("2W"), win_tile_id=_tid("2W"))
     state = _state(ctx, hand=hand, win=win)
     acc = _acc(ctx)
@@ -310,7 +324,15 @@ def test_apply_flowers_rules_counts_regular_flowers(monkeypatch):
 
 
 def test_apply_honors_rules_detects_dragons():
-    tiles = [_tid("C")] * 3 + [_tid("F")] * 3 + [_tid("P")] * 2 + [_tid("1W")] * 8
+    tiles = (
+        [_tid("C")] * 3
+        + [_tid("F")] * 3
+        + [_tid("P")] * 2
+        + [_tid("1W")] * 2
+        + [_tid("2W")] * 2
+        + [_tid("3W")] * 2
+        + [_tid("4W")] * 2
+    )
     hand = _hand_state(concealed_tiles=tiles, concealed_for_patterns=tiles, need=4, required_len=len(tiles))
     win = _win_state(tsumo=True, win_tile_id=_tid("1W"))
     ctx = _make_context()
@@ -326,7 +348,16 @@ def test_apply_honors_rules_detects_dragons():
 def test_apply_honors_rules_wind_and_dealer_bonus():
     rules = Ruleset(enable_wind_flower_scoring=True)
     seat_winds = ["E", "S", "W", "N"]
-    tiles = [_tid("E")] * 3 + [_tid("1W")] * 13
+    tiles = (
+        [_tid("E")] * 3
+        + [_tid("1W")] * 2
+        + [_tid("2W")] * 2
+        + [_tid("3W")] * 2
+        + [_tid("4W")] * 2
+        + [_tid("5W")] * 2
+        + [_tid("6W")] * 2
+        + [_tid("7W")]
+    )
     hand = _hand_state(concealed_tiles=tiles, concealed_for_patterns=tiles, need=4, required_len=len(tiles))
     win = _win_state(tsumo=True, win_tile_id=_tid("1W"))
     ctx = _make_context(rules=rules, quan_feng="E", seat_winds=seat_winds)

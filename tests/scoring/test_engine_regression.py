@@ -4,6 +4,7 @@ from core.scoring.engine import compute_payments, score_with_breakdown
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
 from core.tiles import Tile
+from tests.helpers.tile_pool import TilePool
 
 
 def _prepare_env():
@@ -15,6 +16,13 @@ def _prepare_env():
     )
     env = Mahjong16Env(rules, seed=7)
     env.reset()
+    for player in env.players:
+        player["hand"].clear()
+        player["melds"].clear()
+        player["flowers"].clear()
+        player["river"].clear()
+        player["drawn"] = None
+    env.wall = TilePool(include_flowers=rules.include_flowers).remaining()
     table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     return env, table
 
@@ -37,15 +45,18 @@ def test_score_and_payment_consistency_for_menqing_tsumo():
     _set_winner(env, 0, "TSUMO")
     p0 = env.players[0]
     p0["melds"] = []
-    p0["hand"] = (
-        [int(Tile.W1)] * 4
-        + [int(Tile.W2)] * 4
-        + [int(Tile.W3)] * 4
-        + [int(Tile.D4)] * 3
-        + [int(Tile.E)]
+    pool = TilePool(include_flowers=False)
+    p0["hand"] = pool.take(
+        [
+            Tile.W1, Tile.W1, Tile.W1, Tile.W1,
+            Tile.W2, Tile.W2, Tile.W2, Tile.W2,
+            Tile.W3, Tile.W3, Tile.W3, Tile.W3,
+            Tile.D4, Tile.D4, Tile.D4,
+            Tile.E,
+        ]
     )
-    p0["drawn"] = int(Tile.E)
-    env.wall = [0] * (env.rules.dead_wall_base + 5)
+    p0["drawn"] = pool.take([Tile.E])[0]
+    env.wall = pool.remaining()
 
     ctx = ScoringContext.from_env(env, table)
     rewards, breakdown = score_with_breakdown(ctx)
@@ -78,16 +89,19 @@ def test_peng_peng_hu_breakdown_matches_table():
     p0 = env.players[0]
     p0["flowers"] = []
     p0["melds"] = []
-    p0["hand"] = (
-        [int(Tile.W1)] * 3
-        + [int(Tile.W2)] * 3
-        + [int(Tile.D3)] * 3
-        + [int(Tile.D4)] * 3
-        + [int(Tile.B5)] * 3
-        + [int(Tile.W9)]
+    pool = TilePool(include_flowers=False)
+    p0["hand"] = pool.take(
+        [
+            Tile.W1, Tile.W1, Tile.W1,
+            Tile.W2, Tile.W2, Tile.W2,
+            Tile.D3, Tile.D3, Tile.D3,
+            Tile.D4, Tile.D4, Tile.D4,
+            Tile.B5, Tile.B5, Tile.B5,
+            Tile.W9,
+        ]
     )
-    p0["drawn"] = int(Tile.W9)
-    env.wall = [int(Tile.W9)] * (env.rules.dead_wall_base + 4)
+    p0["drawn"] = pool.take([Tile.W9])[0]
+    env.wall = pool.remaining()
 
     ctx = ScoringContext.from_env(env, table)
     rewards, breakdown = score_with_breakdown(ctx)

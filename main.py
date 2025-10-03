@@ -16,8 +16,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--human",
         type=str,
-        default="0",
-        help="Human player id (0-3), or 'none' for no human (all bots). Default: 0",
+        default="-1",
+        help="Human player id (0-3), or 'none' for no human (all bots). Default: -1",
     )
     parser.add_argument(
         "--bot",
@@ -29,8 +29,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hands",
         type=int,
-        default=1,
-        help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: 1",
+        default=-1,
+        help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: -1",
     )
     parser.add_argument(
         "--start-points",

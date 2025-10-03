@@ -5,6 +5,7 @@ from typing import Iterable
 from core import Mahjong16Env
 from core.ruleset import Ruleset
 from core.tiles import Tile
+from tests.helpers.tile_pool import TilePool
 
 
 def force_hand(env: Mahjong16Env, pid: int, tiles: Iterable[int | Tile], drawn: int | Tile | None = None) -> None:
@@ -23,16 +24,38 @@ def test_priority_pon_over_chi():
         player["river"].clear()
 
     env.wall = []  # 關閉自動摸牌以穩定測試
-    # 設定手牌
-    force_hand(env, 0, [Tile.W1] * 16)  # 不重要
-    force_hand(env, 1, [Tile.W3, Tile.W4] + [Tile.W1] * 14)  # 可吃 3-4-5
-    force_hand(env, 2, [Tile.W5, Tile.W5] + [Tile.W1] * 14)  # 可碰
-    force_hand(env, 3, [Tile.W1] * 16)
+    pool = TilePool(include_flowers=False)
+    # 設定手牌（確保任一牌不超過四張）
+    force_hand(env, 0, pool.take([
+        Tile.W5,
+        Tile.W1, Tile.W2, Tile.W3, Tile.W4, Tile.W6, Tile.W7, Tile.W8, Tile.W9,
+        Tile.D1, Tile.D2, Tile.D3,
+        Tile.B1, Tile.B2, Tile.B3, Tile.B4,
+    ]))
+    force_hand(env, 1, pool.take([
+        Tile.W3, Tile.W4,
+        Tile.D1, Tile.D2, Tile.D3, Tile.D4, Tile.D5, Tile.D6, Tile.D7, Tile.D8,
+        Tile.B5, Tile.B6, Tile.B7, Tile.B8,
+        Tile.E, Tile.S,
+    ]))
+    force_hand(env, 2, pool.take([
+        Tile.W5, Tile.W5,
+        Tile.W6, Tile.W7,
+        Tile.D8, Tile.D9,
+        Tile.B1, Tile.B2, Tile.B3, Tile.B4, Tile.B5, Tile.B6,
+        Tile.N, Tile.W, Tile.C, Tile.F,
+    ]))
+    force_hand(env, 3, pool.take([
+        Tile.W1, Tile.W2, Tile.W8, Tile.W9,
+        Tile.D4, Tile.D5, Tile.D6, Tile.D7,
+        Tile.B7, Tile.B8, Tile.B9,
+        Tile.E, Tile.S, Tile.N, Tile.W,
+        Tile.P,
+    ]))
     env.phase = "TURN"
     env.turn = 0
     env.last_discard = None
     # P0 模擬丟 5W
-    env.players[0]["hand"][0] = Tile.W5
     obs, _, _, _ = env.step({"type": "DISCARD", "tile": int(Tile.W5), "from": "hand"})
     # 反應視窗：先到 P1（可 CHI），我們選 CHI；再到 P2（可 PONG），我們也宣告 PONG；P3 PASS
     # P1 選 CHI（3W,4W）

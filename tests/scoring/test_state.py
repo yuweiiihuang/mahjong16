@@ -49,7 +49,15 @@ def test_build_state_requires_winner():
 def test_build_state_populates_tsumo_information():
     rules = Ruleset()
     players = [_blank_player(i) for i in range(rules.n_players)]
-    players[0].hand = [0] * 15
+    players[0].hand = [
+        0, 0, 0, 0,
+        1, 1, 1,
+        2, 2,
+        3, 3,
+        4, 4,
+        5,
+        6,
+    ]
     players[0].drawn = 1
     ctx = _make_context(rules=rules, players=players, win_source="TSUMO")
 
@@ -64,7 +72,13 @@ def test_build_state_populates_tsumo_information():
 def test_build_state_handles_ron_and_open_melds():
     rules = Ruleset()
     players = [_blank_player(i) for i in range(rules.n_players)]
-    players[0].hand = [0] * 16
+    players[0].hand = [
+        0, 0, 0, 0,
+        1, 1, 1, 1,
+        2, 2, 2, 2,
+        3, 3,
+        4, 4,
+    ]
     players[0].melds = []
     players[0].drawn = None
     ctx = _make_context(

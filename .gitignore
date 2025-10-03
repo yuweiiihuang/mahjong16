@@ -28,8 +28,6 @@ pip-wheel-metadata/
 # 虛擬環境
 .venv/
 venv/
-env/
-ENV/
 env.bak/
 venv.bak/
 
@@ -79,9 +77,3 @@ datasets/
 .tmp/
 .cache/
 **/.ipynb_checkpoints/
-
-# 其他可能的機密/設定
-.env
-.env.*
-*.secret
-*.key
