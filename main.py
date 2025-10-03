@@ -1,6 +1,6 @@
 """CLI entrypoint for the Mahjong16 demo.
 
-Provides flags for RNG seed, selecting a human player, and bot strategy.
+Provides simple flags for RNG seed, selecting a human player, and bot strategy.
 Delegates the gameplay loop to `app.runtime.run_demo`.
 """
 
@@ -17,7 +17,7 @@ if __name__ == "__main__":
         "--human",
         type=str,
         default="-1",
-        help="Human player id (0-3), or 'none' for no human (all bots). Default: 0",
+        help="Human player id (0-3), or 'none' for no human (all bots). Default: -1",
     )
     parser.add_argument(
         "--bot",
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         "--hands",
         type=int,
         default=-1,
-        help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: 1",
+        help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: -1",
     )
     parser.add_argument(
         "--start-points",

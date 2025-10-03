@@ -55,6 +55,6 @@ def move_tile_to_tail(wall: List[int], tile: int | Tile) -> None:
         raise ValueError("cannot move tile in an empty wall")
     try:
         idx = wall.index(tid)
-    except ValueError as exc:  # pragma: no cover - sanity guard for tests
+    except ValueError as exc:  # pragma: no cover - guard against test setup errors where requested tile is not in wall
         raise ValueError(f"tile {tid} not present in wall") from exc
     wall[idx], wall[-1] = wall[-1], wall[idx]
