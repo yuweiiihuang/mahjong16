@@ -309,6 +309,41 @@ def test_apply_flowers_rules_counts_regular_flowers(monkeypatch):
     assert _points(breakdown, "ba_xian") == SCORING_VALUES["ba_xian"]
 
 
+def test_apply_flowers_rules_requires_flower_win_for_qi_qiang_yi():
+    flowers = [_tid(f"F{i}") for i in range(1, 8)]
+
+    ctx = _make_context()
+    state = _state(ctx, hand=_hand_state(), win=_win_state(), flowers=flowers)
+    acc = _acc(ctx)
+
+    keep_going = apply_flowers_rules(ctx, state, acc)
+    breakdown = acc.to_breakdown()[ctx.winner]
+
+    assert keep_going is True
+    assert _points(breakdown, "qi_qiang_yi") == 0
+
+    ctx_no_flower_win = _make_context(rules=Ruleset(enable_flower_wins=False))
+    state_no_flower_win = _state(
+        ctx_no_flower_win,
+        hand=_hand_state(),
+        win=_win_state(),
+        flowers=flowers,
+    )
+    acc_no_flower_win = _acc(ctx_no_flower_win)
+
+    keep_going_no_flower_win = apply_flowers_rules(
+        ctx_no_flower_win, state_no_flower_win, acc_no_flower_win
+    )
+    breakdown_no_flower_win = acc_no_flower_win.to_breakdown()[
+        ctx_no_flower_win.winner
+    ]
+
+    assert keep_going_no_flower_win is True
+    assert _points(breakdown_no_flower_win, "qi_qiang_yi") == SCORING_VALUES[
+        "qi_qiang_yi"
+    ]
+
+
 def test_apply_honors_rules_detects_dragons():
     tiles = [_tid("C")] * 3 + [_tid("F")] * 3 + [_tid("P")] * 2 + [_tid("1W")] * 8
     hand = _hand_state(concealed_tiles=tiles, concealed_for_patterns=tiles, need=4, required_len=len(tiles))

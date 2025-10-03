@@ -69,9 +69,10 @@ def apply_flowers_rules(
         acc.add("hua_gang", count=hua_gang_cnt)
 
     unique_flowers = len(fset)
+    enable_flower_wins = getattr(ctx.rules, "enable_flower_wins", True)
     if unique_flowers == 8:
         acc.add("ba_xian")
-    elif unique_flowers == 7:
+    elif unique_flowers == 7 and not enable_flower_wins:
         acc.add("qi_qiang_yi")
 
     return True
