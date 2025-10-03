@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Iterable, Sequence
+
 from ..breakdown import ScoreAccumulator
 from ..state import DerivedScoringState
 from ..types import ScoringContext
+
+
+ZHENG_FLOWER_MAP = {
+    "E": {1, 5},
+    "S": {2, 6},
+    "W": {3, 7},
+    "N": {4, 8},
+}
+
+
+@dataclass(frozen=True)
+class FlowerSummary:
+    """Aggregated counts derived from the winner's flower tiles."""
+
+    zheng_hua: int
+    hua_gang: int
+    unique_count: int
 
 
 def _flower_no(tile: int) -> int | None:
@@ -15,6 +35,44 @@ def _flower_no(tile: int) -> int | None:
         except Exception:
             return None
     return None
+
+
+def _winner_wind(ctx: ScoringContext) -> str | None:
+    try:
+        seat_winds: Sequence[str] | None = getattr(ctx, "seat_winds", None)
+        winner = getattr(ctx, "winner", None)
+        if (
+            seat_winds is not None
+            and winner is not None
+            and 0 <= winner < len(seat_winds)
+        ):
+            wind = seat_winds[winner]
+            return wind.upper() if isinstance(wind, str) else None
+    except Exception:
+        return None
+    return None
+
+
+def _flower_numbers(flowers: Iterable[int]) -> list[int]:
+    return [n for n in (_flower_no(tile) for tile in flowers) if isinstance(n, int)]
+
+
+def _summarize_flowers(flowers: Sequence[int], seat_wind: str | None) -> FlowerSummary:
+    numbers = _flower_numbers(flowers)
+    unique = set(numbers)
+
+    zheng_targets = ZHENG_FLOWER_MAP.get(seat_wind or "", set())
+    zheng_hua = len(unique.intersection(zheng_targets)) if zheng_targets else 0
+
+    has_seasons = {1, 2, 3, 4}.issubset(unique)
+    has_gentlemen = {5, 6, 7, 8}.issubset(unique)
+    hua_gang = int(has_seasons) + int(has_gentlemen)
+
+    return FlowerSummary(
+        zheng_hua=zheng_hua,
+        hua_gang=hua_gang,
+        unique_count=len(unique),
+    )
 
 
 def apply_flowers_rules(
@@ -36,43 +94,17 @@ def apply_flowers_rules(
     if not flowers or not getattr(ctx.rules, "enable_wind_flower_scoring", False):
         return True
 
-    fnums = sorted(
-        n for n in (_flower_no(tile) for tile in flowers) if isinstance(n, int)
-    )
-    fset = set(fnums)
+    summary = _summarize_flowers(flowers, _winner_wind(ctx))
 
-    zheng_map = {
-        "E": {1, 5},
-        "S": {2, 6},
-        "W": {3, 7},
-        "N": {4, 8},
-    }
+    if summary.zheng_hua:
+        acc.add("zheng_hua", count=summary.zheng_hua)
+    if summary.hua_gang:
+        acc.add("hua_gang", count=summary.hua_gang)
 
-    try:
-        seat_winds = list(getattr(ctx, "seat_winds", []) or [])
-        if 0 <= ctx.winner < len(seat_winds):
-            my_wind = seat_winds[ctx.winner]
-        else:
-            my_wind = None
-    except Exception:
-        my_wind = None
-    if isinstance(my_wind, str):
-        targets = zheng_map.get(my_wind.upper(), set())
-        cnt_zheng = len(fset.intersection(targets))
-        if cnt_zheng > 0:
-            acc.add("zheng_hua", count=cnt_zheng)
-
-    has_seasons = {1, 2, 3, 4}.issubset(fset)
-    has_gentlemen = {5, 6, 7, 8}.issubset(fset)
-    hua_gang_cnt = int(has_seasons) + int(has_gentlemen)
-    if hua_gang_cnt:
-        acc.add("hua_gang", count=hua_gang_cnt)
-
-    unique_flowers = len(fset)
     enable_flower_wins = getattr(ctx.rules, "enable_flower_wins", True)
-    if unique_flowers == 8:
+    if summary.unique_count == 8:
         acc.add("ba_xian")
-    elif unique_flowers == 7 and not enable_flower_wins:
+    elif summary.unique_count == 7 and not enable_flower_wins:
         acc.add("qi_qiang_yi")
 
     return True
