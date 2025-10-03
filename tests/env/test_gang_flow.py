@@ -3,6 +3,7 @@ from __future__ import annotations
 from core import Mahjong16Env
 from core.ruleset import Ruleset
 from core.tiles import Tile
+from tests.helpers.tile_pool import TilePool, move_tile_to_tail
 from core.scoring.tables import load_scoring_assets
 from core.scoring.types import ScoringContext
 from core.scoring.engine import score_with_breakdown
@@ -18,7 +19,7 @@ def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:
         player["river"].clear()
         player["flowers"].clear()
         player["drawn"] = None
-    env.wall = [int(Tile.W9)] * 32  # safe tail for draws
+    env.wall = TilePool(include_flowers=include_flowers).remaining()
     env.phase = "TURN"
     env.turn = 0
     env.last_discard = None
@@ -27,10 +28,19 @@ def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:
 
 def test_angang_action_adds_concealed_kong_and_draws():
     env = force_reset_env(include_flowers=False)
+    pool = TilePool(include_flowers=False)
     # P0 has 3x 1W in hand and 1W on drawn → can ANGANG
     p0 = env.players[0]
-    p0["hand"] = [int(Tile.W1)] * 3 + [int(Tile.W2)] * 13
-    p0["drawn"] = int(Tile.W1)
+    hand_tiles = pool.take([
+        Tile.W1, Tile.W1, Tile.W1,
+        Tile.W2, Tile.W3, Tile.W4, Tile.W5, Tile.W6, Tile.W7, Tile.W8, Tile.W9,
+        Tile.D1, Tile.D2, Tile.D3,
+        Tile.B1, Tile.B2,
+    ])
+    p0["hand"] = hand_tiles
+    p0["drawn"] = pool.take([Tile.W1])[0]
+    env.wall = pool.remaining()
+    move_tile_to_tail(env.wall, Tile.W9)
 
     # list legal actions should include ANGANG of 1W
     acts = env.legal_actions()
@@ -52,22 +62,29 @@ def test_angang_action_adds_concealed_kong_and_draws():
 
 def test_kakan_triggers_qiang_gang_and_ron():
     env = force_reset_env(include_flowers=False)
+    pool = TilePool(include_flowers=False)
     # P0: already PONG 3D, has the 4th 3D in hand so can KAKAN
     p0 = env.players[0]
-    p0["melds"] = [{"type": "PONG", "tiles": [int(Tile.D3)] * 3}]
+    p0["melds"] = [{"type": "PONG", "tiles": pool.take([Tile.D3, Tile.D3, Tile.D3])}]
     # hand: include D3 once plus fillers to 16
-    p0["hand"] = [int(Tile.D3)] + [int(Tile.W2)] * 15
+    p0["hand"] = pool.take([
+        Tile.D3,
+        Tile.W1, Tile.W2, Tile.W3, Tile.W4, Tile.W5, Tile.W6, Tile.W7, Tile.W8, Tile.W9,
+        Tile.D1, Tile.D2, Tile.D4, Tile.D5,
+        Tile.B1, Tile.B2,
+    ])
 
     # P1: waiting on D3: W123 W456 W789 D12 D456 + pair E,E (16 tiles)
     p1 = env.players[1]
-    p1["hand"] = (
-        [int(Tile.W1), int(Tile.W2), int(Tile.W3)] +
-        [int(Tile.W4), int(Tile.W5), int(Tile.W6)] +
-        [int(Tile.W7), int(Tile.W8), int(Tile.W9)] +
-        [int(Tile.D1), int(Tile.D2)] +
-        [int(Tile.D4), int(Tile.D5), int(Tile.D6)] +
-        [int(Tile.E), int(Tile.E)]
-    )
+    p1["hand"] = pool.take([
+        Tile.W1, Tile.W2, Tile.W3,
+        Tile.W4, Tile.W5, Tile.W6,
+        Tile.W7, Tile.W8, Tile.W9,
+        Tile.D1, Tile.D2,
+        Tile.D4, Tile.D5, Tile.D6,
+        Tile.E, Tile.E,
+    ])
+    env.wall = pool.remaining()
 
     # P0 declares KAKAN on D3 → opens qiang_gang reaction window
     obs, _, done, _ = env.step({"type": "KAKAN", "tile": int(Tile.D3)})

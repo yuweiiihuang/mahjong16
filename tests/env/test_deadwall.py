@@ -1,5 +1,7 @@
 from core import Mahjong16Env
 from core.ruleset import Ruleset
+from core.tiles import Tile
+from tests.helpers.tile_pool import TilePool
 
 def test_deadwall_fixed_flow():
     # 固定留 16 張：當牆剩下 16 張時，下一家無法摸牌應流局
@@ -27,23 +29,51 @@ def test_deadwall_gang_plus_one():
         seed=2,
     )
     env.reset()
+    for player in env.players:
+        player["hand"].clear()
+        player["melds"].clear()
+        player["river"].clear()
+        player["flowers"].clear()
+        player["drawn"] = None
+
+    env.phase = "TURN"
+    env.turn = 0
+    env.last_discard = None
+
+    pool = TilePool(include_flowers=False)
+    X = Tile.B1
+    env.players[0]["hand"] = pool.take([
+        X,
+        Tile.W1, Tile.W2, Tile.W3, Tile.W4,
+        Tile.D1, Tile.D2, Tile.D3,
+        Tile.B2, Tile.B3, Tile.B4, Tile.B5,
+        Tile.E, Tile.S, Tile.W, Tile.N,
+    ])
+    env.players[1]["hand"] = pool.take([
+        X, X, X,
+        Tile.W5, Tile.W6, Tile.W7, Tile.W8,
+        Tile.D4, Tile.D5, Tile.D6, Tile.D7, Tile.D8,
+        Tile.B2, Tile.B3,
+        Tile.E, Tile.S,
+    ])
+    env.players[2]["hand"] = pool.take([
+        Tile.W6, Tile.W7, Tile.W8, Tile.W9,
+        Tile.D9, Tile.D1, Tile.D2, Tile.D3,
+        Tile.B4, Tile.B5, Tile.B6, Tile.B7,
+        Tile.C, Tile.F, Tile.P, Tile.N,
+    ])
+    env.players[3]["hand"] = pool.take([
+        Tile.W1, Tile.W2, Tile.W3, Tile.W4,
+        Tile.D4, Tile.D5, Tile.D6, Tile.D7,
+        Tile.B6, Tile.B7, Tile.B8, Tile.B9,
+        Tile.E, Tile.S, Tile.W, Tile.P,
+    ])
+
+    env.wall = pool.remaining()
     # 讓牆剩 17 張；反應中產生 1 槓 → 補摸時也應因 16+1=17 留置而流局
     env.wall = env.wall[:17]
-    # 使 P1 對 P0 的棄牌可大明槓
-    for p in env.players:
-        p["melds"].clear()
-    X = env.players[1]["hand"][0]
-    need = 3 - env.players[1]["hand"].count(X)
-    i = 0
-    while need > 0 and i < len(env.players[1]["hand"]):
-        if env.players[1]["hand"][i] != X:
-            env.players[1]["hand"][i] = X
-            need -= 1
-        i += 1
-    if X not in env.players[0]["hand"]:
-        env.players[0]["hand"][0] = X
     # P0 丟 X → P1 宣告 GANG → 其他 PASS
-    obs, _, _, _ = env.step({"type": "DISCARD", "tile": X, "from": "hand"})
+    obs, _, _, _ = env.step({"type": "DISCARD", "tile": int(X), "from": "hand"})
     obs, _, _, _ = env.step({"type": "GANG"})
     obs, _, _, _ = env.step({"type": "PASS"})
     obs, _, done, _ = env.step({"type": "PASS"})
