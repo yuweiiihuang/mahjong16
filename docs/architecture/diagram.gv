@@ -1,0 +1,106 @@
+// Graphviz diagram of Mahjong16 modules and dependencies
+digraph Mahjong16 {
+    graph [rankdir=LR, fontsize=10, fontname="Helvetica", labelloc="t", label="Mahjong16 Architecture"];
+    node [shape=box, fontsize=10, fontname="Helvetica", style="filled", fillcolor="#f8f9fa", color="#343a40"];
+    edge [color="#6c757d", arrowsize=0.6];
+
+    subgraph cluster_core {
+        label = "core/";
+        color = "#adb5bd";
+        style = "rounded";
+        core_tiles     [label="tiles.py\nTile ids & helpers"];
+        core_ruleset   [label="ruleset.py\nRuleset config"];
+        core_types     [label="types.py\nAction/Observation"];
+        core_hand      [label="hand.py\nWin & waits logic"];
+        core_env       [label="env.py\nMahjong16Env"];
+        core_analysis  [label="analysis.py\nObservation helpers"];
+        core_sc_types  [label="scoring/types.py\nScoringContext"];
+        core_sc_state  [label="scoring/state.py\nDerivedScoringState"];
+        core_sc_engine [label="scoring/engine.py\nScore engine"];
+        core_sc_tables [label="scoring/tables.py\nLoad scoring JSON"];
+    }
+
+    subgraph cluster_app {
+        label = "app/";
+        color = "#adb5bd";
+        style = "rounded";
+        app_table    [label="table.py\nTableManager"];
+        app_strat    [label="strategies.py\nAuto/Human dispatch"];
+        app_runtime  [label="runtime.py\nrun_demo & UI glue"];
+    }
+
+    subgraph cluster_ui {
+        label = "ui/";
+        color = "#adb5bd";
+        style = "rounded";
+        ui_console [label="console.py\nrender & prompts"];
+        ui_helpers [label="rich_helpers.py\nRich components"];
+    }
+
+    subgraph cluster_bots {
+        label = "bots/";
+        color = "#adb5bd";
+        style = "rounded";
+        bot_rule   [label="rulebot.py\nRuleBot"];
+        bot_random [label="random_bot.py\nRandomBot"];
+        bot_greedy [label="greedy.py\nGreedyBotStrategy"];
+    }
+
+    subgraph cluster_rl {
+        label = "rl/";
+        color = "#adb5bd";
+        style = "rounded";
+        rl_selfplay [label="selfplay.py\nself_play"];
+        rl_buffer   [label="buffer.py\nReplayBuffer"];
+        rl_net      [label="net.py\nPolicyValueNet"];
+    }
+
+    main_cli [label="main.py\nCLI entrypoint", shape=tab, fillcolor="#e9ecef"];
+
+    // Core dependencies
+    core_tiles -> core_hand;
+    core_tiles -> core_env;
+    core_tiles -> core_analysis;
+    core_tiles -> ui_console;
+    core_tiles -> bot_greedy;
+
+    core_ruleset -> core_env;
+    core_ruleset -> app_table;
+    core_ruleset -> app_runtime;
+
+    core_types -> core_env;
+    core_types -> ui_console;
+    core_types -> app_strat;
+
+    core_hand -> core_env;
+    core_hand -> core_sc_state;
+    core_hand -> ui_console;
+
+    core_analysis -> ui_console;
+
+    core_env -> app_table;
+    core_env -> app_runtime;
+    core_env -> core_sc_types;
+    core_env -> bot_greedy;
+    core_env -> rl_selfplay;
+
+    core_sc_types -> core_sc_state;
+    core_sc_state -> core_sc_engine;
+    core_sc_engine -> app_runtime;
+    core_sc_tables -> app_runtime;
+
+    ui_helpers -> ui_console;
+
+    app_table -> app_runtime;
+    app_strat -> app_runtime;
+    ui_console -> app_strat;
+
+    bot_rule -> app_strat;
+    bot_random -> app_strat;
+    bot_greedy -> app_strat;
+
+    rl_selfplay -> rl_buffer;
+    rl_selfplay -> rl_net;
+
+    app_runtime -> main_cli;
+}
