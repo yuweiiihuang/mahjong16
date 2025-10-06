@@ -683,6 +683,8 @@ def run_demo_headless_batch(
     results: List[Tuple[int, Optional[int], List[Dict[str, Any]]]] = []
     jobs = list(enumerate(session_seeds))
 
+    collapse_sessions = emit_logs and sessions > 8
+
     progress_manager = (
         Progress(
             SpinnerColumn(),
@@ -698,6 +700,7 @@ def run_demo_headless_batch(
 
     with progress_manager as progress:
         session_tasks: Dict[int, int] = {}
+        aggregate_task_id: Optional[int] = None
 
         def _log(message: str) -> None:
             if not emit_logs:
@@ -708,7 +711,7 @@ def run_demo_headless_batch(
                 print(message)
 
         def _update_session(idx: int, hand_idx: int) -> None:
-            if progress is None:
+            if progress is None or collapse_sessions:
                 return
             task_id = session_tasks.get(idx)
             if task_id is None:
@@ -717,6 +720,12 @@ def run_demo_headless_batch(
 
         def _finish_session(idx: int, hand_count: int) -> None:
             if progress is None:
+                return
+            if collapse_sessions and aggregate_task_id is not None:
+                progress.advance(aggregate_task_id)
+                task = progress.tasks[aggregate_task_id]
+                if task.total is not None and task.completed >= task.total:
+                    progress.stop_task(aggregate_task_id)
                 return
             task_id = session_tasks.get(idx)
             if task_id is None:
@@ -729,7 +738,7 @@ def run_demo_headless_batch(
             progress.stop_task(task_id)
 
         def _make_hand_cb(idx: int) -> Optional[Callable[[int], None]]:
-            if progress is None:
+            if progress is None or collapse_sessions:
                 return None
             task_id = session_tasks.get(idx)
             if task_id is None:
@@ -744,16 +753,22 @@ def run_demo_headless_batch(
             _log("=== mahjong16 demo batch（Headless） ===")
 
         if progress is not None:
-            per_session_total = None
-            if jangs > 0:
-                per_session_total = None
-            elif hands > 0:
-                per_session_total = hands
-            for idx, _ in jobs:
-                session_tasks[idx] = progress.add_task(
-                    f"Session {idx + 1}",
-                    total=per_session_total,
+            if collapse_sessions:
+                aggregate_task_id = progress.add_task(
+                    "Sessions Completed",
+                    total=sessions,
                 )
+            else:
+                per_session_total = None
+                if jangs > 0:
+                    per_session_total = None
+                elif hands > 0:
+                    per_session_total = hands
+                for idx, _ in jobs:
+                    session_tasks[idx] = progress.add_task(
+                        f"Session {idx + 1}",
+                        total=per_session_total,
+                    )
 
         if max_workers <= 1:
             for idx, session_seed in jobs:
