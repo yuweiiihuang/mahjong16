@@ -72,9 +72,22 @@ mahjong16/
 
 ## CLI 與資料紀錄
 
-- `main.py` 使用 argparse：`--human`（0-3 或 `none`）、`--bot` (`auto` / `greedy` / `human`）、
-  `--hands`（-1 代表打到有人破產）、`--start-points`、`--log-dir`、`--no-ui`。
-- Headless 模式會切換為進度列顯示，若未指定 `--log-dir` 會預設寫入 `logs/`。
+### `main.py` 旗標一覽
+
+- `--seed <int>`：指定 RNG 種子，預設為隨機。
+- `--human <0-3|none>`：指定玩家座位；輸入 `none`/`-1`/`no` 表示全 bot，預設無真人。
+- `--bot {auto,greedy,human}`：非真人座位採用的策略，預設 `greedy`。
+- `--hands <int>`：局數上限；`-1` 代表打到有人破產為止，0 或 < -1 會被拒絕。
+- `--start-points <int>`：每位玩家的起始分數，須為正整數，預設 1000。
+- `--log-dir <path>`：寫入每局 CSV 摘要的資料夾，headless 且未指定時預設為 `logs/`。
+- `--no-ui`：禁用互動 Rich 介面並改以 headless 流程執行，會自動關閉真人座位。
+- `--sessions <int>`：獨立桌次數量，>1 時改用批次 headless；預設 1。
+- `--cores <int>`：批次 headless 最大工作程序數；省略時根據 CPU 自動判定。
+
+Headless 模式改以進度列呈現；若 `--sessions` > 1 或 `--cores` > 1 亦會自動切至
+`run_demo_headless_batch`，此時 `--no-ui` 旗標可省略。批次模式會禁用真人座位並在
+必要時預設輸出到 `logs/`。
+
 - `app/logging.py` 每局輸出座位、花牌紀錄、台數與輸贏，便於後續統計。
 - 互動介面利用 `ui.console` 與 `core.analysis` 顯示候選聽牌、剩餘枚數與反應訊息。
 

@@ -21,11 +21,27 @@ digraph Mahjong16 {
             color = "#ced4da";
             style = "rounded";
 
-            core_sc_tables   [label="tables.py\nLoad scoring JSON"];
-            core_sc_types    [label="types.py\nScoringContext"];
-            core_sc_state    [label="state.py\nDerivedScoringState"];
-            core_sc_engine   [label="engine.py\nScore engine"];
-            core_sc_breakdown[label="breakdown.py\nScoreAccumulator"];
+            core_sc_tables    [label="tables.py\nLoad scoring JSON"];
+            core_sc_types     [label="types.py\nScoringContext"];
+            core_sc_state     [label="state.py\nDerivedScoringState"];
+            core_sc_engine    [label="engine.py\nScore engine"];
+            core_sc_breakdown [label="breakdown.py\nScoreAccumulator"];
+            core_sc_common    [label="common.py\nTile helpers"];
+            core_sc_utils     [label="utils.py\nPattern search"];
+
+            subgraph cluster_core_scoring_rules {
+                label = "rules/";
+                color = "#dee2e6";
+                style = "rounded";
+
+                core_sc_rules_pipeline [label="__init__.py\nRULE_PIPELINE"];
+                core_sc_rules_flowers  [label="flowers.py\nFlower scoring"];
+                core_sc_rules_base     [label="base.py\nBase wins"];
+                core_sc_rules_waits    [label="waits.py\nWait bonuses"];
+                core_sc_rules_patterns [label="patterns.py\nPattern combos"];
+                core_sc_rules_honors   [label="honors.py\nWind & dragon"];
+                core_sc_rules_timings  [label="timings.py\nTempo bonuses"];
+            }
         }
     }
 
@@ -33,9 +49,11 @@ digraph Mahjong16 {
         label = "app/";
         color = "#adb5bd";
         style = "rounded";
-        app_table   [label="table.py\nTableManager"];
-        app_strat   [label="strategies.py\nAuto/Human dispatch"];
-        app_runtime [label="runtime.py\nrun_demo & UI glue"];
+        app_table    [label="table.py\nTableManager"];
+        app_strat    [label="strategies.py\nAuto/Human dispatch"];
+        app_runtime  [label="runtime.py\nrun_demo & UI glue"];
+        app_logging  [label="logging.py\nSession CSV"];
+        app_format   [label="formatting.py\nANSI helpers"];
     }
 
     subgraph cluster_ui {
@@ -62,6 +80,7 @@ digraph Mahjong16 {
         rl_selfplay [label="selfplay.py\nself_play"];
         rl_buffer   [label="buffer.py\nReplayBuffer"];
         rl_net      [label="net.py\nPolicyValueNet"];
+        rl_train    [label="train.py\nTrain loop stub"];
     }
 
     main_cli [label="main.py\nCLI entrypoint", shape=tab, fillcolor="#e9ecef"];
@@ -70,10 +89,15 @@ digraph Mahjong16 {
     core_tiles -> core_hand;
     core_tiles -> core_env;
     core_tiles -> core_analysis;
+    core_tiles -> core_sc_common;
+    core_tiles -> core_sc_rules_flowers;
     core_tiles -> ui_console;
+    core_tiles -> app_logging;
+    core_tiles -> app_format;
     core_tiles -> bot_greedy;
 
     core_ruleset -> core_env;
+    core_ruleset -> core_sc_types;
     core_ruleset -> app_table;
     core_ruleset -> app_runtime;
 
@@ -89,14 +113,24 @@ digraph Mahjong16 {
 
     core_env -> app_table;
     core_env -> app_runtime;
-    core_env -> core_sc_types;
     core_env -> bot_greedy;
     core_env -> rl_selfplay;
 
     core_sc_tables -> app_runtime;
     core_sc_tables -> core_sc_engine;
     core_sc_types -> core_sc_state;
+    core_sc_common -> core_sc_rules_patterns;
+    core_sc_common -> core_sc_rules_honors;
+    core_sc_utils -> core_sc_rules_patterns;
+    core_sc_utils -> core_sc_rules_waits;
     core_sc_state -> core_sc_engine;
+    core_sc_rules_flowers -> core_sc_rules_pipeline;
+    core_sc_rules_base -> core_sc_rules_pipeline;
+    core_sc_rules_waits -> core_sc_rules_pipeline;
+    core_sc_rules_patterns -> core_sc_rules_pipeline;
+    core_sc_rules_honors -> core_sc_rules_pipeline;
+    core_sc_rules_timings -> core_sc_rules_pipeline;
+    core_sc_rules_pipeline -> core_sc_engine;
     core_sc_engine -> app_runtime;
     core_sc_engine -> core_sc_breakdown;
 
@@ -104,6 +138,7 @@ digraph Mahjong16 {
 
     app_table -> app_runtime;
     app_strat -> app_runtime;
+    app_logging -> app_runtime;
     ui_console -> app_strat;
 
     bot_rule -> app_strat;
