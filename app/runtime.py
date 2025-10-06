@@ -729,10 +729,6 @@ def run_demo_headless_batch(
                 )
                 results.append((idx, session_seed, summaries))
                 _finish_session(idx, len(summaries))
-                _log(
-                    f"[batch] session {idx + 1}/{sessions} finished "
-                    f"({len(summaries)} hands)"
-                )
         else:
             manager = mp.Manager() if progress is not None else None
             progress_queue = manager.Queue() if manager is not None else None
@@ -768,10 +764,6 @@ def run_demo_headless_batch(
                             idx, session_seed, summaries = fut.result()
                             results.append((idx, session_seed, summaries))
                             _finish_session(idx, len(summaries))
-                            _log(
-                                f"[batch] session {idx + 1}/{sessions} finished "
-                                f"({len(summaries)} hands)"
-                            )
 
                     if progress_queue is not None:
                         while True:
