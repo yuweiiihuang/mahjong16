@@ -11,6 +11,12 @@ from core.tiles import tile_to_str
 
 TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 DEFAULT_PLAYER_COUNT = 4
+OPTIONAL_FIELD_ORDER = [
+    "session_index",
+    "session_hand_index",
+    "global_hand_index",
+    "session_seed",
+]
 
 
 def write_hand_log(hand_summaries: List[Dict[str, Any]], log_dir: Union[str, Path]) -> Optional[Path]:
@@ -25,13 +31,14 @@ def write_hand_log(hand_summaries: List[Dict[str, Any]], log_dir: Union[str, Pat
     target = directory / filename
 
     max_players = _infer_player_count(hand_summaries)
-    fieldnames = _build_log_fieldnames(max_players)
+    optional_fields = _detect_optional_fields(hand_summaries)
+    fieldnames = _build_log_fieldnames(max_players, optional_fields)
 
     with target.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for summary in hand_summaries:
-            writer.writerow(_hand_summary_to_row(summary, max_players))
+            writer.writerow(_hand_summary_to_row(summary, max_players, optional_fields))
 
     return target
 
@@ -45,7 +52,15 @@ def _infer_player_count(hand_summaries: List[Dict[str, Any]]) -> int:
     return max_players or DEFAULT_PLAYER_COUNT
 
 
-def _build_log_fieldnames(max_players: int) -> List[str]:
+def _detect_optional_fields(hand_summaries: List[Dict[str, Any]]) -> List[str]:
+    present: List[str] = []
+    for field in OPTIONAL_FIELD_ORDER:
+        if any(field in summary for summary in hand_summaries):
+            present.append(field)
+    return present
+
+
+def _build_log_fieldnames(max_players: int, optional_fields: Optional[List[str]] = None) -> List[str]:
     base_fields = [
         "hand_index",
         "result",
@@ -66,14 +81,29 @@ def _build_log_fieldnames(max_players: int) -> List[str]:
         "base_points",
         "tai_points",
     ]
+    if optional_fields:
+        insert_pos = 1  # After hand_index
+        for field in optional_fields:
+            if field not in base_fields:
+                base_fields.insert(insert_pos, field)
+                insert_pos += 1
     delta_fields = [f"delta_p{i}" for i in range(max_players)]
     total_fields = [f"total_p{i}" for i in range(max_players)]
     return base_fields + delta_fields + total_fields
 
 
-def _hand_summary_to_row(summary: Dict[str, Any], max_players: int) -> Dict[str, Any]:
+def _hand_summary_to_row(
+    summary: Dict[str, Any],
+    max_players: int,
+    optional_fields: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     row: Dict[str, Any] = {}
     row["hand_index"] = summary.get("hand_index")
+
+    if optional_fields:
+        for field in optional_fields:
+            value = summary.get(field, "")
+            row[field] = "" if value is None else value
 
     winner = summary.get("winner")
     win_source = (summary.get("win_source") or "").upper()

@@ -1,23 +1,34 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`core/` hosts the Mahjong16 rules engine and scoring (`core/env.py`, `core/scoring/engine.py`); keep logic pure, deterministic, and free of side effects. `app/` contains CLI demos and strategy wiring, while `ui/console.py` handles rendering helpers shared across clients. Place bots in `bots/` and reinforcement-learning scaffolding in `rl/`; both should import from `core/` or `ui/` instead of copying utilities. Treat `scripts/` (e.g., `scripts/eval_league.py`, `scripts/bench_sim.py`) and `taiwanese_mahjong_scoring.json` as read-only inputs, and mirror new code with matching suites in `tests/` (see `tests/test_env_basic.py`).
+- Place core rules and scoring logic in `core/`; keep modules pure and deterministic (`core/env.py`, `core/scoring/engine.py`).
+- Wire strategies and CLI demos through `app/`, and reuse console helpers from `ui/console.py` instead of duplicating render logic.
+- Host autonomous players in `bots/` and reinforcement-learning tools in `rl/`, importing shared utilities from `core/` or `ui/`.
+- Treat `scripts/` (e.g., `scripts/bench_sim.py`) and config assets under `configs/` as read-only inputs; mirror any new runtime behavior with tests in `tests/`.
 
 ## Build, Test, and Development Commands
-- `pip install -r requirements.txt` — install runtime dependencies plus pytest.
-- `python main.py` — launch the interactive CLI table for manual smoke checks.
-- `python -m core.env` — run the environment module directly for import-safe experiments.
-- `pytest -q` — execute the regression suite; ensure it passes before every PR.
-- `python scripts/bench_sim.py -n 10000` — benchmark the environment; use when tuning performance-sensitive changes.
+- `pip install -r requirements.txt` installs runtime dependencies and pytest extras.
+- `python main.py` launches the interactive CLI table for manual rule smoke-checks.
+- `python -m core.env` runs the environment module directly to validate import safety.
+- `pytest -q` executes the regression suite; confirm a clean run before publishing changes.
+- `python scripts/bench_sim.py -n 10000` benchmarks the engine; use when tuning performance-sensitive code.
 
 ## Coding Style & Naming Conventions
-Follow PEP 8 with 4-space indentation and lines ≤ 100 characters to stay consistent with existing modules. Use snake_case for functions and variables, PascalCase for classes, and upper snake case for constants such as `PRIORITY`. Annotate public APIs with type hints and docstrings that explain rule decisions. Prefer composition over globals by passing `Ruleset` instances or explicit context objects.
+- Follow PEP 8 with 4-space indentation and keep lines ≤ 100 characters.
+- Use snake_case for variables/functions, PascalCase for classes, and UPPER_SNAKE for constants like `PRIORITY`.
+- Annotate public APIs with type hints and docstrings that clarify rule decisions; prefer composition over globals by passing `Ruleset` instances or explicit context objects.
 
 ## Testing Guidelines
-Write pytest suites named `test_*.py`, colocated with the modules they verify. Cover both success and failure paths, including dead-wall handling and reaction priority. Parameterize scenarios across seat winds or rule toggles, and seed RNGs via `Mahjong16Env(seed=...)` or `Ruleset.random_seed` to keep runs reproducible. Add regression cases whenever scoring tables or rules change.
+- Add pytest suites named `test_*.py` alongside the modules they cover (see `tests/test_env_basic.py`).
+- Cover success and failure paths, including dead-wall and reaction priority scenarios; seed runs via `Mahjong16Env(seed=...)` or `Ruleset.random_seed` for determinism.
+- Update or extend regression cases whenever scoring tables or rule toggles change.
 
 ## Commit & Pull Request Guidelines
-Use Conventional Commits with English types (`feat`, `fix`, `chore`) and concise summaries, e.g., `feat: add four-concealed-meld fan`. Scope commits narrowly and mention follow-up commands or data migrations when behavior shifts. Pull requests should summarize intent, list touched modules (e.g., `core/env.py`, `ui/console.py`), link issues, and attach CLI screenshots or pytest output for changes affecting scoring or UX.
+- Use Conventional Commits (e.g., `feat: add four-concealed-meld fan`) with concise English summaries.
+- Scope commits narrowly; mention any follow-up commands or data migrations when behavior shifts.
+- Pull requests should summarize intent, list touched modules (e.g., `core/env.py`, `ui/console.py`), link relevant issues, and attach CLI screenshots or pytest output for UX or scoring changes.
 
 ## Configuration & Safety Notes
-Extend `core/ruleset.py` for new table options rather than scattering rule toggles. Preserve keys consumed by `core/scoring/tables.py` when editing `taiwanese_mahjong_scoring.json`—treat the asset as read-only history. Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.
+- Extend `core/ruleset.py` for new table options rather than scattering toggles.
+- Preserve keys consumed by `core/scoring/tables.py` when reading from `configs/`; never overwrite historical assets.
+- Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.

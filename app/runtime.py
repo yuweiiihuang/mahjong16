@@ -1,6 +1,11 @@
 from __future__ import annotations
+import multiprocessing as mp
+import os
+import random
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
-from typing import Dict, Any, Optional
+from queue import Empty
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.progress import (
     Progress,
@@ -72,6 +77,518 @@ def update_ui(
         score_state=score_state,
     )
 
+class _BaseDemoRunner:
+    """Shared orchestration for Mahjong16 demo sessions."""
+
+    provides_ui: bool = False
+
+    def __init__(
+        self,
+        *,
+        seed=None,
+        human_pid: Optional[int] = 0,
+        bot: str = "auto",
+        hands: int = 1,
+        start_points: int = 1000,
+        log_dir: Optional[str] = None,
+        emit_logs: bool = True,
+    ) -> None:
+        self.seed = seed
+        self.human_pid = human_pid
+        self.bot = bot
+        self.hands = hands
+        self.log_dir = log_dir
+        self.emit_logs = emit_logs
+
+        self.rules = Ruleset(
+            include_flowers=True,
+            dead_wall_mode="fixed",
+            dead_wall_base=16,
+            scoring_profile="taiwan_base",
+            see_flower_see_wind=False,
+            randomize_seating_and_dealer=True,
+            enable_wind_flower_scoring=True,
+            scoring_overrides_path=None,
+        )
+        self.env = Mahjong16Env(self.rules, seed=seed)
+        self.table = load_scoring_assets(self.rules.scoring_profile, self.rules.scoring_overrides_path)
+
+        self.tm = TableManager(self.rules, seed=seed)
+        self.tm.initialize(self.env.rules.n_players)
+        self.strategies = build_strategies(self.env.rules.n_players, human_pid, bot)
+
+        self.n_players = self.env.rules.n_players
+        start_points_value = self._normalize_start_points(start_points)
+        self.totals = [start_points_value for _ in range(self.n_players)]
+        self.hand_delta = [0 for _ in range(self.n_players)]
+        self.score_state = {"totals": self.totals, "deltas": self.hand_delta}
+
+        self.play_until_negative = (hands == -1)
+        self.max_hands = None if self.play_until_negative else hands
+        self.hand_summaries: list = []
+
+    def run(self) -> None:  # pragma: no cover - overridden by subclasses
+        raise NotImplementedError
+
+    def _execute(self) -> list:
+        hand_idx = 0
+        while True:
+            if self.max_hands is not None and hand_idx >= self.max_hands:
+                break
+
+            hand_idx += 1
+            obs = self.tm.start_hand(self.env)
+            self.hand_delta = [0 for _ in range(self.n_players)]
+            self.score_state["deltas"] = self.hand_delta
+            discard_id = 0
+            last_seen_discard: Optional[tuple] = None
+
+            if getattr(self.env, "done", False):
+                if self._process_hand_end(hand_idx):
+                    return self._finalize()
+                continue
+
+            self.on_hand_start(hand_idx)
+
+            while True:
+                acts_current = obs.get("legal_actions") or []
+                if not acts_current:
+                    recalculated = self.env.legal_actions()
+                    if recalculated:
+                        obs = dict(obs)
+                        obs["legal_actions"] = recalculated
+                        acts_current = recalculated
+                    elif getattr(self.env, "done", False):
+                        if self._process_hand_end(hand_idx):
+                            return self._finalize()
+                        break
+                    else:
+                        raise AssertionError(
+                            f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}."
+                        )
+
+                act = self.strategies[obs.get("player")].choose(obs)
+                atype = (act.get("type") or "").upper()
+                pre_pid = obs.get("player")
+                pre_tile = act.get("tile") if atype == "DISCARD" else None
+
+                obs, _rew, done, info = self.env.step(act)
+                discard_id, last_seen_discard = self.after_step(
+                    obs=obs,
+                    info=info,
+                    discard_id=discard_id,
+                    last_seen_discard=last_seen_discard,
+                    act=act,
+                    action_type=atype,
+                    acting_pid=pre_pid,
+                    discarded_tile=pre_tile,
+                )
+
+                if done:
+                    if self._process_hand_end(hand_idx):
+                        return self._finalize()
+                    break
+
+                if discard_id > 2000:
+                    if self.emit_logs:
+                        print("=== stop (safety break) ===")
+                    break
+
+        return self._finalize()
+
+    def on_session_start(self) -> None:
+        """Hook for subclasses to announce the session."""
+
+    def on_hand_start(self, hand_idx: int) -> None:
+        """Hook invoked at the start of each hand."""
+
+    def after_step(
+        self,
+        *,
+        obs: Dict[str, Any],
+        info: Optional[Dict[str, Any]],
+        discard_id: int,
+        last_seen_discard: Optional[tuple],
+        act: Dict[str, Any],
+        action_type: str,
+        acting_pid: Optional[int],
+        discarded_tile,
+    ) -> tuple[int, Optional[tuple]]:
+        """Hook invoked after each env.step call."""
+        return discard_id, last_seen_discard
+
+    def on_hand_scored(self, breakdown, payments) -> None:
+        """Hook invoked once scoring is complete for a hand."""
+
+    def on_hand_complete(self, hand_idx: int) -> None:
+        """Hook invoked after TableManager updates for the hand."""
+
+    def _process_hand_end(self, hand_idx: int) -> bool:
+        ctx = ScoringContext.from_env(self.env, self.table)
+        rewards2, bd = score_with_breakdown(ctx)
+        payments_raw, _ = compute_payments(
+            ctx,
+            getattr(self.env.rules, "base_points", 100),
+            getattr(self.env.rules, "tai_points", 20),
+            rewards=rewards2,
+            breakdown=bd,
+        )
+        payments = [0 for _ in range(self.n_players)]
+        for pid in range(self.n_players):
+            delta = 0
+            try:
+                delta = int(payments_raw[pid])
+            except Exception:
+                delta = 0
+            payments[pid] = delta
+            self.totals[pid] += delta
+            self.hand_delta[pid] = delta
+
+        winner = self.env.winner
+        if winner is not None:
+            try:
+                pl = self.env.players[winner]
+                hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
+                melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
+                flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+                win_src = (getattr(self.env, "win_source", None) or "").upper()
+                ron_from = getattr(self.env, "turn_at_win", None) if win_src == "RON" else None
+                win_tile = getattr(self.env, "win_tile", None)
+                qf = getattr(self.env, "quan_feng", None)
+                dealer_pid = getattr(self.env, "dealer_pid", None)
+                seat_winds = getattr(self.env, "seat_winds", None)
+                dealer_wind = None
+                winner_wind = None
+                try:
+                    if isinstance(seat_winds, list):
+                        if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
+                            dealer_wind = seat_winds[dealer_pid]
+                        if 0 <= winner < len(seat_winds):
+                            winner_wind = seat_winds[winner]
+                except Exception:
+                    dealer_wind = None
+                    winner_wind = None
+                self.hand_summaries.append(
+                    {
+                        "hand_index": hand_idx,
+                        "winner": winner,
+                        "win_source": win_src,
+                        "ron_from": ron_from,
+                        "win_tile": win_tile,
+                        "hand": hand_tiles,
+                        "melds": melds,
+                        "flowers": flowers,
+                        "breakdown": list(bd.get(winner, [])),
+                        "payments": list(payments),
+                        "base_points": getattr(self.env.rules, "base_points", None),
+                        "tai_points": getattr(self.env.rules, "tai_points", None),
+                        "quan_feng": qf,
+                        "dealer_pid": dealer_pid,
+                        "dealer_wind": dealer_wind,
+                        "winner_wind": winner_wind,
+                        "totals_after_hand": list(self.totals),
+                        "remain_tiles": ctx.wall_len,
+                    }
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                qf = getattr(self.env, "quan_feng", None)
+                dealer_pid = getattr(self.env, "dealer_pid", None)
+                seat_winds = getattr(self.env, "seat_winds", None)
+                dealer_wind = None
+                try:
+                    if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
+                        dealer_wind = seat_winds[dealer_pid]
+                except Exception:
+                    dealer_wind = None
+                self.hand_summaries.append(
+                    {
+                        "hand_index": hand_idx,
+                        "winner": None,
+                        "result": "DRAW",
+                        "payments": list(payments),
+                        "base_points": getattr(self.env.rules, "base_points", None),
+                        "tai_points": getattr(self.env.rules, "tai_points", None),
+                        "quan_feng": qf,
+                        "dealer_pid": dealer_pid,
+                        "dealer_wind": dealer_wind,
+                        "totals_after_hand": list(self.totals),
+                        "remain_tiles": ctx.wall_len,
+                    }
+                )
+            except Exception:
+                pass
+
+        self.on_hand_scored(bd, payments)
+        self.tm.finish_hand(self.env)
+        self.on_hand_complete(hand_idx)
+
+        if self.play_until_negative and any(pt < 0 for pt in self.totals):
+            if self.emit_logs:
+                print("=== stop (negative points reached) ===")
+            return True
+        return False
+
+    def _normalize_start_points(self, start_points: int) -> int:
+        try:
+            value = int(start_points)
+        except Exception:  # pragma: no cover - defensive fallback
+            value = 1000
+        if value <= 0:
+            value = 1
+        return value
+
+    def _finalize(self) -> list:
+        if self.emit_logs:
+            _finalize_demo(self.hand_summaries, log_dir=self.log_dir, enable_ui=self.provides_ui)
+        return self.hand_summaries
+
+
+class _UIDemoRunner(_BaseDemoRunner):
+    provides_ui = True
+
+    def run(self) -> None:
+        print("=== mahjong16 demo（Rich Console UI） ===")
+        self.on_session_start()
+        return self._execute()
+
+    def on_session_start(self) -> None:
+        # Nothing extra beyond banner for now.
+        return None
+
+    def on_hand_start(self, hand_idx: int) -> None:
+        print(
+            f"--- Hand {hand_idx} | Quan={getattr(self.env,'quan_feng','?')} | "
+            f"Dealer=P{getattr(self.env,'dealer_pid',0)} | Streak={getattr(self.env,'dealer_streak',0)} ---"
+        )
+
+    def after_step(
+        self,
+        *,
+        obs: Dict[str, Any],
+        info: Optional[Dict[str, Any]],
+        discard_id: int,
+        last_seen_discard: Optional[tuple],
+        act: Dict[str, Any],
+        action_type: str,
+        acting_pid: Optional[int],
+        discarded_tile,
+    ) -> tuple[int, Optional[tuple]]:
+        event = summarize_resolved_claim(info) if isinstance(info, dict) else None
+        if event:
+            update_ui(
+                self.env,
+                self.human_pid,
+                discard_id,
+                last_action=event,
+                score_state=self.score_state,
+            )
+
+        if action_type == "DISCARD" and discarded_tile is not None:
+            discard_id += 1
+            last_seen_discard = (acting_pid, discarded_tile)
+            update_ui(
+                self.env,
+                self.human_pid,
+                discard_id,
+                last_action={"who": f"P{acting_pid}", "type": "DISCARD", "detail": tile_to_str(discarded_tile)},
+                score_state=self.score_state,
+            )
+
+        if (
+            obs.get("phase") == "REACTION"
+            and self.human_pid is not None
+            and obs.get("player") == self.human_pid
+        ):
+            ld = getattr(self.env, "last_discard", None)
+            if isinstance(ld, dict) and ld.get("tile") is not None:
+                key = (ld.get("pid"), ld.get("tile"))
+                if key != last_seen_discard:
+                    discard_id += 1
+                    last_seen_discard = key
+                    update_ui(
+                        self.env,
+                        self.human_pid,
+                        discard_id,
+                        last_action={
+                            "who": f"P{ld.get('pid')}",
+                            "type": "DISCARD",
+                            "detail": tile_to_str(ld.get("tile")),
+                        },
+                        score_state=self.score_state,
+                    )
+
+        return discard_id, last_seen_discard
+
+    def on_hand_scored(self, breakdown, payments) -> None:
+        render_reveal(
+            self.env,
+            breakdown=breakdown,
+            payments=payments,
+            base_points=getattr(self.env.rules, "base_points", None),
+            tai_points=getattr(self.env.rules, "tai_points", None),
+            totals=list(self.totals),
+        )
+
+    def on_hand_complete(self, hand_idx: int) -> None:
+        # No progress bar in UI mode.
+        return None
+
+
+class _HeadlessDemoRunner(_BaseDemoRunner):
+    provides_ui = False
+
+    def __init__(
+        self,
+        *,
+        seed=None,
+        human_pid: Optional[int] = None,
+        bot: str = "auto",
+        hands: int = 1,
+        start_points: int = 1000,
+        log_dir: Optional[str] = None,
+        emit_logs: bool = True,
+        hand_progress_cb: Optional[Callable[[int], None]] = None,
+    ) -> None:
+        super().__init__(
+            seed=seed,
+            human_pid=human_pid,
+            bot=bot,
+            hands=hands,
+            start_points=start_points,
+            log_dir=log_dir,
+            emit_logs=emit_logs,
+        )
+        self.progress = None
+        self.progress_task = None
+        self.hand_progress_cb = hand_progress_cb
+
+    def run(self) -> None:
+        manager = self._build_progress_manager() if self.emit_logs else nullcontext()
+        with manager as progress:
+            self.progress = progress
+            if self.emit_logs and progress is not None:
+                total = self.max_hands if (self.max_hands is not None and self.max_hands > 0) else None
+                self.progress_task = progress.add_task("Hands", total=total)
+            if self.emit_logs:
+                print("=== mahjong16 demo（Headless） ===")
+            self.on_session_start()
+            return self._execute()
+
+    def _build_progress_manager(self):
+        if self.max_hands is not None and self.max_hands > 0:
+            return Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+            )
+        return Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TextColumn("{task.completed} hands"),
+            TimeElapsedColumn(),
+        )
+
+    def on_session_start(self) -> None:
+        # Headless mode does not need additional setup messages.
+        return None
+
+    def on_hand_start(self, hand_idx: int) -> None:
+        # No per-hand banner in headless mode.
+        return None
+
+    def after_step(
+        self,
+        *,
+        obs: Dict[str, Any],
+        info: Optional[Dict[str, Any]],
+        discard_id: int,
+        last_seen_discard: Optional[tuple],
+        act: Dict[str, Any],
+        action_type: str,
+        acting_pid: Optional[int],
+        discarded_tile,
+    ) -> tuple[int, Optional[tuple]]:
+        # Headless mode does not render step-by-step updates.
+        return discard_id, last_seen_discard
+
+    def on_hand_scored(self, breakdown, payments) -> None:
+        # Headless mode skips reveal rendering.
+        return None
+
+    def on_hand_complete(self, hand_idx: int) -> None:
+        if self.emit_logs and self.progress is not None and self.progress_task is not None:
+            self.progress.advance(self.progress_task, 1)
+        if self.hand_progress_cb is not None:
+            self.hand_progress_cb(hand_idx)
+
+
+def run_demo_ui(
+    seed=None,
+    human_pid: Optional[int] = 0,
+    bot: str = "auto",
+    hands: int = 1,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+):
+    """Run the Mahjong16 demo with the interactive console UI enabled."""
+    runner = _UIDemoRunner(
+        seed=seed,
+        human_pid=human_pid,
+        bot=bot,
+        hands=hands,
+        start_points=start_points,
+        log_dir=log_dir,
+    )
+    runner.run()
+
+
+def run_demo_headless(
+    seed=None,
+    human_pid: Optional[int] = None,
+    bot: str = "auto",
+    hands: int = 1,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+):
+    """Run the Mahjong16 demo without the console UI (headless)."""
+    runner = _HeadlessDemoRunner(
+        seed=seed,
+        human_pid=None,
+        bot=bot,
+        hands=hands,
+        start_points=start_points,
+        log_dir=log_dir,
+    )
+    runner.run()
+
+
+def run_demo_headless_collect(
+    seed=None,
+    human_pid: Optional[int] = None,
+    bot: str = "auto",
+    hands: int = 1,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+    hand_progress_cb: Optional[Callable[[int], None]] = None,
+):
+    """Run the headless demo and return per-hand summaries without writing logs."""
+    runner = _HeadlessDemoRunner(
+        seed=seed,
+        human_pid=human_pid,
+        bot=bot,
+        hands=hands,
+        start_points=start_points,
+        log_dir=log_dir,
+        emit_logs=False,
+        hand_progress_cb=hand_progress_cb,
+    )
+    return runner.run()
+
 
 def run_demo(
     seed=None,
@@ -82,302 +599,204 @@ def run_demo(
     log_dir: Optional[str] = None,
     enable_ui: bool = True,
 ):
-    """Run a simple console demo with auto/human play and scoring breakdown.
+    """Backward-compatible wrapper for existing callers.
 
-    Args:
-      seed: RNG seed.
-      human_pid: Which player index is controlled by human (None for all auto).
-      bot: Strategy name (currently 'auto').
-      log_dir: Optional directory for per-hand summaries (None disables logging).
-      enable_ui: When False, skip console UI rendering and show a progress bar instead.
+    Prefer using `run_demo_ui` or `run_demo_headless` when the desired mode is known.
     """
-    rules = Ruleset(
-        include_flowers=True,
-        dead_wall_mode="fixed",
-        dead_wall_base=16,
-        scoring_profile="taiwan_base",
-        see_flower_see_wind=False,
-        randomize_seating_and_dealer=True,
-        enable_wind_flower_scoring=True,
-        scoring_overrides_path=None,
+    if enable_ui:
+        return run_demo_ui(
+            seed=seed,
+            human_pid=human_pid,
+            bot=bot,
+            hands=hands,
+            start_points=start_points,
+            log_dir=log_dir,
+        )
+    return run_demo_headless(
+        seed=seed,
+        human_pid=None,
+        bot=bot,
+        hands=hands,
+        start_points=start_points,
+        log_dir=log_dir,
     )
-    env = Mahjong16Env(rules, seed=seed)
-    # Preload scoring table for this run
-    table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
-    mode_label = "Rich Console UI" if enable_ui else "Headless"
-    print(f"=== mahjong16 demo（{mode_label}） ===")
 
-    # Table manager: multi-hand flow
-    tm = TableManager(rules, seed=seed)
-    tm.initialize(env.rules.n_players)
-    strategies = build_strategies(env.rules.n_players, human_pid, bot)
 
-    # Session score state (per-player totals + last hand delta)
-    n_players = env.rules.n_players
-    try:
-        start_points_int = int(start_points)
-    except Exception:  # pragma: no cover - defensive fallback
-        start_points_int = 1000
-    if start_points_int <= 0:
-        start_points_int = 1
-    totals = [start_points_int for _ in range(n_players)]
-    hand_delta = [0 for _ in range(n_players)]
-    score_state = {"totals": totals, "deltas": hand_delta}
+def run_demo_headless_batch(
+    *,
+    sessions: int,
+    cores: Optional[int] = None,
+    seed: Optional[int] = None,
+    bot: str = "auto",
+    hands: int = 1,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+    emit_logs: bool = True,
+) -> List[Dict[str, Any]]:
+    """Run multiple headless demo sessions, optionally in parallel, and aggregate logs."""
 
-    play_until_negative = (hands == -1)
-    max_hands = None if play_until_negative else hands
+    if sessions <= 0:
+        raise ValueError("sessions must be >= 1")
+    if cores is not None and cores <= 0:
+        raise ValueError("cores must be >= 1 when provided")
 
-    # Collect per-hand winner summaries to print after all hands complete
-    hand_summaries: list = []
+    max_workers = cores if cores is not None else min(sessions, os.cpu_count() or 1)
+    max_workers = max(1, min(max_workers, sessions))
+    session_seeds = _prepare_session_seeds(seed, sessions)
 
-    use_progress = not enable_ui
-    progress_manager = nullcontext()
-    if use_progress:
-        if max_hands is not None and max_hands > 0:
-            progress_manager = Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-            )
-        else:
-            progress_manager = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                TextColumn("{task.completed} hands"),
-                TimeElapsedColumn(),
-            )
+    results: List[Tuple[int, Optional[int], List[Dict[str, Any]]]] = []
+    jobs = list(enumerate(session_seeds))
+
+    progress_manager = (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        )
+        if emit_logs and sessions > 1
+        else nullcontext()
+    )
 
     with progress_manager as progress:
-        progress_task = None
-        if use_progress and progress is not None:
-            total = max_hands if (max_hands is not None and max_hands > 0) else None
-            progress_task = progress.add_task("Hands", total=total)
+        session_tasks: Dict[int, int] = {}
 
-        hand_idx = 0
-        while True:
-            if max_hands is not None and hand_idx >= max_hands:
-                break
+        def _log(message: str) -> None:
+            if not emit_logs:
+                return
+            if progress is not None:
+                progress.console.print(message)
+            else:
+                print(message)
 
-            hand_idx += 1
-            obs = tm.start_hand(env)
-            hand_delta = [0 for _ in range(n_players)]
-            score_state["deltas"] = hand_delta
-            discard_id = 0
-            last_seen_discard: Optional[tuple] = None  # (pid, tile)
+        def _update_session(idx: int, hand_idx: int) -> None:
+            if progress is None:
+                return
+            task_id = session_tasks.get(idx)
+            if task_id is None:
+                return
+            progress.update(task_id, completed=hand_idx)
 
-            def process_hand_end() -> bool:
-                """Finalize current hand: scoring, rendering, table update.
+        def _finish_session(idx: int, hand_count: int) -> None:
+            if progress is None:
+                return
+            task_id = session_tasks.get(idx)
+            if task_id is None:
+                return
+            task = progress.tasks[task_id]
+            target = hand_count
+            if task.total is not None:
+                target = min(hand_count, task.total)
+            progress.update(task_id, completed=target)
+            progress.stop_task(task_id)
 
-                Returns:
-                  True if the session should terminate early (e.g., negative points reached), otherwise False.
-                """
+        def _make_hand_cb(idx: int) -> Optional[Callable[[int], None]]:
+            if progress is None:
+                return None
+            task_id = session_tasks.get(idx)
+            if task_id is None:
+                return None
 
-                ctx = ScoringContext.from_env(env, table)
-                rewards2, bd = score_with_breakdown(ctx)
-                payments_raw, _ = compute_payments(
-                    ctx,
-                    getattr(env.rules, "base_points", 100),
-                    getattr(env.rules, "tai_points", 20),
-                    rewards=rewards2,
-                    breakdown=bd,
-                )
-                payments = [0 for _ in range(n_players)]
-                for pid in range(n_players):
-                    delta = 0
-                    try:
-                        delta = int(payments_raw[pid])
-                    except Exception:
-                        delta = 0
-                    payments[pid] = delta
-                    totals[pid] += delta
-                    hand_delta[pid] = delta
+            def _cb(hand_idx: int) -> None:
+                progress.update(task_id, completed=hand_idx)
 
-                winner = env.winner
-                if winner is not None:
-                    try:
-                        pl = env.players[winner]
-                        hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
-                        melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
-                        flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
-                        win_src = (getattr(env, "win_source", None) or "").upper()
-                        ron_from = getattr(env, "turn_at_win", None) if win_src == "RON" else None
-                        win_tile = getattr(env, "win_tile", None)
-                        qf = getattr(env, "quan_feng", None)
-                        dealer_pid = getattr(env, "dealer_pid", None)
-                        seat_winds = getattr(env, "seat_winds", None)
-                        dealer_wind = None
-                        winner_wind = None
-                        try:
-                            if isinstance(seat_winds, list):
-                                if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
-                                    dealer_wind = seat_winds[dealer_pid]
-                                if 0 <= winner < len(seat_winds):
-                                    winner_wind = seat_winds[winner]
-                        except Exception:
-                            dealer_wind = None
-                            winner_wind = None
-                        hand_summaries.append({
-                            "hand_index": hand_idx,
-                            "winner": winner,
-                            "win_source": win_src,
-                            "ron_from": ron_from,
-                            "win_tile": win_tile,
-                            "hand": hand_tiles,
-                            "melds": melds,
-                            "flowers": flowers,
-                            "breakdown": list(bd.get(winner, [])),
-                            "payments": list(payments),
-                            "base_points": getattr(env.rules, "base_points", None),
-                            "tai_points": getattr(env.rules, "tai_points", None),
-                            "quan_feng": qf,
-                            "dealer_pid": dealer_pid,
-                            "dealer_wind": dealer_wind,
-                            "winner_wind": winner_wind,
-                            "totals_after_hand": list(totals),
-                            "remain_tiles": ctx.wall_len,
-                        })
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        qf = getattr(env, "quan_feng", None)
-                        dealer_pid = getattr(env, "dealer_pid", None)
-                        seat_winds = getattr(env, "seat_winds", None)
-                        dealer_wind = None
-                        try:
-                            if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
-                                dealer_wind = seat_winds[dealer_pid]
-                        except Exception:
-                            dealer_wind = None
-                        hand_summaries.append({
-                            "hand_index": hand_idx,
-                            "winner": None,
-                            "result": "DRAW",
-                            "payments": list(payments),
-                            "base_points": getattr(env.rules, "base_points", None),
-                            "tai_points": getattr(env.rules, "tai_points", None),
-                            "quan_feng": qf,
-                            "dealer_pid": dealer_pid,
-                            "dealer_wind": dealer_wind,
-                            "totals_after_hand": list(totals),
-                            "remain_tiles": ctx.wall_len,
-                        })
-                    except Exception:
-                        pass
+            return _cb
 
-                if enable_ui:
-                    render_reveal(
-                        env,
-                        breakdown=bd,
-                        payments=payments,
-                        base_points=getattr(env.rules, "base_points", None),
-                        tai_points=getattr(env.rules, "tai_points", None),
-                        totals=list(totals),
-                    )
+        if emit_logs:
+            _log("=== mahjong16 demo batch（Headless） ===")
 
-                tm.finish_hand(env)
-
-                if use_progress and progress is not None and progress_task is not None:
-                    progress.advance(progress_task, 1)
-
-                if play_until_negative and any(pt < 0 for pt in totals):
-                    print("=== stop (negative points reached) ===")
-                    return True
-                return False
-
-            if getattr(env, "done", False):
-                if process_hand_end():
-                    return _finalize_demo(hand_summaries, log_dir=log_dir, enable_ui=enable_ui)
-                continue
-
-            if enable_ui:
-                print(
-                    f"--- Hand {hand_idx} | Quan={getattr(env,'quan_feng','?')} | Dealer=P{getattr(env,'dealer_pid',0)} | Streak={getattr(env,'dealer_streak',0)} ---"
+        if progress is not None:
+            per_session_total = hands if hands > 0 else None
+            for idx, _ in jobs:
+                session_tasks[idx] = progress.add_task(
+                    f"Session {idx + 1}",
+                    total=per_session_total,
                 )
 
-            while True:
-                acts_current = obs.get("legal_actions") or []
-                if not acts_current:
-                    recalculated = env.legal_actions()
-                    if recalculated:
-                        obs = dict(obs)
-                        obs["legal_actions"] = recalculated
-                        acts_current = recalculated
-                    elif getattr(env, "done", False):
-                        if process_hand_end():
-                            return _finalize_demo(hand_summaries, log_dir=log_dir, enable_ui=enable_ui)
-                        break
-                    else:
-                        raise AssertionError(
-                            f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}."
-                        )
+        if max_workers <= 1:
+            for idx, session_seed in jobs:
+                hand_cb = _make_hand_cb(idx)
+                summaries = run_demo_headless_collect(
+                    seed=session_seed,
+                    human_pid=None,
+                    bot=bot,
+                    hands=hands,
+                    start_points=start_points,
+                    log_dir=None,
+                    hand_progress_cb=hand_cb,
+                )
+                results.append((idx, session_seed, summaries))
+                _finish_session(idx, len(summaries))
+        else:
+            manager = mp.Manager() if progress is not None else None
+            progress_queue = manager.Queue() if manager is not None else None
 
-                act = strategies[obs.get("player")].choose(obs)
+            try:
+                with ProcessPoolExecutor(max_workers=max_workers) as pool:
+                    future_map = {
+                        pool.submit(
+                            _run_headless_batch_session,
+                            idx,
+                            session_seed,
+                            bot,
+                            hands,
+                            start_points,
+                            progress_queue,
+                        ): idx
+                        for idx, session_seed in jobs
+                    }
 
-                atype = (act.get("type") or "").upper()
+                    pending = set(future_map.keys())
+                    while pending:
+                        if progress_queue is not None:
+                            try:
+                                session_idx, hand_idx = progress_queue.get(timeout=0.1)
+                            except Empty:
+                                pass
+                            else:
+                                _update_session(session_idx, hand_idx)
 
-                pre_pid = obs.get("player")
-                pre_tile = act.get("tile") if atype == "DISCARD" else None
+                        done = [f for f in pending if f.done()]
+                        for fut in done:
+                            pending.remove(fut)
+                            idx, session_seed, summaries = fut.result()
+                            results.append((idx, session_seed, summaries))
+                            _finish_session(idx, len(summaries))
 
-                obs, rew, done, info = env.step(act)
+                    if progress_queue is not None:
+                        while True:
+                            try:
+                                session_idx, hand_idx = progress_queue.get_nowait()
+                            except Empty:
+                                break
+                            else:
+                                _update_session(session_idx, hand_idx)
+            finally:
+                if manager is not None:
+                    manager.shutdown()
 
-                event = summarize_resolved_claim(info) if (enable_ui and isinstance(info, dict)) else None
-                if enable_ui and event:
-                    update_ui(
-                        env,
-                        human_pid,
-                        discard_id,
-                        last_action=event,
-                        score_state=score_state,
-                    )
+    results.sort(key=lambda item: item[0])
+    all_summaries: List[Dict[str, Any]] = []
+    global_hand_index = 1
+    for session_idx, session_seed, summaries in results:
+        for local_idx, summary in enumerate(summaries, start=1):
+            entry = dict(summary)
+            entry.setdefault("hand_index", local_idx)
+            entry["session_index"] = session_idx
+            entry["session_hand_index"] = local_idx
+            entry["global_hand_index"] = global_hand_index
+            entry["session_seed"] = session_seed
+            all_summaries.append(entry)
+            global_hand_index += 1
 
-                if enable_ui and atype == "DISCARD" and pre_tile is not None:
-                    discard_id += 1
-                    last_seen_discard = (pre_pid, pre_tile)
-                    update_ui(
-                        env,
-                        human_pid,
-                        discard_id,
-                        last_action={"who": f"P{pre_pid}", "type": "DISCARD", "detail": tile_to_str(pre_tile)},
-                        score_state=score_state,
-                    )
+    if emit_logs:
+        _finalize_demo(all_summaries, log_dir=log_dir, enable_ui=False)
+    elif log_dir is not None:
+        write_hand_log(all_summaries, log_dir)
 
-                if (
-                    enable_ui
-                    and obs.get("phase") == "REACTION"
-                    and human_pid is not None
-                    and obs.get("player") == human_pid
-                ):
-                    ld = getattr(env, "last_discard", None)
-                    if isinstance(ld, dict) and ld.get("tile") is not None:
-                        key = (ld.get("pid"), ld.get("tile"))
-                        if key != last_seen_discard:
-                            discard_id += 1
-                            last_seen_discard = key
-                            update_ui(
-                                env,
-                                human_pid,
-                                discard_id,
-                                last_action={
-                                    "who": f"P{ld.get('pid')}",
-                                    "type": "DISCARD",
-                                    "detail": tile_to_str(ld.get("tile")),
-                                },
-                                score_state=score_state,
-                            )
-
-                if done:
-                    if process_hand_end():
-                        return _finalize_demo(hand_summaries, log_dir=log_dir, enable_ui=enable_ui)
-                    break
-
-                if discard_id > 2000:
-                    print("=== stop (safety break) ===")
-                    break
-
-    return _finalize_demo(hand_summaries, log_dir=log_dir, enable_ui=enable_ui)
+    return all_summaries
 
 
 def _finalize_demo(
@@ -398,3 +817,45 @@ def _finalize_demo(
             print(f"[warn] failed to write log in {log_dir}: {exc}")
 
     print("=== demo finished ===")
+
+
+def _prepare_session_seeds(base_seed: Optional[int], sessions: int) -> List[Optional[int]]:
+    if base_seed is None:
+        rng = random.SystemRandom()
+        return [rng.randrange(2**31) for _ in range(sessions)]
+
+    seeds: List[Optional[int]] = [int(base_seed)]
+    if sessions == 1:
+        return seeds
+
+    rng = random.Random(base_seed)
+    for _ in range(1, sessions):
+        seeds.append(rng.randrange(2**31))
+    return seeds
+
+
+def _run_headless_batch_session(
+    session_index: int,
+    session_seed: Optional[int],
+    bot: str,
+    hands: int,
+    start_points: int,
+    progress_queue=None,
+) -> Tuple[int, Optional[int], List[Dict[str, Any]]]:
+    def _report(hand_idx: int) -> None:
+        if progress_queue is not None:
+            try:
+                progress_queue.put((session_index, hand_idx))
+            except Exception:
+                pass
+
+    summaries = run_demo_headless_collect(
+        seed=session_seed,
+        human_pid=None,
+        bot=bot,
+        hands=hands,
+        start_points=start_points,
+        log_dir=None,
+        hand_progress_cb=_report if progress_queue is not None else None,
+    )
+    return session_index, session_seed, summaries

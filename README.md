@@ -9,7 +9,7 @@ reinforcement learning 腳手架，協助快速驗證各種對局想法。
 - `core/env.py` 的 `Mahjong16Env` 處理發牌、摸打、反應優先權（胡 > 槓 > 碰 > 吃）與流局。
 - `Ruleset` 支援花牌開關、尾牌留置模式（固定或「一槓一」）、隨機座次與圈風花牌計分。
 - 台數計算採分層管線：`scoring/state.py` 整理衍生狀態，`scoring/rules/*` 套用番種，
-  `scoring/breakdown.py` 與 `taiwanese_mahjong_scoring.json` 合作輸出明細。
+  `scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
 - `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
 - `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
 - `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
@@ -59,16 +59,35 @@ mahjong16/
 ├─ rl/                  # 自對弈與訓練骨架（buffer/net/selfplay）
 ├─ tests/               # pytest suites（env、scoring、core helpers）
 ├─ scripts/             # 評估/效能腳本（目前為占位等待擴充）
-├─ taiwanese_mahjong_scoring.json
+├─ configs/
+│  ├─ profiles/
+│  │  ├─ taiwan_base.json    # 預設番種台數表（其餘 profile 同目錄）
+│  │  └─ …
+│  ├─ labels.json            # 台數標籤對照
+│  ├─ notes.json             # 台型備註
+│  └─ constraints.json       # 互斥/依賴規則
 ├─ AGENTS.md            # 協作規範與提交建議
 └─ README.md
 ```
 
 ## CLI 與資料紀錄
 
-- `main.py` 使用 argparse：`--human`（0-3 或 `none`）、`--bot` (`auto` / `greedy` / `human`）、
-  `--hands`（-1 代表打到有人破產）、`--start-points`、`--log-dir`、`--no-ui`。
-- Headless 模式會切換為進度列顯示，若未指定 `--log-dir` 會預設寫入 `logs/`。
+### `main.py` 旗標一覽
+
+- `--seed <int>`：指定 RNG 種子，預設為隨機。
+- `--human <0-3|none>`：指定玩家座位；輸入 `none`/`-1`/`no` 表示全 bot，預設無真人。
+- `--bot {auto,greedy,human}`：非真人座位採用的策略，預設 `greedy`。
+- `--hands <int>`：局數上限；`-1` 代表打到有人破產為止，0 或 < -1 會被拒絕。
+- `--start-points <int>`：每位玩家的起始分數，須為正整數，預設 1000。
+- `--log-dir <path>`：寫入每局 CSV 摘要的資料夾，headless 且未指定時預設為 `logs/`。
+- `--no-ui`：禁用互動 Rich 介面並改以 headless 流程執行，會自動關閉真人座位。
+- `--sessions <int>`：獨立桌次數量，>1 時改用批次 headless；預設 1。
+- `--cores <int>`：批次 headless 最大工作程序數；省略時根據 CPU 自動判定。
+
+Headless 模式改以進度列呈現；若 `--sessions` > 1 或 `--cores` > 1 亦會自動切至
+`run_demo_headless_batch`，此時 `--no-ui` 旗標可省略。批次模式會禁用真人座位並在
+必要時預設輸出到 `logs/`。
+
 - `app/logging.py` 每局輸出座位、花牌紀錄、台數與輸贏，便於後續統計。
 - 互動介面利用 `ui.console` 與 `core.analysis` 顯示候選聽牌、剩餘枚數與反應訊息。
 
@@ -100,8 +119,8 @@ obs = env.reset()
 table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 ```
 
-計分表以 `taiwanese_mahjong_scoring.json` 為基礎，對應 `core/scoring/tables.py` 的 key。
-若需覆寫，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path` 並新增測試驗證。
+計分表以 `configs/profiles/` 內的 per-profile JSON 為基礎，並對應 `core/scoring/tables.py` 的 key。
+若需覆寫，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path`（可指向任一 profile 檔案），並新增測試驗證。
 
 ## 後續方向
 
