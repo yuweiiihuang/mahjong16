@@ -89,6 +89,7 @@ class _BaseDemoRunner:
         human_pid: Optional[int] = 0,
         bot: str = "auto",
         hands: int = 1,
+        jangs: int = 0,
         start_points: int = 1000,
         log_dir: Optional[str] = None,
         emit_logs: bool = True,
@@ -97,6 +98,7 @@ class _BaseDemoRunner:
         self.human_pid = human_pid
         self.bot = bot
         self.hands = hands
+        self.jangs = jangs
         self.log_dir = log_dir
         self.emit_logs = emit_logs
 
@@ -123,8 +125,9 @@ class _BaseDemoRunner:
         self.hand_delta = [0 for _ in range(self.n_players)]
         self.score_state = {"totals": self.totals, "deltas": self.hand_delta}
 
-        self.play_until_negative = (hands == -1)
-        self.max_hands = None if self.play_until_negative else hands
+        self.target_jangs = self._normalize_jangs(jangs)
+        self.play_until_negative = (hands == -1 and self.target_jangs is None)
+        self.max_hands = None if (self.play_until_negative or self.target_jangs is not None) else hands
         self.hand_summaries: list = []
 
     def run(self) -> None:  # pragma: no cover - overridden by subclasses
@@ -271,6 +274,7 @@ class _BaseDemoRunner:
                 self.hand_summaries.append(
                     {
                         "hand_index": hand_idx,
+                        "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
                         "winner": winner,
                         "win_source": win_src,
                         "ron_from": ron_from,
@@ -306,6 +310,7 @@ class _BaseDemoRunner:
                 self.hand_summaries.append(
                     {
                         "hand_index": hand_idx,
+                        "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
                         "winner": None,
                         "result": "DRAW",
                         "payments": list(payments),
@@ -325,6 +330,13 @@ class _BaseDemoRunner:
         self.tm.finish_hand(self.env)
         self.on_hand_complete(hand_idx)
 
+        if self.target_jangs is not None:
+            jang_count = getattr(self.tm.state, "jang_count", 0)
+            if jang_count >= self.target_jangs:
+                if self.emit_logs:
+                    print("=== stop (jang limit reached) ===")
+                return True
+
         if self.play_until_negative and any(pt < 0 for pt in self.totals):
             if self.emit_logs:
                 print("=== stop (negative points reached) ===")
@@ -338,6 +350,17 @@ class _BaseDemoRunner:
             value = 1000
         if value <= 0:
             value = 1
+        return value
+
+    def _normalize_jangs(self, jangs: Optional[int]) -> Optional[int]:
+        if jangs is None:
+            return None
+        try:
+            value = int(jangs)
+        except Exception:  # pragma: no cover - defensive fallback
+            return None
+        if value <= 0:
+            return None
         return value
 
     def _finalize(self) -> list:
@@ -359,8 +382,9 @@ class _UIDemoRunner(_BaseDemoRunner):
         return None
 
     def on_hand_start(self, hand_idx: int) -> None:
+        jang_idx = getattr(self.tm.state, "jang_count", 0) + 1
         print(
-            f"--- Hand {hand_idx} | Quan={getattr(self.env,'quan_feng','?')} | "
+            f"--- Hand {hand_idx} | Jang={jang_idx} | Quan={getattr(self.env,'quan_feng','?')} | "
             f"Dealer=P{getattr(self.env,'dealer_pid',0)} | Streak={getattr(self.env,'dealer_streak',0)} ---"
         )
 
@@ -447,6 +471,7 @@ class _HeadlessDemoRunner(_BaseDemoRunner):
         human_pid: Optional[int] = None,
         bot: str = "auto",
         hands: int = 1,
+        jangs: int = 0,
         start_points: int = 1000,
         log_dir: Optional[str] = None,
         emit_logs: bool = True,
@@ -457,6 +482,7 @@ class _HeadlessDemoRunner(_BaseDemoRunner):
             human_pid=human_pid,
             bot=bot,
             hands=hands,
+            jangs=jangs,
             start_points=start_points,
             log_dir=log_dir,
             emit_logs=emit_logs,
@@ -532,6 +558,7 @@ def run_demo_ui(
     human_pid: Optional[int] = 0,
     bot: str = "auto",
     hands: int = 1,
+    jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
 ):
@@ -541,6 +568,7 @@ def run_demo_ui(
         human_pid=human_pid,
         bot=bot,
         hands=hands,
+        jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
     )
@@ -552,6 +580,7 @@ def run_demo_headless(
     human_pid: Optional[int] = None,
     bot: str = "auto",
     hands: int = 1,
+    jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
 ):
@@ -561,6 +590,7 @@ def run_demo_headless(
         human_pid=None,
         bot=bot,
         hands=hands,
+        jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
     )
@@ -572,6 +602,7 @@ def run_demo_headless_collect(
     human_pid: Optional[int] = None,
     bot: str = "auto",
     hands: int = 1,
+    jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     hand_progress_cb: Optional[Callable[[int], None]] = None,
@@ -582,6 +613,7 @@ def run_demo_headless_collect(
         human_pid=human_pid,
         bot=bot,
         hands=hands,
+        jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
         emit_logs=False,
@@ -595,6 +627,7 @@ def run_demo(
     human_pid: Optional[int] = 0,
     bot: str = "auto",
     hands: int = 1,
+    jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     enable_ui: bool = True,
@@ -609,6 +642,7 @@ def run_demo(
             human_pid=human_pid,
             bot=bot,
             hands=hands,
+            jangs=jangs,
             start_points=start_points,
             log_dir=log_dir,
         )
@@ -617,6 +651,7 @@ def run_demo(
         human_pid=None,
         bot=bot,
         hands=hands,
+        jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
     )
@@ -629,6 +664,7 @@ def run_demo_headless_batch(
     seed: Optional[int] = None,
     bot: str = "auto",
     hands: int = 1,
+    jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     emit_logs: bool = True,
@@ -708,7 +744,11 @@ def run_demo_headless_batch(
             _log("=== mahjong16 demo batch（Headless） ===")
 
         if progress is not None:
-            per_session_total = hands if hands > 0 else None
+            per_session_total = None
+            if jangs > 0:
+                per_session_total = None
+            elif hands > 0:
+                per_session_total = hands
             for idx, _ in jobs:
                 session_tasks[idx] = progress.add_task(
                     f"Session {idx + 1}",
@@ -723,6 +763,7 @@ def run_demo_headless_batch(
                     human_pid=None,
                     bot=bot,
                     hands=hands,
+                    jangs=jangs,
                     start_points=start_points,
                     log_dir=None,
                     hand_progress_cb=hand_cb,
@@ -742,6 +783,7 @@ def run_demo_headless_batch(
                             session_seed,
                             bot,
                             hands,
+                            jangs,
                             start_points,
                             progress_queue,
                         ): idx
@@ -839,6 +881,7 @@ def _run_headless_batch_session(
     session_seed: Optional[int],
     bot: str,
     hands: int,
+    jangs: int,
     start_points: int,
     progress_queue=None,
 ) -> Tuple[int, Optional[int], List[Dict[str, Any]]]:
@@ -854,6 +897,7 @@ def _run_headless_batch_session(
         human_pid=None,
         bot=bot,
         hands=hands,
+        jangs=jangs,
         start_points=start_points,
         log_dir=None,
         hand_progress_cb=_report if progress_queue is not None else None,

@@ -24,6 +24,7 @@ class TableState:
     dealer_pid: int = 0
     dealer_streak: int = 0           # 連莊次数（起手 0 表示 2*0+1 台）
     dealer_pass_count: int = 0       # 計算本圈已經『下莊次數』（達 n_players 代表過一圈）
+    jang_count: int = 0              # 已完成的「將」數（四圈結束後 +1）
 
 
 class TableManager:
@@ -64,6 +65,7 @@ class TableManager:
         self.state.dealer_pid = self.state.seating_order[0]
         self.state.dealer_streak = 0
         self.state.dealer_pass_count = 0
+        self.state.jang_count = 0
 
     def start_hand(self, env: Mahjong16Env):
         """Preset env for the next hand and reset it."""
@@ -100,6 +102,7 @@ class TableManager:
                 self.state.quan_feng = _next_wind(self.state.quan_feng)
                 # 回到東圈 → 重新抽座位（門風更新，完整打亂相對座次）
                 if self.state.quan_feng == "E":
+                    self.state.jang_count += 1
                     self.state.seating_order = self._random_seating(n_players)
                     self.state.seat_winds = self._winds_from_seating(self.state.seating_order, n_players)
                     # 新東圈起莊為東（座次索引0）

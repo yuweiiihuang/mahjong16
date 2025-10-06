@@ -661,6 +661,7 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
     console.rule("[bold]winners summary")
     for rec in records:
         hid = rec.get("hand_index")
+        jang_idx = rec.get("jang_index")
         wpid = rec.get("winner")
         src = (rec.get("win_source") or "").upper()
         ron_from = rec.get("ron_from")
@@ -676,6 +677,10 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
         dcn = f"P{dealer_pid}" if isinstance(dealer_pid, int) else "?"
         if isinstance(dealer_wind, str) and dealer_wind:
             dcn += f"({qmap.get(dealer_wind.upper(), dealer_wind)})"
+        jang_str = str(jang_idx) if isinstance(jang_idx, int) and jang_idx > 0 else "?"
+        panel_title = f"Hand {hid}"
+        if isinstance(jang_idx, int) and jang_idx > 0:
+            panel_title += f" · Jang {jang_idx}"
 
         body = Table.grid(padding=(0, 1))
         # Draw/flow case: no winner
@@ -694,7 +699,7 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
                     parts.append(Text(str(amt), style="cyan"))
                 body.add_row(Text.assemble(Text("totals: ", style="bold"), *parts))
         if wpid is None or str(rec.get("result")).upper() == "DRAW":
-            body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
+            body.add_row(Text(f"將: {jang_str}   圈風: {qcn}   莊家: {dcn}"))
             body.add_row(Text("流局", style="bold"))
             if isinstance(payments, (list, tuple)):
                 prefix = "payments"
@@ -712,13 +717,13 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
                     parts.append(format_amount(amt))
                 body.add_row(Text.assemble(Text(f"{prefix}: ", style="bold"), *parts))
             add_totals_row()
-            panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
+            panel = Panel(body, title=panel_title, box=ROUNDED, padding=(0, 1))
             console.print(panel)
             continue
 
         # Header line inside the panel for a normal win
         # Quan/Dealer row first
-        body.add_row(Text(f"圈風: {qcn}   莊家: {dcn}"))
+        body.add_row(Text(f"將: {jang_str}   圈風: {qcn}   莊家: {dcn}"))
         prefix = f"Winner P{wpid}"
         if isinstance(winner_wind, str) and winner_wind:
             prefix += f" （{qmap.get(winner_wind.upper(), winner_wind.upper())}）"
@@ -792,5 +797,5 @@ def render_winners_summary(records: List[Dict[str, Any]]) -> None:
 
         add_totals_row()
 
-        panel = Panel(body, title=f"Hand {hid}", box=ROUNDED, padding=(0, 1))
+        panel = Panel(body, title=panel_title, box=ROUNDED, padding=(0, 1))
         console.print(panel)

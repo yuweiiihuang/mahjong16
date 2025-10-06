@@ -33,6 +33,12 @@ if __name__ == "__main__":
         help="Number of hands to play (>=1). Use -1 to play until a player drops below 0. Default: -1",
     )
     parser.add_argument(
+        "--jangs",
+        type=int,
+        default=0,
+        help="Number of jangs (四圈) to play (>=1). Use 0 to disable. Conflicts with --hands >= 1.",
+    )
+    parser.add_argument(
         "--start-points",
         type=int,
         default=1000,
@@ -76,6 +82,10 @@ if __name__ == "__main__":
 
     if args.hands is not None and (args.hands == 0 or args.hands < -1):
         raise SystemExit("Invalid --hands value. Must be -1 or >= 1.")
+    if args.jangs < 0:
+        raise SystemExit("Invalid --jangs value. Must be >= 0.")
+    if args.jangs > 0 and args.hands not in (-1, None):
+        raise SystemExit("Cannot combine --jangs with a finite --hands value.")
 
     try:
         start_points = int(args.start_points)
@@ -108,6 +118,7 @@ if __name__ == "__main__":
             seed=args.seed,
             bot=args.bot,
             hands=args.hands,
+            jangs=args.jangs,
             start_points=start_points,
             log_dir=log_dir,
         )
@@ -118,6 +129,7 @@ if __name__ == "__main__":
             human_pid=human_pid,
             bot=args.bot,
             hands=args.hands,
+            jangs=args.jangs,
             start_points=start_points,
             log_dir=log_dir,
         )
