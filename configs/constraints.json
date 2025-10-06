@@ -1,0 +1,42 @@
+{
+  "excludes": {
+    "da_san_yuan": [
+      "dragon_pung"
+    ],
+    "da_si_xi": [
+      "quan_feng_ke",
+      "men_feng_ke"
+    ],
+    "si_an_ke": [
+      "san_an_ke"
+    ],
+    "wu_an_ke": [
+      "san_an_ke",
+      "si_an_ke"
+    ],
+    "xiao_san_yuan": [
+      "dragon_pung"
+    ]
+  },
+  "includes": {
+    "menqing_zimo": [
+      "menqing",
+      "zimo"
+    ]
+  },
+  "variant_specific_notes": {
+    "gametower_star31": {
+      "he_di": "未定義（0台）"
+    },
+    "mj888": {
+      "di_ting": "八張內無明副露即聽；不得加計門清",
+      "hai_di": "不得加計槓上自摸",
+      "ping_hu": "需『聽雙頭』"
+    },
+    "zhonghua": {
+      "di_ting": "配牌後、閒家第一張出牌前即聽；不得加計門清、不求人",
+      "hai_di": "不得加計槓上自摸",
+      "ping_hu": "需『聽雙頭』"
+    }
+  }
+}

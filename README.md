@@ -9,7 +9,7 @@ reinforcement learning 腳手架，協助快速驗證各種對局想法。
 - `core/env.py` 的 `Mahjong16Env` 處理發牌、摸打、反應優先權（胡 > 槓 > 碰 > 吃）與流局。
 - `Ruleset` 支援花牌開關、尾牌留置模式（固定或「一槓一」）、隨機座次與圈風花牌計分。
 - 台數計算採分層管線：`scoring/state.py` 整理衍生狀態，`scoring/rules/*` 套用番種，
-  `scoring/breakdown.py` 與 `taiwanese_mahjong_scoring.json` 合作輸出明細。
+  `scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
 - `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
 - `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
 - `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
@@ -59,7 +59,13 @@ mahjong16/
 ├─ rl/                  # 自對弈與訓練骨架（buffer/net/selfplay）
 ├─ tests/               # pytest suites（env、scoring、core helpers）
 ├─ scripts/             # 評估/效能腳本（目前為占位等待擴充）
-├─ taiwanese_mahjong_scoring.json
+├─ configs/
+│  ├─ profiles/
+│  │  ├─ taiwan_base.json    # 預設番種台數表（其餘 profile 同目錄）
+│  │  └─ …
+│  ├─ labels.json            # 台數標籤對照
+│  ├─ notes.json             # 台型備註
+│  └─ constraints.json       # 互斥/依賴規則
 ├─ AGENTS.md            # 協作規範與提交建議
 └─ README.md
 ```
@@ -100,8 +106,8 @@ obs = env.reset()
 table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 ```
 
-計分表以 `taiwanese_mahjong_scoring.json` 為基礎，對應 `core/scoring/tables.py` 的 key。
-若需覆寫，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path` 並新增測試驗證。
+計分表以 `configs/profiles/` 內的 per-profile JSON 為基礎，並對應 `core/scoring/tables.py` 的 key。
+若需覆寫，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path`（可指向任一 profile 檔案），並新增測試驗證。
 
 ## 後續方向
 

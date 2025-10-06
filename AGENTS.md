@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`core/` hosts the Mahjong16 rules engine and scoring (`core/env.py`, `core/scoring/engine.py`); keep logic pure, deterministic, and free of side effects. `app/` contains CLI demos and strategy wiring, while `ui/console.py` handles rendering helpers shared across clients. Place bots in `bots/` and reinforcement-learning scaffolding in `rl/`; both should import from `core/` or `ui/` instead of copying utilities. Treat `scripts/` (e.g., `scripts/eval_league.py`, `scripts/bench_sim.py`) and `taiwanese_mahjong_scoring.json` as read-only inputs, and mirror new code with matching suites in `tests/` (see `tests/test_env_basic.py`).
+`core/` hosts the Mahjong16 rules engine and scoring (`core/env.py`, `core/scoring/engine.py`); keep logic pure, deterministic, and free of side effects. `app/` contains CLI demos and strategy wiring, while `ui/console.py` handles rendering helpers shared across clients. Place bots in `bots/` and reinforcement-learning scaffolding in `rl/`; both should import from `core/` or `ui/` instead of copying utilities. Treat `scripts/` (e.g., `scripts/eval_league.py`, `scripts/bench_sim.py`) and the JSON assets under `configs/` as read-only inputs, and mirror new code with matching suites in `tests/` (see `tests/test_env_basic.py`).
 
 ## Build, Test, and Development Commands
 - `pip install -r requirements.txt` — install runtime dependencies plus pytest.
@@ -20,4 +20,4 @@ Write pytest suites named `test_*.py`, colocated with the modules they verify. C
 Use Conventional Commits with English types (`feat`, `fix`, `chore`) and concise summaries, e.g., `feat: add four-concealed-meld fan`. Scope commits narrowly and mention follow-up commands or data migrations when behavior shifts. Pull requests should summarize intent, list touched modules (e.g., `core/env.py`, `ui/console.py`), link issues, and attach CLI screenshots or pytest output for changes affecting scoring or UX.
 
 ## Configuration & Safety Notes
-Extend `core/ruleset.py` for new table options rather than scattering rule toggles. Preserve keys consumed by `core/scoring/tables.py` when editing `taiwanese_mahjong_scoring.json`—treat the asset as read-only history. Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.
+Extend `core/ruleset.py` for new table options rather than scattering rule toggles. Preserve keys consumed by `core/scoring/tables.py` when editing `configs/` assets—treat those JSON files as read-only history. Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.
