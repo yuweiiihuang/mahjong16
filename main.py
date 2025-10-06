@@ -1,11 +1,11 @@
 """CLI entrypoint for the Mahjong16 demo.
 
 Provides simple flags for RNG seed, selecting a human player, and bot strategy.
-Delegates the gameplay loop to `app.runtime.run_demo`.
+Delegates to `app.runtime.run_demo_ui` or `app.runtime.run_demo_headless`.
 """
 
 from __future__ import annotations
-from app.runtime import run_demo
+from app.runtime import run_demo_headless, run_demo_headless_batch, run_demo_ui
 
 
 if __name__ == "__main__":
@@ -49,6 +49,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Run headless (disable interactive console UI). Implies logging unless overridden.",
     )
+    parser.add_argument(
+        "--sessions",
+        type=int,
+        default=1,
+        help="Number of independent sessions to simulate. Default: 1",
+    )
+    parser.add_argument(
+        "--cores",
+        type=int,
+        default=None,
+        help="Maximum worker processes for headless batches. Default: auto",
+    )
     args = parser.parse_args()
 
     human_str = (args.human or "").strip().lower()
@@ -73,19 +85,39 @@ if __name__ == "__main__":
     if start_points <= 0:
         raise SystemExit("Invalid --start-points value. Must be > 0.")
 
+    if args.sessions < 1:
+        raise SystemExit("Invalid --sessions value. Must be >= 1.")
+    if args.cores is not None and args.cores < 1:
+        raise SystemExit("Invalid --cores value. Must be >= 1 when provided.")
+
+    sessions = args.sessions
+    cores = args.cores
     enable_ui = not args.no_ui
+    if sessions > 1 or (cores is not None and cores > 1):
+        enable_ui = False
     log_dir = args.log_dir
     if not enable_ui and not log_dir:
         log_dir = "logs"
     if not enable_ui:
         human_pid = None
 
-    run_demo(
-        seed=args.seed,
-        human_pid=human_pid,
-        bot=args.bot,
-        hands=args.hands,
-        start_points=start_points,
-        log_dir=log_dir,
-        enable_ui=enable_ui,
-    )
+    if sessions > 1 or (cores is not None and cores > 1):
+        run_demo_headless_batch(
+            sessions=sessions,
+            cores=cores,
+            seed=args.seed,
+            bot=args.bot,
+            hands=args.hands,
+            start_points=start_points,
+            log_dir=log_dir,
+        )
+    else:
+        runner = run_demo_ui if enable_ui else run_demo_headless
+        runner(
+            seed=args.seed,
+            human_pid=human_pid,
+            bot=args.bot,
+            hands=args.hands,
+            start_points=start_points,
+            log_dir=log_dir,
+        )
