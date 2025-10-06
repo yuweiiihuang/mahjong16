@@ -19,6 +19,7 @@ from core.scoring.tables import load_scoring_assets
 DEFAULT_SCORING_JSON = (
     Path(__file__).resolve().parent.parent / "configs" / "profiles" / "taiwan_base.json"
 )
+DEFAULT_LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 
 def load_flag_sequence(scoring_path: Path, profile: str) -> tuple[list[str], Mapping[str, str]]:
@@ -87,9 +88,16 @@ def format_results(
     return "\n".join(lines)
 
 
+def find_latest_csv(log_dir: Path) -> Path:
+    candidates = [path for path in log_dir.rglob("*.csv") if path.is_file()]
+    if not candidates:
+        raise SystemExit(f"No CSV files found under logs directory: {log_dir}")
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("csv", type=Path, help="Path to log CSV file")
+    parser.add_argument("csv", type=Path, nargs="?", help="Path to log CSV file")
     parser.add_argument(
         "--scoring-json",
         type=Path,
@@ -111,8 +119,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    csv_path: Path = args.csv
+    csv_path: Path | None = args.csv
     scoring_path: Path = args.scoring_json
+    if csv_path is None:
+        if not DEFAULT_LOG_DIR.exists():
+            raise SystemExit("Log directory not found and no CSV provided")
+        csv_path = find_latest_csv(DEFAULT_LOG_DIR)
+        print(f"Using latest log CSV: {csv_path}", file=sys.stderr)
+    assert csv_path is not None
     if not csv_path.exists():
         raise SystemExit(f"CSV file not found: {csv_path}")
     if not scoring_path.exists():
