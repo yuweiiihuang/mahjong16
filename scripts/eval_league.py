@@ -76,6 +76,7 @@ class MatchResult:
     agents: list[AgentSpec]
     totals: list[int]
     hands_played: int
+    jangs_completed: int
     hand_records: list[HandRecord]
 
 
@@ -226,7 +227,8 @@ def to_payments_list(raw: Mapping[int, Any] | Sequence[int], n_players: int) -> 
 def play_match(
     agents: Sequence[AgentSpec],
     *,
-    hands: int,
+    hands: int | None,
+    target_jangs: int | None,
     rules: Ruleset,
     scoring_table,
     match_seed: int,
@@ -244,7 +246,14 @@ def play_match(
     totals = [0 for _ in range(n_players)]
     records: list[HandRecord] = []
 
-    for hand_index in range(1, hands + 1):
+    hand_index = 0
+    while True:
+        if target_jangs is not None and table.state.jang_count >= target_jangs:
+            break
+        if hands is not None and hand_index >= hands:
+            break
+
+        hand_index += 1
         obs = table.start_hand(env)
         done = bool(getattr(env, "done", False))
 
@@ -303,6 +312,7 @@ def play_match(
         agents=list(agents),
         totals=totals,
         hands_played=len(records),
+        jangs_completed=table.state.jang_count,
         hand_records=records,
     )
 
@@ -435,7 +445,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--players", type=int, default=4, help="Number of seats per table.")
-    parser.add_argument("--hands", type=int, default=16, help="Hands per match (default: 16).")
+    parser.add_argument(
+        "--hands",
+        type=int,
+        default=None,
+        help=(
+            "Hands per match (default: 16 when --jangs is omitted). "
+            "When used together with --jangs, acts as an optional cap."
+        ),
+    )
+    parser.add_argument(
+        "--jangs",
+        type=int,
+        default=None,
+        help=(
+            "Number of 將／雀 to play (1 將 = 4 圈 covering every seat as dealer). "
+            "Dealer streaks extend the hand count automatically. "
+            "When supplied, the default hand target is ignored unless --hands is explicitly set."
+        ),
+    )
     parser.add_argument(
         "--matches",
         type=int,
@@ -517,8 +545,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.players <= 1:
         raise SystemExit("Table size must be at least 2.")
-    if args.hands <= 0:
-        raise SystemExit("Hands per match must be a positive integer.")
+    if args.jangs is not None and args.jangs <= 0:
+        raise SystemExit("Number of 將／雀 must be a positive integer.")
+    if args.hands is None:
+        if args.jangs is None:
+            args.hands = 16
+    elif args.hands <= 0:
+        raise SystemExit("Hands per match must be a positive integer when provided.")
     if args.matches <= 0:
         raise SystemExit("Matches per combination must be positive.")
 
@@ -551,6 +584,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = play_match(
                 seating,
                 hands=args.hands,
+                target_jangs=args.jangs,
                 rules=rules,
                 scoring_table=scoring_table,
                 match_seed=match_seed,
@@ -573,6 +607,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "config": {
                 "players": args.players,
                 "hands_per_match": args.hands,
+                "jangs": args.jangs,
                 "matches_per_combo": args.matches,
                 "seed": args.seed,
                 "profile": args.profile,
