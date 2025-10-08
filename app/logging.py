@@ -12,6 +12,7 @@ from core.tiles import tile_to_str
 TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 DEFAULT_PLAYER_COUNT = 4
 OPTIONAL_FIELD_ORDER = [
+    "jang_index",
     "session_index",
     "session_hand_index",
     "global_hand_index",
