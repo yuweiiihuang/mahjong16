@@ -14,11 +14,11 @@ def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:
     env.reset()
     # sanitize players
     for player in env.players:
-        player["hand"].clear()
-        player["melds"].clear()
-        player["river"].clear()
-        player["flowers"].clear()
-        player["drawn"] = None
+        player.hand.clear()
+        player.melds.clear()
+        player.river.clear()
+        player.flowers.clear()
+        player.drawn = None
     env.wall = TilePool(include_flowers=include_flowers).remaining()
     env.phase = "TURN"
     env.turn = 0
@@ -37,8 +37,8 @@ def test_angang_action_adds_concealed_kong_and_draws():
         Tile.D1, Tile.D2, Tile.D3,
         Tile.B1, Tile.B2,
     ])
-    p0["hand"] = hand_tiles
-    p0["drawn"] = pool.take([Tile.W1])[0]
+    p0.hand = hand_tiles
+    p0.drawn = pool.take([Tile.W1])[0]
     env.wall = pool.remaining()
     move_tile_to_tail(env.wall, Tile.W9)
 
@@ -50,12 +50,12 @@ def test_angang_action_adds_concealed_kong_and_draws():
     obs, _, done, _ = env.step({"type": "ANGANG", "tile": int(Tile.W1)})
     assert not done
     # ANGANG meld present with 4x 1W; counts as concealed kong
-    mtypes = [m.get("type") for m in env.players[0]["melds"]]
+    mtypes = [m.get("type") for m in env.players[0].melds]
     assert "ANGANG" in mtypes
-    tiles = next(m.get("tiles") for m in env.players[0]["melds"] if m.get("type") == "ANGANG")
+    tiles = next(m.get("tiles") for m in env.players[0].melds if m.get("type") == "ANGANG")
     assert tiles == [int(Tile.W1)] * 4
     # drew a supplement tile into drawn (we filled wall with W9)
-    assert env.players[0]["drawn"] == int(Tile.W9)
+    assert env.players[0].drawn == int(Tile.W9)
     # n_gang incremented
     assert env.n_gang >= 1
 
@@ -65,9 +65,9 @@ def test_kakan_triggers_qiang_gang_and_ron():
     pool = TilePool(include_flowers=False)
     # P0: already PONG 3D, has the 4th 3D in hand so can KAKAN
     p0 = env.players[0]
-    p0["melds"] = [{"type": "PONG", "tiles": pool.take([Tile.D3, Tile.D3, Tile.D3])}]
+    p0.melds = [{"type": "PONG", "tiles": pool.take([Tile.D3, Tile.D3, Tile.D3])}]
     # hand: include D3 once plus fillers to 16
-    p0["hand"] = pool.take([
+    p0.hand = pool.take([
         Tile.D3,
         Tile.W1, Tile.W2, Tile.W3, Tile.W4, Tile.W5, Tile.W6, Tile.W7, Tile.W8, Tile.W9,
         Tile.D1, Tile.D2, Tile.D4, Tile.D5,
@@ -76,7 +76,7 @@ def test_kakan_triggers_qiang_gang_and_ron():
 
     # P1: waiting on D3: W123 W456 W789 D12 D456 + pair E,E (16 tiles)
     p1 = env.players[1]
-    p1["hand"] = pool.take([
+    p1.hand = pool.take([
         Tile.W1, Tile.W2, Tile.W3,
         Tile.W4, Tile.W5, Tile.W6,
         Tile.W7, Tile.W8, Tile.W9,
@@ -98,7 +98,7 @@ def test_kakan_triggers_qiang_gang_and_ron():
     assert env.winner == 1 and env.win_source == "RON"
     assert getattr(env, "win_by_qiang_gang", False) is True
     # Original PONG should remain (not upgraded)
-    mtypes_p0 = [m.get("type") for m in env.players[0]["melds"]]
+    mtypes_p0 = [m.get("type") for m in env.players[0].melds]
     assert "PONG" in mtypes_p0 and "KAKAN" not in mtypes_p0
 
 
@@ -111,15 +111,15 @@ def test_scoring_flags_qiang_gang_and_gang_shang():
     env.winner = pid
     env.turn = pid
     env.phase = "DONE"
-    env.players[pid]["melds"] = []
-    env.players[pid]["flowers"] = []
-    env.players[pid]["river"] = []
+    env.players[pid].melds = []
+    env.players[pid].flowers = []
+    env.players[pid].river = []
     # Case 1: qiang_gang (RON)
     env.win_source = "RON"
     env.win_tile = int(Tile.D3)
     env.win_by_qiang_gang = True
     # Give a trivially valid concealed 17 to avoid other scores
-    env.players[pid]["hand"] = [
+    env.players[pid].hand = [
         int(Tile.W1),
         int(Tile.W2),
         int(Tile.W3),
@@ -137,7 +137,7 @@ def test_scoring_flags_qiang_gang_and_gang_shang():
         int(Tile.D6),
         int(Tile.E),
     ]
-    env.players[pid]["drawn"] = None
+    env.players[pid].drawn = None
     table = load_scoring_assets(env.rules.scoring_profile, env.rules.scoring_overrides_path)
     rewards, bd = score_with_breakdown(ScoringContext.from_env(env, table))
     # expect qiang_gang contributes positive points per table
@@ -148,15 +148,15 @@ def test_scoring_flags_qiang_gang_and_gang_shang():
     env.win_source = "TSUMO"
     env.win_by_qiang_gang = False
     env.win_by_gang_draw = True
-    env.players[pid]["melds"] = [{"type": "ANGANG", "tiles": [int(Tile.D7)]*4}]
-    env.players[pid]["hand"] = [
+    env.players[pid].melds = [{"type": "ANGANG", "tiles": [int(Tile.D7)]*4}]
+    env.players[pid].hand = [
         int(Tile.W1), int(Tile.W2), int(Tile.W3),
         int(Tile.W4), int(Tile.W5), int(Tile.W6),
         int(Tile.W7), int(Tile.W8), int(Tile.W9),
         int(Tile.D1), int(Tile.D2), int(Tile.D3),
         int(Tile.E), int(Tile.E)
     ]
-    env.players[pid]["drawn"] = int(Tile.D4)
+    env.players[pid].drawn = int(Tile.D4)
     rewards, bd = score_with_breakdown(ScoringContext.from_env(env, table))
     keys = [i.get("key") for i in bd[pid]]
     assert "gang_shang" in keys

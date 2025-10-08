@@ -13,7 +13,7 @@ def test_deadwall_fixed_flow():
     # 直接把牆縮到 16 張，模擬無人宣告 → 下一家摸不到就流局
     env.wall = env.wall[:16]
     pid = env.turn
-    t = env.players[pid]["hand"][0]
+    t = env.players[pid].hand[0]
     obs, _, _, _ = env.step({"type": "DISCARD", "tile": t, "from": "hand"})
     # 三家 PASS
     obs, _, _, _ = env.step({"type": "PASS"})
@@ -30,11 +30,11 @@ def test_deadwall_gang_plus_one():
     )
     env.reset()
     for player in env.players:
-        player["hand"].clear()
-        player["melds"].clear()
-        player["river"].clear()
-        player["flowers"].clear()
-        player["drawn"] = None
+        player.hand.clear()
+        player.melds.clear()
+        player.river.clear()
+        player.flowers.clear()
+        player.drawn = None
 
     env.phase = "TURN"
     env.turn = 0
@@ -42,27 +42,27 @@ def test_deadwall_gang_plus_one():
 
     pool = TilePool(include_flowers=False)
     X = Tile.B1
-    env.players[0]["hand"] = pool.take([
+    env.players[0].hand = pool.take([
         X,
         Tile.W1, Tile.W2, Tile.W3, Tile.W4,
         Tile.D1, Tile.D2, Tile.D3,
         Tile.B2, Tile.B3, Tile.B4, Tile.B5,
         Tile.E, Tile.S, Tile.W, Tile.N,
     ])
-    env.players[1]["hand"] = pool.take([
+    env.players[1].hand = pool.take([
         X, X, X,
         Tile.W5, Tile.W6, Tile.W7, Tile.W8,
         Tile.D4, Tile.D5, Tile.D6, Tile.D7, Tile.D8,
         Tile.B2, Tile.B3,
         Tile.E, Tile.S,
     ])
-    env.players[2]["hand"] = pool.take([
+    env.players[2].hand = pool.take([
         Tile.W6, Tile.W7, Tile.W8, Tile.W9,
         Tile.D9, Tile.D1, Tile.D2, Tile.D3,
         Tile.B4, Tile.B5, Tile.B6, Tile.B7,
         Tile.C, Tile.F, Tile.P, Tile.N,
     ])
-    env.players[3]["hand"] = pool.take([
+    env.players[3].hand = pool.take([
         Tile.W1, Tile.W2, Tile.W3, Tile.W4,
         Tile.D4, Tile.D5, Tile.D6, Tile.D7,
         Tile.B6, Tile.B7, Tile.B8, Tile.B9,

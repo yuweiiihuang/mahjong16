@@ -251,9 +251,10 @@ class _BaseDemoRunner:
         if winner is not None:
             try:
                 pl = self.env.players[winner]
-                hand_tiles = sorted(list(pl.get("hand") or []), key=tile_sort_key)
-                melds = [m if isinstance(m, dict) else {} for m in (pl.get("melds") or [])]
-                flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+                get = pl.get if isinstance(pl, dict) else lambda key, default=None: getattr(pl, key, default)
+                hand_tiles = sorted(list(get("hand") or []), key=tile_sort_key)
+                melds = [m if isinstance(m, dict) else {} for m in (get("melds") or [])]
+                flowers = sorted(list(get("flowers") or []), key=tile_sort_key)
                 win_src = (getattr(self.env, "win_source", None) or "").upper()
                 ron_from = getattr(self.env, "turn_at_win", None) if win_src == "RON" else None
                 win_tile = getattr(self.env, "win_tile", None)
