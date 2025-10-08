@@ -26,7 +26,6 @@
     - 內建別名：`auto`、`greedy`、`random`、`rulebot`（亦接受 `greedybot`、`randombot`、`rule`）。
     - 自訂 factory：`模組路徑:Callable`，例如 `bots.greedy:GreedyBotStrategy` 或
       `my_pkg.agents:build_agent`。若要自訂顯示名稱可加上 `名稱=模組:Callable`。
-  - `--players`：桌次座位數，預設 4；`agents` 必須不少於此數量。
   - `--hands`：每場對局要打的手數，預設 16。
   - `--matches`：同一組合重複對局次數，預設 1。
   - `--seed`：整體隨機種子（座位洗牌、對局種子）；相同種子可重現整個聯賽。
@@ -58,3 +57,17 @@
   - 範例：
     - `python scripts/eval_league.py --hands 1 greedy random rulebot auto --matches 1 --seed 1 --quiet`
 
+## bench_sim.py
+- 用途：以指定 bot 與規則進行大量自動模擬，量測環境與（可選的）計分效能。
+- 基本用法：
+  - `python scripts/bench_sim.py -n 1000`：執行 1,000 手模擬並輸出平均手數、吞吐量等統計。
+- 常用選項：
+  - `-n/--hands`：模擬手數，預設 1,000。
+  - `--bot`：選擇指定 bot（`auto`、`greedy`、`random`、`rulebot`）。
+  - `--seed`：設定隨機種子，確保重現性。
+  - `--skip-scoring`：跳過計分階段，只測量環境模擬速度。
+  - `--profile`、`--scoring-json`：指定計分 profile 或覆寫 JSON。
+  - `--no-flowers`、`--dead-wall-mode`、`--dead-wall-base`：調整花牌與尾牌配置。
+  - `--json-out`：將模擬結果輸出為 JSON，方便記錄或比較。
+- 範例：
+  - `python scripts/bench_sim.py -n 5000 --bot random --seed 42 --skip-scoring`
