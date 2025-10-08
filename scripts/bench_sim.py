@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+TABLE_SIZE = 4
+
 # Ensure the project root (two levels up) is importable when invoked as a script.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -82,7 +84,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-n", "--hands", type=int, default=1000, help="Number of hands to simulate (default: 1000)")
     parser.add_argument("--seed", type=int, default=None, help="Base RNG seed for env/table/agents")
-    parser.add_argument("--players", type=int, default=4, help="Number of seats to simulate (default: 4)")
     parser.add_argument("--bot", default="auto", help="Bot alias to use for every seat (auto/greedy/random/rulebot)")
     parser.add_argument("--profile", default="taiwan_base", help="Scoring profile key (default: taiwan_base)")
     parser.add_argument("--scoring-json", type=Path, default=None, help="Optional scoring JSON override path")
@@ -105,7 +106,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
-    n_players = max(1, int(args.players))
+    n_players = TABLE_SIZE
     hands_target = max(0, int(args.hands))
     rules = Ruleset(
         include_flowers=not args.no_flowers,

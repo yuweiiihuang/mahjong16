@@ -3,8 +3,7 @@
 The script orchestrates repeated headless matches between a roster of agents
 and reports aggregated standings.  Agents can be referenced by built‑in alias
 (`auto`, `greedy`, `random`, `rulebot`) or by an import path in the form
-``package.module:ClassOrFactory``.  Each match draws four participants (or the
-configured table size), plays a fixed number of hands, and accumulates points
+``package.module:ClassOrFactory``.  Each match draws four participants, plays a fixed number of hands, and accumulates points
 using the standard scoring pipeline from :mod:`core.scoring`.
 
 Example
@@ -33,6 +32,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
+
+TABLE_SIZE = 4
 
 # Ensure the project root (two levels up) is importable when invoked as a script.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -440,11 +441,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "agents",
         nargs="+",
         help=(
-            "Agent specs (alias or name=module:callable). Provide at least as many entries "
-            "as there are seats at the table."
+            "Agent specs (alias or name=module:callable). Provide at least four entries "
+            "to fill every seat at the table."
         ),
     )
-    parser.add_argument("--players", type=int, default=4, help="Number of seats per table.")
     parser.add_argument(
         "--hands",
         type=int,
@@ -528,7 +528,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def build_rules(args: argparse.Namespace) -> Ruleset:
     return Ruleset(
         include_flowers=not args.no_flowers,
-        n_players=args.players,
+        n_players=TABLE_SIZE,
         dead_wall_mode=args.dead_wall_mode,
         dead_wall_base=args.dead_wall_base,
         scoring_profile=args.profile,
@@ -543,8 +543,6 @@ def build_rules(args: argparse.Namespace) -> Ruleset:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.players <= 1:
-        raise SystemExit("Table size must be at least 2.")
     if args.jangs is not None and args.jangs <= 0:
         raise SystemExit("Number of 將／雀 must be a positive integer.")
     if args.hands is None:
@@ -557,6 +555,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     roster = [parse_agent_spec(token) for token in args.agents]
     names = [spec.name for spec in roster]
+    if len(roster) < TABLE_SIZE:
+        raise SystemExit(f"Need at least {TABLE_SIZE} agents to fill the table.")
     if len(set(names)) != len(names):
         duplicates = ", ".join(
             sorted(name for name, count in Counter(names).items() if count > 1)
@@ -571,7 +571,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     rng = random.Random(args.seed)
-    combos = list(iter_matchups(roster, args.players))
+    combos = list(iter_matchups(roster, TABLE_SIZE))
     total_matches = len(combos) * args.matches
     stats = {spec.name: AgentStats(spec.name) for spec in roster}
 
@@ -605,7 +605,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.json_out is not None:
         payload = {
             "config": {
-                "players": args.players,
+                "players": TABLE_SIZE,
                 "hands_per_match": args.hands,
                 "jangs": args.jangs,
                 "matches_per_combo": args.matches,
