@@ -180,79 +180,49 @@ class Mahjong16Env:
             pid = self.turn if pid is None else pid
             me = self.players[pid]
             acts: List[Action] = []
-            declared_ting = bool(getattr(me, "declared_ting", False))
+            if self._tsumo_available(pid):
+                acts.append({"type": "HU", "source": "TSUMO"})
             if me.drawn is not None:
-                # 自摸（TSUMO）
-                if self.rules.allow_hu and is_win_16(me.hand + [me.drawn], me.melds, self.rules):
-                    acts.append({"type":"HU", "source":"TSUMO"})
-                # 已宣告聽牌 → 只能丟 drawn
-                acts.append({"type":"DISCARD", "tile": me.drawn, "from":"drawn"})
+                acts.append({"type": "DISCARD", "tile": me.drawn, "from": "drawn"})
+            declared_ting = bool(getattr(me, "declared_ting", False))
             if not declared_ting:
-                # 未聽牌：可丟手牌
-                for t in self._legal_discards(pid):
-                    acts.append({"type":"DISCARD", "tile": t, "from":"hand"})
-                # 產生 TING 選項（宣告聽 + 同步丟該張）
-                if self.rules.allow_ting:
-                    drawn = me.drawn
-                    melds = me.melds or []
-                    # 從手牌丟
-                    for t in list(self._legal_discards(pid)):
-                        waits = waits_after_discard_17(me.hand, drawn, melds, t, "hand", self.rules)
-                        if waits:
-                            acts.append({"type":"TING", "tile": t, "from":"hand", "waits": waits})
-                    # 從 drawn 丟
-                    if drawn is not None:
-                        waits = waits_after_discard_17(me.hand, drawn, melds, drawn, "drawn", self.rules)
-                        if waits:
-                            acts.append({"type":"TING", "tile": drawn, "from":"drawn", "waits": waits})
-            # 加入自家回合的槓選項：暗槓 / 加槓
+                for tile in self._legal_discards(pid):
+                    acts.append({"type": "DISCARD", "tile": tile, "from": "hand"})
+                acts.extend(self._ting_candidates(pid))
             if self.rules.allow_gang:
-                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
-                # 暗槓：四張同牌皆在自家（摸牌後）
-                for t in set(all_tiles):
-                    if not is_flower(t) and all_tiles.count(t) >= 4:
-                        acts.append({"type": "ANGANG", "tile": t})
-                # 加槓：先前已有 PONG，且手上/摸到第4張
-                pong_bases: List[int] = []
-                for m in (me.melds or []):
-                    if (m.get("type") or "").upper() == "PONG":
-                        tiles_m = list(m.get("tiles") or [])
-                        if tiles_m:
-                            pong_bases.append(tiles_m[0])
-                for base in set(pong_bases):
-                    if all_tiles.count(base) >= 1:
-                        acts.append({"type": "KAKAN", "tile": base})
+                for tile in self._angang_candidates(pid):
+                    acts.append({"type": "ANGANG", "tile": tile})
+                for tile in self._kakan_candidates(pid):
+                    acts.append({"type": "KAKAN", "tile": tile})
             return acts
         else:  # REACTION
             if not self.reaction_queue or not (0 <= self.reaction_idx < len(self.reaction_queue)):
                 return []
-            # 當前要回應的玩家
             pid = self.reaction_queue[self.reaction_idx]
-            acts: List[Action] = [{"type":"PASS"}]
+            acts: List[Action] = [{"type": "PASS"}]
             discard = self.last_discard
             if discard is None:
                 return acts
             tile = discard["tile"]
             player_state = self.players[pid]
             ting_locked = bool(getattr(player_state, "declared_ting", False))
-            # 搶槓反應期：僅允許 PASS、HU
             if self.qiang_gang_mode:
                 if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
-                    acts.append({"type":"HU"})
+                    acts.append({"type": "HU"})
                 return acts
-            # Chi（僅限下家）
-            if (not ting_locked) and (self._seat_index.get(pid) == (self._seat_index.get(discard["pid"], -999) + 1) % self.rules.n_players) and self.rules.allow_chi:
+            if (
+                (not ting_locked)
+                and (self._seat_index.get(pid) == (self._seat_index.get(discard["pid"], -999) + 1) % self.rules.n_players)
+                and self.rules.allow_chi
+            ):
                 for a, b in chi_options(tile, player_state.hand):
-                    acts.append({"type":"CHI", "use":[a,b]})
-            # Pon
+                    acts.append({"type": "CHI", "use": [a, b]})
             if (not ting_locked) and self.rules.allow_pong and player_state.hand.count(tile) >= 2:
-                acts.append({"type":"PONG"})
-            # Gang（大明槓：手上已有三張，吃入一張成槓）
+                acts.append({"type": "PONG"})
             if (not ting_locked) and self.rules.allow_gang and player_state.hand.count(tile) >= 3:
-                acts.append({"type":"GANG"})
-            # Hu（依胡牌判定；目前 judge.is_win_16 尚未實作，通常不會出現）
+                acts.append({"type": "GANG"})
             if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
-                acts.append({"type":"HU"})
+                acts.append({"type": "HU"})
             return acts
 
     def step(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
@@ -264,290 +234,347 @@ class Mahjong16Env:
         - done: True if the hand ends
         - info: optional metadata including resolved reactions
         """
+
         assert not self.done, "episode is done"
 
         if self.phase == "TURN":
-            pid = self.turn
-            a_type = action.get("type")
-            # 支援自摸結束
-            if a_type == "HU":
-                self.winner = pid
-                # 明確標記來源為自摸，並記錄胡牌當下回合屬於誰（即 winner）
-                self.win_source = "TSUMO"
-                # 自摸的胡牌就是當前 drawn
-                self.win_tile = self.players[pid].drawn
-                self.turn_at_win = pid
-                # 是否為莊家胡
-                self.winner_is_dealer = (pid == getattr(self, "dealer_pid", 0))
-                # 槓上自摸判定
-                if self._recent_gang_draw_pid == pid:
-                    self.win_by_gang_draw = True
-                self.phase = "DONE"
-                self.reaction_queue = []
-                self.reaction_idx = 0
-                self.last_discard = None
-                self.done = True
-                rewards = [0] * self.rules.n_players
-                return self._obs(self.turn), rewards, True, {}
-            # 暗槓：直接成槓並補摸
-            if a_type == "ANGANG":
-                t = action.get("tile")
-                me = self.players[pid]
-                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
-                assert all_tiles.count(t) >= 4, "暗槓需手牌+摸牌共4張同牌"
-                # 移除四張（優先從手牌移除）
-                removed = 0
-                while removed < 4 and t in me.hand:
-                    me.hand.remove(t)
-                    removed += 1
-                if removed < 4 and me.drawn == t:
-                    me.drawn = None
-                    removed += 1
-                while removed < 4 and t in me.hand:
-                    me.hand.remove(t)
-                    removed += 1
-                assert removed == 4
-                me.melds.append({"type": "ANGANG", "tiles": [t, t, t, t], "from_pid": None})
-                self.n_gang += 1
-                # 槓後補摸
-                self._draw_to_drawn(pid)
-                self._recent_gang_draw_pid = pid
-                if self.players[pid].drawn is None:
-                    # 無法補摸 → 流局
-                    self.done = True
-                    rewards = [0] * self.rules.n_players
-                    return self._obs(self.turn), rewards, True, {}
-                return self._obs(self.turn), [0]*self.rules.n_players, False, {}
-            # 加槓：開啟搶槓反應視窗；若無人胡再生效與補摸
-            if a_type == "KAKAN":
-                t = action.get("tile")
-                me = self.players[pid]
-                has_pong = any((m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == t for m in (me.melds or []))
-                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
-                assert has_pong and all_tiles.count(t) >= 1, "加槓需已有 PONG 且持有第4張"
-                # 開啟搶槓反應
-                self.qiang_gang_mode = True
-                self.pending_kakan = {"pid": pid, "tile": t}
-                self.last_discard = {"pid": pid, "tile": t}
-                self.phase = "REACTION"
-                self.reaction_queue = [ self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players] for i in (1,2,3) ]
-                self.reaction_idx = 0
-                self.claims = []
-                next_pid = self.reaction_queue[self.reaction_idx]
-                return self._obs(next_pid), [0]*self.rules.n_players, False, {}
-            if a_type not in ("DISCARD", "TING"):
-                raise AssertionError("本階段僅能丟牌/自摸/宣告聽/暗槓/加槓")
-            src = action.get("from", "hand")
-            tile = action["tile"]
+            return self._handle_turn_action(action)
+        return self._handle_reaction_action(action)
 
-            if src == "drawn":
-                assert self.players[pid].drawn == tile, "丟牌來源為 drawn，但牌不相符"
-                self.players[pid].drawn = None
-            else:
-                assert tile in self.players[pid].hand and (not is_flower(tile)), "非法丟手牌"
-                self.players[pid].hand.remove(tile)
-                if self.players[pid].drawn is not None:
-                    self.players[pid].hand.append(self.players[pid].drawn)  # 併回手牌維持16
-                    self.players[pid].drawn = None
+    def _handle_turn_action(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        pid = self.turn
+        a_type = action.get("type")
+        if a_type == "HU":
+            return self._apply_tsumo(pid)
+        if a_type == "ANGANG":
+            return self._apply_angang(pid, action)
+        if a_type == "KAKAN":
+            return self._apply_kakan(pid, action)
+        if a_type in ("DISCARD", "TING"):
+            return self._apply_discards(pid, action)
+        raise AssertionError("本階段僅能丟牌/自摸/宣告聽/暗槓/加槓")
 
-            # 進捨牌河與記錄
-            self.players[pid].river.append(tile)
-            self.discard_pile.append(tile)
-            self.discard_count += 1
-            self.last_discard = {"pid": pid, "tile": tile}
-
-            # 若為宣告聽，鎖定之後只能丟 drawn
-            if a_type == "TING":
-                self.players[pid].declared_ting = True
-                self.players[pid].ting_declared_at = self.discard_count
-                self.players[pid].ting_declared_open_melds = self.total_open_melds
-
-            # 開啟反應視窗
-            self.phase = "REACTION"
-            self.reaction_queue = [ self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players] for i in (1,2,3) ]  # 下家起
-            self.reaction_idx = 0
-            self.claims = []
-            # 丟牌之後重置槓上的候選狀態
-            self._recent_gang_draw_pid = None
-
-            # 下一個要動作的是第一位反應者
+    def _handle_reaction_action(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        assert self.reaction_queue and 0 <= self.reaction_idx < len(self.reaction_queue), "reaction queue empty"
+        pid = self.reaction_queue[self.reaction_idx]
+        a_type = action.get("type")
+        assert a_type in ("PASS", "CHI", "PONG", "GANG", "HU"), "反應期僅允許 PASS/CHI/PONG/GANG/HU"
+        if self.players[pid].declared_ting and a_type not in ("PASS", "HU"):
+            a_type = "PASS"
+        if a_type != "PASS":
+            claim = {"pid": pid, "type": a_type}
+            dist = (self._seat_index.get(pid, 0) - self._seat_index.get(self.last_discard["pid"], 0)) % self.rules.n_players
+            if dist == 0:
+                dist = self.rules.n_players
+            claim["distance"] = dist
+            claim["priority"] = PRIORITY[a_type]
+            if a_type == "CHI":
+                use = action.get("use")
+                assert isinstance(use, list) and len(use) == 2, "CHI 需指定兩張手牌"
+                claim["use"] = use
+            self.claims.append(claim)
+        self.reaction_idx += 1
+        if self.reaction_idx < len(self.reaction_queue):
             next_pid = self.reaction_queue[self.reaction_idx]
-            return self._obs(next_pid), [0]*self.rules.n_players, False, {}
+            return self._obs(next_pid), [0] * self.rules.n_players, False, {}
+        return self._resolve_reaction_window()
 
-        else:  # REACTION
-            pid = self.reaction_queue[self.reaction_idx]
-            a_type = action.get("type")
-            assert a_type in ("PASS","CHI","PONG","GANG","HU"), "反應期僅允許 PASS/CHI/PONG/GANG/HU"
-            # 聽牌狀態下的玩家僅能 PASS 或 HU
-            if self.players[pid].declared_ting and a_type not in ("PASS", "HU"):
-                a_type = "PASS"
-            if a_type != "PASS":
-                # 記錄宣告（用於最後決議）
-                claim = {"pid": pid, "type": a_type}
-                # 距離：越小越近（依座次）
-                dist = (self._seat_index.get(pid, 0) - self._seat_index.get(self.last_discard["pid"], 0)) % self.rules.n_players
-                if dist == 0: dist = self.rules.n_players  # 不應發生
-                claim["distance"] = dist
-                claim["priority"] = PRIORITY[a_type]
-                if a_type == "CHI":
-                    use = action.get("use")
-                    assert isinstance(use, list) and len(use)==2, "CHI 需指定兩張手牌"
-                    claim["use"] = use
-                self.claims.append(claim)
-            # 前進到下一位反應者或結束反應視窗
-            self.reaction_idx += 1
-            if self.reaction_idx < len(self.reaction_queue):
-                next_pid = self.reaction_queue[self.reaction_idx]
-                return self._obs(next_pid), [0]*self.rules.n_players, False, {}
-            else:
-                # 結束反應視窗，進入決議
-                resolved = self._resolve_claims()
-                if resolved is None:
-                    # 搶槓窗口無人胡：執行加槓，補摸
-                    if self.qiang_gang_mode and self.pending_kakan:
-                        kpid = self.pending_kakan.get("pid")
-                        ktile = self.pending_kakan.get("tile")
-                        me = self.players[kpid]
-                        # 使用第4張（優先用 drawn）
-                        if me.drawn == ktile:
-                            me.drawn = None
-                        else:
-                            me.hand.remove(ktile)
-                        # 將對應 PONG 升級為 KAKAN
-                        for m in (me.melds or []):
-                            if (m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == ktile:
-                                m["type"] = "KAKAN"
-                                m["tiles"] = [ktile, ktile, ktile, ktile]
-                                break
-                        self.n_gang += 1
-                        # 清理搶槓狀態
-                        self.qiang_gang_mode = False
-                        self.pending_kakan = None
-                        # 補摸到 kpid 的 drawn（仍輪到自己）
-                        self.turn = kpid
-                        self.phase = "TURN"
-                        self._draw_to_drawn(kpid)
-                        self._recent_gang_draw_pid = kpid
-                        self.last_discard = None
-                        if self.players[kpid].drawn is None:
-                            self.done = True
-                            rewards = [0] * self.rules.n_players
-                            return self._obs(self.turn), rewards, True, {}
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {}
-                    # 無人宣告：進入下一家摸牌（不得侵犯尾牌留置；若無法摸則流局）
-                    self.phase = "TURN"
-                    base_idx = self._seat_index.get(self.last_discard["pid"], 0)
-                    self.turn = self.seating_order[(base_idx + 1) % self.rules.n_players]
-                    self._draw_to_drawn(self.turn)
-                    if self.players[self.turn].drawn is None:
-                        # 無法摸牌（已達尾牌留置）→ 立刻流局
-                        self.done = True
-                        rewards = [0] * self.rules.n_players
-                        return self._obs(self.turn), rewards, True, {}
-                    return self._obs(self.turn), [0]*self.rules.n_players, False, {}
-                else:
-                    # 有宣告者：套用
-                    claimer = resolved["pid"]
-                    ctype = resolved["type"]
-                    # 取出最後一張棄牌與丟牌者
-                    discarder = self.last_discard["pid"]
-                    tile = self.last_discard["tile"]
-                    # 從丟牌者 river 與全局 discard_pile 移除該牌（不再留在河道）
-                    rv = self.players[discarder].river
-                    if rv and rv[-1] == tile:
-                        rv.pop()
-                    else:
-                        try:
-                            rv.remove(tile)
-                        except ValueError:
-                            pass
-                    if self.discard_pile and self.discard_pile[-1] == tile:
-                        self.discard_pile.pop()
-                    else:
-                        try:
-                            self.discard_pile.remove(tile)
-                        except ValueError:
-                            pass
-                    # 回傳給上層列印的中標資訊
-                    resolved_info = {"pid": claimer, "type": ctype, "tile": tile, "from_pid": discarder}
-                    # 棄牌已被取走，不再留在場上
-                    self.last_discard = None
-                    # 準備回傳給上層列印用的 info
-                    info = {"resolved_claim": {
-                        "pid": claimer,
-                        "type": ctype,
-                        "tile": tile,
-                        **({"use": resolved.get("use")} if "use" in resolved else {})
-                    }}
-                    if ctype == "CHI":
-                        a,b = resolved["use"]
-                        # 從手牌移除兩張，加入明順
-                        self.players[claimer].hand.remove(a)
-                        self.players[claimer].hand.remove(b)
-                        self.players[claimer].melds.append(
-                            {"type":"CHI","tiles":[a,b,tile], "from_pid": discarder}
-                        )
-                        self.total_open_melds += 1
-                        self.players[claimer].drawn = None  # 由吃入，非摸牌
-                        self.turn = claimer
-                        self.phase = "TURN"  # 直接要求丟牌
-                        resolved_info["use"] = [a,b]
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
-                    elif ctype == "PONG":
-                        # 從手牌移除兩張，加入明刻
-                        for _ in range(2):
-                            self.players[claimer].hand.remove(tile)
-                        self.players[claimer].melds.append(
-                            {"type":"PONG","tiles":[tile,tile,tile], "from_pid": discarder}
-                        )
-                        self.total_open_melds += 1
-                        self.players[claimer].drawn = None
-                        self.turn = claimer
-                        self.phase = "TURN"
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
-                    elif ctype == "GANG":
-                        # 大明槓：移除三張，加入明槓，槓後補摸（不得侵犯尾牌留置）
-                        for _ in range(3):
-                            self.players[claimer].hand.remove(tile)
-                        self.players[claimer].melds.append(
-                            {"type":"GANG","tiles":[tile,tile,tile,tile], "from_pid": discarder}
-                        )
-                        self.total_open_melds += 1
-                        self.n_gang += 1  # 記錄場上槓數以調整尾牌留置（「一槓一」）
-                        self.players[claimer].drawn = None
-                        self.turn = claimer
-                        self.phase = "TURN"
-                        self._draw_to_drawn(self.turn)
-                        if self.players[self.turn].drawn is None:
-                            # 補摸失敗（已達尾牌留置）→ 流局
-                            self.done = True
-                            rewards = [0] * self.rules.n_players
-                            return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
-                        return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
-                    else:  # HU
-                        # 記錄榮和的胡牌（即被吃入的那張棄牌）
-                        self.win_tile = tile
-                        # 記錄丟牌者（胡牌當下的回合持有者）
-                        discarder_pid = discarder
+    def _apply_tsumo(self, pid: int) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        me = self.players[pid]
+        assert me.drawn is not None, "自摸需有當前摸牌"
+        self.winner = pid
+        self.win_source = "TSUMO"
+        self.win_tile = me.drawn
+        self.turn_at_win = pid
+        self.winner_is_dealer = (pid == getattr(self, "dealer_pid", 0))
+        if self._recent_gang_draw_pid == pid:
+            self.win_by_gang_draw = True
+        self.phase = "DONE"
+        self.reaction_queue = []
+        self.reaction_idx = 0
+        self.last_discard = None
+        self.done = True
+        rewards = [0] * self.rules.n_players
+        return self._obs(self.turn), rewards, True, {}
 
-                        self.win_source = "RON"
-                        self.winner = claimer
-                        self.turn_at_win = discarder_pid
-                        # 是否為莊家胡
-                        self.winner_is_dealer = (claimer == getattr(self, "dealer_pid", 0))
-                        # 搶槓胡的標記
-                        if self.qiang_gang_mode:
-                            self.win_by_qiang_gang = True
-                        # 清理搶槓狀態
-                        self.qiang_gang_mode = False
-                        self.pending_kakan = None
-                        self.phase = "DONE"
-                        self.reaction_queue = []
-                        self.reaction_idx = 0
-                        self.done = True
-                        rewards = [0] * self.rules.n_players
-                        return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
+    def _apply_discards(self, pid: int, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        a_type = action.get("type")
+        src = action.get("from", "hand")
+        tile = action["tile"]
+        if a_type == "TING":
+            valid = any(
+                candidate["tile"] == tile and candidate.get("from") == src
+                for candidate in self._ting_candidates(pid)
+            )
+            assert valid, "宣告聽需指定合法棄牌"
+        if src == "drawn":
+            assert self.players[pid].drawn == tile, "丟牌來源為 drawn，但牌不相符"
+            self.players[pid].drawn = None
+        else:
+            assert tile in self.players[pid].hand and (not is_flower(tile)), "非法丟手牌"
+            self.players[pid].hand.remove(tile)
+            if self.players[pid].drawn is not None:
+                self.players[pid].hand.append(self.players[pid].drawn)
+                self.players[pid].drawn = None
+        self.players[pid].river.append(tile)
+        self.discard_pile.append(tile)
+        self.discard_count += 1
+        self.last_discard = {"pid": pid, "tile": tile}
+        if a_type == "TING":
+            self.players[pid].declared_ting = True
+            self.players[pid].ting_declared_at = self.discard_count
+            self.players[pid].ting_declared_open_melds = self.total_open_melds
+        self.phase = "REACTION"
+        self.reaction_queue = [
+            self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players]
+            for i in (1, 2, 3)
+        ]
+        self.reaction_idx = 0
+        self.claims = []
+        self._recent_gang_draw_pid = None
+        next_pid = self.reaction_queue[self.reaction_idx]
+        return self._obs(next_pid), [0] * self.rules.n_players, False, {}
 
+    def _apply_angang(self, pid: int, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        tile = action.get("tile")
+        assert tile in self._angang_candidates(pid), "暗槓需手牌+摸牌共4張同牌"
+        me = self.players[pid]
+        removed = 0
+        while removed < 4 and tile in me.hand:
+            me.hand.remove(tile)
+            removed += 1
+        if removed < 4 and me.drawn == tile:
+            me.drawn = None
+            removed += 1
+        while removed < 4 and tile in me.hand:
+            me.hand.remove(tile)
+            removed += 1
+        assert removed == 4
+        me.melds.append({"type": "ANGANG", "tiles": [tile, tile, tile, tile], "from_pid": None})
+        self.n_gang += 1
+        self._draw_to_drawn(pid)
+        self._recent_gang_draw_pid = pid
+        if self.players[pid].drawn is None:
+            self.done = True
+            rewards = [0] * self.rules.n_players
+            return self._obs(self.turn), rewards, True, {}
+        return self._obs(self.turn), [0] * self.rules.n_players, False, {}
+
+    def _apply_kakan(self, pid: int, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        tile = action.get("tile")
+        assert tile in self._kakan_candidates(pid), "加槓需已有 PONG 且持有第4張"
+        self.qiang_gang_mode = True
+        self.pending_kakan = {"pid": pid, "tile": tile}
+        self.last_discard = {"pid": pid, "tile": tile}
+        self.phase = "REACTION"
+        self.reaction_queue = [
+            self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players]
+            for i in (1, 2, 3)
+        ]
+        self.reaction_idx = 0
+        self.claims = []
+        next_pid = self.reaction_queue[self.reaction_idx]
+        return self._obs(next_pid), [0] * self.rules.n_players, False, {}
+
+    def _resolve_reaction_window(self) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        resolved = self._resolve_claims()
+        self.claims = []
+        if resolved is None:
+            if self.qiang_gang_mode and self.pending_kakan:
+                return self._complete_pending_kakan()
+            return self._advance_after_no_claims()
+        return self._apply_claim_resolution(resolved)
+
+    def _complete_pending_kakan(self) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        assert self.pending_kakan is not None
+        kpid = self.pending_kakan["pid"]
+        ktile = self.pending_kakan["tile"]
+        me = self.players[kpid]
+        if me.drawn == ktile:
+            me.drawn = None
+        else:
+            me.hand.remove(ktile)
+        for meld in (me.melds or []):
+            if (meld.get("type") or "").upper() == "PONG" and (meld.get("tiles") or [None])[0] == ktile:
+                meld["type"] = "KAKAN"
+                meld["tiles"] = [ktile, ktile, ktile, ktile]
+                break
+        self.n_gang += 1
+        self.qiang_gang_mode = False
+        self.pending_kakan = None
+        self.turn = kpid
+        self.phase = "TURN"
+        self._draw_to_drawn(kpid)
+        self._recent_gang_draw_pid = kpid
+        self.last_discard = None
+        if self.players[kpid].drawn is None:
+            self.done = True
+            rewards = [0] * self.rules.n_players
+            return self._obs(self.turn), rewards, True, {}
+        return self._obs(self.turn), [0] * self.rules.n_players, False, {}
+
+    def _advance_after_no_claims(self) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        self.phase = "TURN"
+        base_idx = self._seat_index.get(self.last_discard["pid"], 0)
+        self.turn = self.seating_order[(base_idx + 1) % self.rules.n_players]
+        self._draw_to_drawn(self.turn)
+        if self.players[self.turn].drawn is None:
+            self.done = True
+            rewards = [0] * self.rules.n_players
+            return self._obs(self.turn), rewards, True, {}
+        return self._obs(self.turn), [0] * self.rules.n_players, False, {}
+
+    def _apply_claim_resolution(self, resolved: Dict[str, Any]) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        claimer = resolved["pid"]
+        ctype = resolved["type"]
+        discarder = self.last_discard["pid"]
+        tile = self.last_discard["tile"]
+        self._remove_claimed_discard(discarder, tile)
+        self.last_discard = None
+        if ctype == "CHI":
+            return self._resolve_claim_chi(claimer, discarder, tile, resolved)
+        if ctype == "PONG":
+            return self._resolve_claim_pong(claimer, discarder, tile)
+        if ctype == "GANG":
+            return self._resolve_claim_gang(claimer, discarder, tile)
+        return self._resolve_claim_hu(claimer, discarder, tile)
+
+    def _resolve_claim_chi(
+        self, claimer: int, discarder: int, tile: int, resolved: Dict[str, Any]
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        use = resolved.get("use")
+        assert isinstance(use, list) and len(use) == 2, "CHI 需指定兩張手牌"
+        self.players[claimer].hand.remove(use[0])
+        self.players[claimer].hand.remove(use[1])
+        self.players[claimer].melds.append({"type": "CHI", "tiles": [use[0], use[1], tile], "from_pid": discarder})
+        self.total_open_melds += 1
+        self.players[claimer].drawn = None
+        self.turn = claimer
+        self.phase = "TURN"
+        info = {"resolved_claim": {"pid": claimer, "type": "CHI", "tile": tile, "from_pid": discarder, "use": list(use)}}
+        return self._obs(self.turn), [0] * self.rules.n_players, False, info
+
+    def _resolve_claim_pong(
+        self, claimer: int, discarder: int, tile: int
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        for _ in range(2):
+            self.players[claimer].hand.remove(tile)
+        self.players[claimer].melds.append({"type": "PONG", "tiles": [tile, tile, tile], "from_pid": discarder})
+        self.total_open_melds += 1
+        self.players[claimer].drawn = None
+        self.turn = claimer
+        self.phase = "TURN"
+        info = {"resolved_claim": {"pid": claimer, "type": "PONG", "tile": tile, "from_pid": discarder}}
+        return self._obs(self.turn), [0] * self.rules.n_players, False, info
+
+    def _resolve_claim_gang(
+        self, claimer: int, discarder: int, tile: int
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        for _ in range(3):
+            self.players[claimer].hand.remove(tile)
+        self.players[claimer].melds.append({"type": "GANG", "tiles": [tile, tile, tile, tile], "from_pid": discarder})
+        self.total_open_melds += 1
+        self.n_gang += 1
+        self.players[claimer].drawn = None
+        self.turn = claimer
+        self.phase = "TURN"
+        info = {"resolved_claim": {"pid": claimer, "type": "GANG", "tile": tile, "from_pid": discarder}}
+        self._draw_to_drawn(self.turn)
+        if self.players[self.turn].drawn is None:
+            self.done = True
+            rewards = [0] * self.rules.n_players
+            return self._obs(self.turn), rewards, True, info
+        return self._obs(self.turn), [0] * self.rules.n_players, False, info
+
+    def _resolve_claim_hu(
+        self, claimer: int, discarder: int, tile: int
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        self.win_tile = tile
+        self.win_source = "RON"
+        self.winner = claimer
+        self.turn_at_win = discarder
+        self.winner_is_dealer = (claimer == getattr(self, "dealer_pid", 0))
+        if self.qiang_gang_mode:
+            self.win_by_qiang_gang = True
+        self.qiang_gang_mode = False
+        self.pending_kakan = None
+        self.phase = "DONE"
+        self.reaction_queue = []
+        self.reaction_idx = 0
+        self.done = True
+        info = {"resolved_claim": {"pid": claimer, "type": "HU", "tile": tile, "from_pid": discarder}}
+        rewards = [0] * self.rules.n_players
+        return self._obs(self.turn), rewards, True, info
+
+    def _remove_claimed_discard(self, discarder: int, tile: int) -> None:
+        rv = self.players[discarder].river
+        if rv and rv[-1] == tile:
+            rv.pop()
+        else:
+            try:
+                rv.remove(tile)
+            except ValueError:
+                pass
+        if self.discard_pile and self.discard_pile[-1] == tile:
+            self.discard_pile.pop()
+        else:
+            try:
+                self.discard_pile.remove(tile)
+            except ValueError:
+                pass
+
+    def _tsumo_available(self, pid: int) -> bool:
+        if not self.rules.allow_hu:
+            return False
+        me = self.players[pid]
+        if me.drawn is None:
+            return False
+        return is_win_16(me.hand + [me.drawn], me.melds, self.rules)
+
+    def _angang_candidates(self, pid: int) -> List[int]:
+        if not self.rules.allow_gang:
+            return []
+        me = self.players[pid]
+        all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
+        seen: List[int] = []
+        for tile in all_tiles:
+            if tile not in seen:
+                seen.append(tile)
+        return [tile for tile in seen if not is_flower(tile) and all_tiles.count(tile) >= 4]
+
+    def _kakan_candidates(self, pid: int) -> List[int]:
+        if not self.rules.allow_gang:
+            return []
+        me = self.players[pid]
+        pong_bases: List[int] = []
+        for meld in (me.melds or []):
+            if (meld.get("type") or "").upper() == "PONG":
+                tiles_m = list(meld.get("tiles") or [])
+                if tiles_m:
+                    base = tiles_m[0]
+                    if base not in pong_bases:
+                        pong_bases.append(base)
+        if not pong_bases:
+            return []
+        all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
+        return [base for base in pong_bases if all_tiles.count(base) >= 1]
+
+    def _ting_candidates(self, pid: int) -> List[Action]:
+        if self.players[pid].declared_ting or not self.rules.allow_ting:
+            return []
+        me = self.players[pid]
+        drawn = me.drawn
+        melds = me.melds or []
+        candidates: List[Action] = []
+        for tile in list(self._legal_discards(pid)):
+            waits = waits_after_discard_17(me.hand, drawn, melds, tile, "hand", self.rules)
+            if waits:
+                candidates.append({"type": "TING", "tile": tile, "from": "hand", "waits": waits})
+        if drawn is not None:
+            waits = waits_after_discard_17(me.hand, drawn, melds, drawn, "drawn", self.rules)
+            if waits:
+                candidates.append({"type": "TING", "tile": drawn, "from": "drawn", "waits": waits})
+        return candidates
     # ====== 內部輔助 ======
     def _flower_no(self, tile: int) -> int | None:
         """Map a flower tile id to its ordinal number (F1..F8 -> 1..8)."""
