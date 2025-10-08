@@ -17,11 +17,11 @@ def _prepare_env():
     env = Mahjong16Env(rules, seed=7)
     env.reset()
     for player in env.players:
-        player["hand"].clear()
-        player["melds"].clear()
-        player["flowers"].clear()
-        player["river"].clear()
-        player["drawn"] = None
+        player.hand.clear()
+        player.melds.clear()
+        player.flowers.clear()
+        player.river.clear()
+        player.drawn = None
     env.wall = TilePool(include_flowers=rules.include_flowers).remaining()
     table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     return env, table
@@ -33,20 +33,20 @@ def _set_winner(env, pid=0, source="TSUMO"):
     env.turn = pid
     env.phase = "DONE"
     player = env.players[pid]
-    player["hand"] = player.get("hand", [])
-    player["drawn"] = None
-    player["melds"] = player.get("melds", [])
-    player["flowers"] = player.get("flowers", [])
-    player["river"] = player.get("river", [])
+    player.hand = list(getattr(player, "hand", []))
+    player.drawn = None
+    player.melds = list(getattr(player, "melds", []))
+    player.flowers = list(getattr(player, "flowers", []))
+    player.river = list(getattr(player, "river", []))
 
 
 def test_score_and_payment_consistency_for_menqing_tsumo():
     env, table = _prepare_env()
     _set_winner(env, 0, "TSUMO")
     p0 = env.players[0]
-    p0["melds"] = []
+    p0.melds = []
     pool = TilePool(include_flowers=False)
-    p0["hand"] = pool.take(
+    p0.hand = pool.take(
         [
             Tile.W1, Tile.W1, Tile.W1, Tile.W1,
             Tile.W2, Tile.W2, Tile.W2, Tile.W2,
@@ -55,7 +55,7 @@ def test_score_and_payment_consistency_for_menqing_tsumo():
             Tile.E,
         ]
     )
-    p0["drawn"] = pool.take([Tile.E])[0]
+    p0.drawn = pool.take([Tile.E])[0]
     env.wall = pool.remaining()
 
     ctx = ScoringContext.from_env(env, table)
@@ -87,10 +87,10 @@ def test_peng_peng_hu_breakdown_matches_table():
     _set_winner(env, 0, "TSUMO")
 
     p0 = env.players[0]
-    p0["flowers"] = []
-    p0["melds"] = []
+    p0.flowers = []
+    p0.melds = []
     pool = TilePool(include_flowers=False)
-    p0["hand"] = pool.take(
+    p0.hand = pool.take(
         [
             Tile.W1, Tile.W1, Tile.W1,
             Tile.W2, Tile.W2, Tile.W2,
@@ -100,7 +100,7 @@ def test_peng_peng_hu_breakdown_matches_table():
             Tile.W9,
         ]
     )
-    p0["drawn"] = pool.take([Tile.W9])[0]
+    p0.drawn = pool.take([Tile.W9])[0]
     env.wall = pool.remaining()
 
     ctx = ScoringContext.from_env(env, table)

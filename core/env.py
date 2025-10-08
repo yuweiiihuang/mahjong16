@@ -7,6 +7,7 @@ from .tiles import full_wall, is_flower, tile_to_str, hand_to_str, N_TILES, N_FL
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
 from .types import Action, Observation
+from .state import PlayerState
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -94,7 +95,7 @@ class Mahjong16Env:
         self.flower_win_type: str | None = None
         self._flower_sets: List[set[int]] = [set() for _ in range(self.rules.n_players)]
         self._flower_union: set[int] = set()
-        self.players: List[Dict[str, Any]] = [self._new_player(i) for i in range(self.rules.n_players)]
+        self.players: List[PlayerState] = [PlayerState(id=i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
         # ====== 風位與莊家 / 座次 ======
         winds_cycle = ["E", "S", "W", "N"]
@@ -185,41 +186,41 @@ class Mahjong16Env:
             pid = self.turn if pid is None else pid
             me = self.players[pid]
             acts: List[Action] = []
-            declared_ting = bool(me.get("declared_ting", False))
-            if me["drawn"] is not None:
+            declared_ting = bool(getattr(me, "declared_ting", False))
+            if me.drawn is not None:
                 # 自摸（TSUMO）
-                if self.rules.allow_hu and is_win_16(me["hand"] + [me["drawn"]], me["melds"], self.rules):
+                if self.rules.allow_hu and is_win_16(me.hand + [me.drawn], me.melds, self.rules):
                     acts.append({"type":"HU", "source":"TSUMO"})
                 # 已宣告聽牌 → 只能丟 drawn
-                acts.append({"type":"DISCARD", "tile": me["drawn"], "from":"drawn"})
+                acts.append({"type":"DISCARD", "tile": me.drawn, "from":"drawn"})
             if not declared_ting:
                 # 未聽牌：可丟手牌
                 for t in self._legal_discards(pid):
                     acts.append({"type":"DISCARD", "tile": t, "from":"hand"})
                 # 產生 TING 選項（宣告聽 + 同步丟該張）
                 if self.rules.allow_ting:
-                    drawn = me.get("drawn")
-                    melds = me.get("melds") or []
+                    drawn = me.drawn
+                    melds = me.melds or []
                     # 從手牌丟
                     for t in list(self._legal_discards(pid)):
-                        waits = waits_after_discard_17(me["hand"], drawn, melds, t, "hand", self.rules)
+                        waits = waits_after_discard_17(me.hand, drawn, melds, t, "hand", self.rules)
                         if waits:
                             acts.append({"type":"TING", "tile": t, "from":"hand", "waits": waits})
                     # 從 drawn 丟
                     if drawn is not None:
-                        waits = waits_after_discard_17(me["hand"], drawn, melds, drawn, "drawn", self.rules)
+                        waits = waits_after_discard_17(me.hand, drawn, melds, drawn, "drawn", self.rules)
                         if waits:
                             acts.append({"type":"TING", "tile": drawn, "from":"drawn", "waits": waits})
             # 加入自家回合的槓選項：暗槓 / 加槓
             if self.rules.allow_gang:
-                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
                 # 暗槓：四張同牌皆在自家（摸牌後）
                 for t in set(all_tiles):
                     if not is_flower(t) and all_tiles.count(t) >= 4:
                         acts.append({"type": "ANGANG", "tile": t})
                 # 加槓：先前已有 PONG，且手上/摸到第4張
                 pong_bases: List[int] = []
-                for m in (me.get("melds") or []):
+                for m in (me.melds or []):
                     if (m.get("type") or "").upper() == "PONG":
                         tiles_m = list(m.get("tiles") or [])
                         if tiles_m:
@@ -238,24 +239,25 @@ class Mahjong16Env:
             if discard is None:
                 return acts
             tile = discard["tile"]
-            ting_locked = bool(self.players[pid].get("declared_ting", False))
+            player_state = self.players[pid]
+            ting_locked = bool(getattr(player_state, "declared_ting", False))
             # 搶槓反應期：僅允許 PASS、HU
             if self.qiang_gang_mode:
-                if self.rules.allow_hu and is_win_16(self.players[pid]["hand"] + [tile], self.players[pid]["melds"], self.rules):
+                if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
                     acts.append({"type":"HU"})
                 return acts
             # Chi（僅限下家）
             if (not ting_locked) and (self._seat_index.get(pid) == (self._seat_index.get(discard["pid"], -999) + 1) % self.rules.n_players) and self.rules.allow_chi:
-                for a,b in chi_options(tile, self.players[pid]["hand"]):
+                for a, b in chi_options(tile, player_state.hand):
                     acts.append({"type":"CHI", "use":[a,b]})
             # Pon
-            if (not ting_locked) and self.rules.allow_pong and self.players[pid]["hand"].count(tile) >= 2:
+            if (not ting_locked) and self.rules.allow_pong and player_state.hand.count(tile) >= 2:
                 acts.append({"type":"PONG"})
             # Gang（大明槓：手上已有三張，吃入一張成槓）
-            if (not ting_locked) and self.rules.allow_gang and self.players[pid]["hand"].count(tile) >= 3:
+            if (not ting_locked) and self.rules.allow_gang and player_state.hand.count(tile) >= 3:
                 acts.append({"type":"GANG"})
             # Hu（依胡牌判定；目前 judge.is_win_16 尚未實作，通常不會出現）
-            if self.rules.allow_hu and is_win_16(self.players[pid]["hand"] + [tile], self.players[pid]["melds"], self.rules):
+            if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
                 acts.append({"type":"HU"})
             return acts
 
@@ -279,7 +281,7 @@ class Mahjong16Env:
                 # 明確標記來源為自摸，並記錄胡牌當下回合屬於誰（即 winner）
                 self.win_source = "TSUMO"
                 # 自摸的胡牌就是當前 drawn
-                self.win_tile = self.players[pid]["drawn"]
+                self.win_tile = self.players[pid].drawn
                 self.turn_at_win = pid
                 # 是否為莊家胡
                 self.winner_is_dealer = (pid == getattr(self, "dealer_pid", 0))
@@ -297,26 +299,26 @@ class Mahjong16Env:
             if a_type == "ANGANG":
                 t = action.get("tile")
                 me = self.players[pid]
-                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
                 assert all_tiles.count(t) >= 4, "暗槓需手牌+摸牌共4張同牌"
                 # 移除四張（優先從手牌移除）
                 removed = 0
-                while removed < 4 and t in me["hand"]:
-                    me["hand"].remove(t)
+                while removed < 4 and t in me.hand:
+                    me.hand.remove(t)
                     removed += 1
-                if removed < 4 and me["drawn"] == t:
-                    me["drawn"] = None
+                if removed < 4 and me.drawn == t:
+                    me.drawn = None
                     removed += 1
-                while removed < 4 and t in me["hand"]:
-                    me["hand"].remove(t)
+                while removed < 4 and t in me.hand:
+                    me.hand.remove(t)
                     removed += 1
                 assert removed == 4
-                me["melds"].append({"type": "ANGANG", "tiles": [t, t, t, t], "from_pid": None})
+                me.melds.append({"type": "ANGANG", "tiles": [t, t, t, t], "from_pid": None})
                 self.n_gang += 1
                 # 槓後補摸
                 self._draw_to_drawn(pid)
                 self._recent_gang_draw_pid = pid
-                if self.players[pid]["drawn"] is None:
+                if self.players[pid].drawn is None:
                     # 無法補摸 → 流局
                     self.done = True
                     rewards = [0] * self.rules.n_players
@@ -326,8 +328,8 @@ class Mahjong16Env:
             if a_type == "KAKAN":
                 t = action.get("tile")
                 me = self.players[pid]
-                has_pong = any((m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == t for m in (me.get("melds") or []))
-                all_tiles = list(me["hand"]) + ([me["drawn"]] if me["drawn"] is not None else [])
+                has_pong = any((m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == t for m in (me.melds or []))
+                all_tiles = list(me.hand) + ([me.drawn] if me.drawn is not None else [])
                 assert has_pong and all_tiles.count(t) >= 1, "加槓需已有 PONG 且持有第4張"
                 # 開啟搶槓反應
                 self.qiang_gang_mode = True
@@ -345,26 +347,26 @@ class Mahjong16Env:
             tile = action["tile"]
 
             if src == "drawn":
-                assert self.players[pid]["drawn"] == tile, "丟牌來源為 drawn，但牌不相符"
-                self.players[pid]["drawn"] = None
+                assert self.players[pid].drawn == tile, "丟牌來源為 drawn，但牌不相符"
+                self.players[pid].drawn = None
             else:
-                assert tile in self.players[pid]["hand"] and (not is_flower(tile)), "非法丟手牌"
-                self.players[pid]["hand"].remove(tile)
-                if self.players[pid]["drawn"] is not None:
-                    self.players[pid]["hand"].append(self.players[pid]["drawn"])  # 併回手牌維持16
-                    self.players[pid]["drawn"] = None
+                assert tile in self.players[pid].hand and (not is_flower(tile)), "非法丟手牌"
+                self.players[pid].hand.remove(tile)
+                if self.players[pid].drawn is not None:
+                    self.players[pid].hand.append(self.players[pid].drawn)  # 併回手牌維持16
+                    self.players[pid].drawn = None
 
             # 進捨牌河與記錄
-            self.players[pid]["river"].append(tile)
+            self.players[pid].river.append(tile)
             self.discard_pile.append(tile)
             self.discard_count += 1
             self.last_discard = {"pid": pid, "tile": tile}
 
             # 若為宣告聽，鎖定之後只能丟 drawn
             if a_type == "TING":
-                self.players[pid]["declared_ting"] = True
-                self.players[pid]["ting_declared_at"] = self.discard_count
-                self.players[pid]["ting_declared_open_melds"] = self.total_open_melds
+                self.players[pid].declared_ting = True
+                self.players[pid].ting_declared_at = self.discard_count
+                self.players[pid].ting_declared_open_melds = self.total_open_melds
 
             # 開啟反應視窗
             self.phase = "REACTION"
@@ -383,7 +385,7 @@ class Mahjong16Env:
             a_type = action.get("type")
             assert a_type in ("PASS","CHI","PONG","GANG","HU"), "反應期僅允許 PASS/CHI/PONG/GANG/HU"
             # 聽牌狀態下的玩家僅能 PASS 或 HU
-            if self.players[pid].get("declared_ting", False) and a_type not in ("PASS", "HU"):
+            if self.players[pid].declared_ting and a_type not in ("PASS", "HU"):
                 a_type = "PASS"
             if a_type != "PASS":
                 # 記錄宣告（用於最後決議）
@@ -413,12 +415,12 @@ class Mahjong16Env:
                         ktile = self.pending_kakan.get("tile")
                         me = self.players[kpid]
                         # 使用第4張（優先用 drawn）
-                        if me["drawn"] == ktile:
-                            me["drawn"] = None
+                        if me.drawn == ktile:
+                            me.drawn = None
                         else:
-                            me["hand"].remove(ktile)
+                            me.hand.remove(ktile)
                         # 將對應 PONG 升級為 KAKAN
-                        for m in (me.get("melds") or []):
+                        for m in (me.melds or []):
                             if (m.get("type") or "").upper() == "PONG" and (m.get("tiles") or [None])[0] == ktile:
                                 m["type"] = "KAKAN"
                                 m["tiles"] = [ktile, ktile, ktile, ktile]
@@ -433,7 +435,7 @@ class Mahjong16Env:
                         self._draw_to_drawn(kpid)
                         self._recent_gang_draw_pid = kpid
                         self.last_discard = None
-                        if self.players[kpid]["drawn"] is None:
+                        if self.players[kpid].drawn is None:
                             self.done = True
                             rewards = [0] * self.rules.n_players
                             return self._obs(self.turn), rewards, True, {}
@@ -443,7 +445,7 @@ class Mahjong16Env:
                     base_idx = self._seat_index.get(self.last_discard["pid"], 0)
                     self.turn = self.seating_order[(base_idx + 1) % self.rules.n_players]
                     self._draw_to_drawn(self.turn)
-                    if self.players[self.turn]["drawn"] is None:
+                    if self.players[self.turn].drawn is None:
                         # 無法摸牌（已達尾牌留置）→ 立刻流局
                         self.done = True
                         rewards = [0] * self.rules.n_players
@@ -457,7 +459,7 @@ class Mahjong16Env:
                     discarder = self.last_discard["pid"]
                     tile = self.last_discard["tile"]
                     # 從丟牌者 river 與全局 discard_pile 移除該牌（不再留在河道）
-                    rv = self.players[discarder]["river"]
+                    rv = self.players[discarder].river
                     if rv and rv[-1] == tile:
                         rv.pop()
                     else:
@@ -486,13 +488,13 @@ class Mahjong16Env:
                     if ctype == "CHI":
                         a,b = resolved["use"]
                         # 從手牌移除兩張，加入明順
-                        self.players[claimer]["hand"].remove(a)
-                        self.players[claimer]["hand"].remove(b)
-                        self.players[claimer]["melds"].append(
+                        self.players[claimer].hand.remove(a)
+                        self.players[claimer].hand.remove(b)
+                        self.players[claimer].melds.append(
                             {"type":"CHI","tiles":[a,b,tile], "from_pid": discarder}
                         )
                         self.total_open_melds += 1
-                        self.players[claimer]["drawn"] = None  # 由吃入，非摸牌
+                        self.players[claimer].drawn = None  # 由吃入，非摸牌
                         self.turn = claimer
                         self.phase = "TURN"  # 直接要求丟牌
                         resolved_info["use"] = [a,b]
@@ -500,29 +502,29 @@ class Mahjong16Env:
                     elif ctype == "PONG":
                         # 從手牌移除兩張，加入明刻
                         for _ in range(2):
-                            self.players[claimer]["hand"].remove(tile)
-                        self.players[claimer]["melds"].append(
+                            self.players[claimer].hand.remove(tile)
+                        self.players[claimer].melds.append(
                             {"type":"PONG","tiles":[tile,tile,tile], "from_pid": discarder}
                         )
                         self.total_open_melds += 1
-                        self.players[claimer]["drawn"] = None
+                        self.players[claimer].drawn = None
                         self.turn = claimer
                         self.phase = "TURN"
                         return self._obs(self.turn), [0]*self.rules.n_players, False, {"resolved_claim": resolved_info}
                     elif ctype == "GANG":
                         # 大明槓：移除三張，加入明槓，槓後補摸（不得侵犯尾牌留置）
                         for _ in range(3):
-                            self.players[claimer]["hand"].remove(tile)
-                        self.players[claimer]["melds"].append(
+                            self.players[claimer].hand.remove(tile)
+                        self.players[claimer].melds.append(
                             {"type":"GANG","tiles":[tile,tile,tile,tile], "from_pid": discarder}
                         )
                         self.total_open_melds += 1
                         self.n_gang += 1  # 記錄場上槓數以調整尾牌留置（「一槓一」）
-                        self.players[claimer]["drawn"] = None
+                        self.players[claimer].drawn = None
                         self.turn = claimer
                         self.phase = "TURN"
                         self._draw_to_drawn(self.turn)
-                        if self.players[self.turn]["drawn"] is None:
+                        if self.players[self.turn].drawn is None:
                             # 補摸失敗（已達尾牌留置）→ 流局
                             self.done = True
                             rewards = [0] * self.rules.n_players
@@ -553,21 +555,6 @@ class Mahjong16Env:
                         return self._obs(self.turn), rewards, True, {"resolved_claim": resolved_info}
 
     # ====== 內部輔助 ======
-    def _new_player(self, pid: int) -> Dict[str, Any]:
-        """Create initial player dict state."""
-        return {
-            "id": pid,
-            "hand": [],
-            "drawn": None,
-            "flowers": [],
-            "melds": [],
-            "river": [],
-            "score": 0,
-            "declared_ting": False,
-            "ting_declared_at": None,
-            "ting_declared_open_melds": None,
-        }
-
     def _flower_no(self, tile: int) -> int | None:
         """Map a flower tile id to its ordinal number (F1..F8 -> 1..8)."""
         if not is_flower(tile):
@@ -577,7 +564,8 @@ class Mahjong16Env:
     def _find_flower_holder(self, flower_no: int) -> tuple[int | None, int | None]:
         """Return (pid, tile_id) for the player holding a specific flower number."""
         for pid, player in enumerate(self.players):
-            for t in player.get("flowers", []):
+            flowers = getattr(player, "flowers", [])
+            for t in flowers:
                 if self._flower_no(t) == flower_no:
                     return pid, t
         return None, None
@@ -616,7 +604,7 @@ class Mahjong16Env:
         Returns True when a flower-based win ends the round and drawing should stop.
         """
 
-        self.players[pid]["flowers"].append(tile)
+        self.players[pid].flowers.append(tile)
 
         if not getattr(self.rules, "enable_flower_wins", True):
             return False
@@ -678,25 +666,25 @@ class Mahjong16Env:
                 if self._register_flower(pid, t):
                     return
                 continue
-            self.players[pid]["hand"].append(t)
+            self.players[pid].hand.append(t)
             break
 
     def _draw_to_drawn(self, pid: int):
         """Draw from wall into the `drawn` slot, replacing flowers immediately."""
-        self.players[pid]["drawn"] = None
+        self.players[pid].drawn = None
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
                 if self._register_flower(pid, t):
                     return
                 continue
-            self.players[pid]["drawn"] = t
+            self.players[pid].drawn = t
             break
 
     def _legal_discards(self, pid: int):
         """Return list of tile ids in hand that can be legally discarded (non‑flower)."""
         from .tiles import is_flower  # 重新導入以防循環
-        return [t for t in self.players[pid]["hand"] if not is_flower(t)]
+        return [t for t in self.players[pid].hand if not is_flower(t)]
 
     def _resolve_claims(self) -> Optional[Dict[str, Any]]:
         """Resolve reaction claims by priority and distance; return chosen claim or None."""
@@ -718,14 +706,14 @@ class Mahjong16Env:
         obs = {
             "player": pid,
             "phase": self.phase,
-            "hand": list(me["hand"]),
-            "drawn": me["drawn"],
-            "flowers": list(me["flowers"]),
-            "melds": [m if isinstance(m, dict) else list(m) for m in me["melds"]],
-            "declared_ting": bool(me.get("declared_ting", False)),
+            "hand": list(me.hand),
+            "drawn": me.drawn,
+            "flowers": list(me.flowers),
+            "melds": [m if isinstance(m, dict) else list(m) for m in me.melds],
+            "declared_ting": bool(getattr(me, "declared_ting", False)),
             # 公開資訊：所有玩家的副露與棄牌河
-            "melds_all": [[m if isinstance(m, dict) else list(m) for m in p["melds"]] for p in self.players],
-            "rivers": [list(p["river"]) for p in self.players],
+            "melds_all": [[m if isinstance(m, dict) else list(m) for m in p.melds] for p in self.players],
+            "rivers": [list(p.river) for p in self.players],
             "n_remaining": len(self.wall),
             "last_discard": dict(self.last_discard) if self.last_discard else None,
             "legal_actions": ([] if is_done else

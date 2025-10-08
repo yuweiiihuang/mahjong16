@@ -34,11 +34,11 @@ def test_tsumo_basic():
     # 直接設定可自摸的局面
     hand, drawn = _make_tsumo_hand()
     pid = 0
-    env.players[pid]["hand"] = list(hand)
-    env.players[pid]["drawn"] = drawn
-    env.players[pid]["melds"] = []
-    env.players[pid]["flowers"] = []
-    env.players[pid]["river"] = []
+    env.players[pid].hand = list(hand)
+    env.players[pid].drawn = drawn
+    env.players[pid].melds = []
+    env.players[pid].flowers = []
+    env.players[pid].river = []
     env.turn = pid
     env.phase = "TURN"
 

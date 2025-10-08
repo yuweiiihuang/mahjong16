@@ -9,8 +9,8 @@ from tests.helpers.tile_pool import TilePool
 
 
 def force_hand(env: Mahjong16Env, pid: int, tiles: Iterable[int | Tile], drawn: int | Tile | None = None) -> None:
-    env.players[pid]["hand"] = [int(tile) for tile in tiles]
-    env.players[pid]["drawn"] = int(drawn) if drawn is not None else None
+    env.players[pid].hand = [int(tile) for tile in tiles]
+    env.players[pid].drawn = int(drawn) if drawn is not None else None
 
 def test_priority_pon_over_chi():
     # 建立環境並人工設牌：P0 丟出 5W；P1 有 3W,4W,5W 可吃，P2 有 5W,5W 可碰
@@ -18,10 +18,10 @@ def test_priority_pon_over_chi():
     env.reset()
     # 清空並設定最小狀態
     for player in env.players:
-        player["hand"].clear()
-        player["drawn"] = None
-        player["melds"].clear()
-        player["river"].clear()
+        player.hand.clear()
+        player.drawn = None
+        player.melds.clear()
+        player.river.clear()
 
     env.wall = []  # 關閉自動摸牌以穩定測試
     pool = TilePool(include_flowers=False)
@@ -66,5 +66,5 @@ def test_priority_pon_over_chi():
     obs, _, _, _ = env.step({"type": "PASS"})
     # 結算應選擇 PONG 優先於 CHI，故輪到 P2，且 P2 手上應移除兩張 5W 並新增明刻
     assert env.turn == 2
-    melds = env.players[2]["melds"]
+    melds = env.players[2].melds
     assert any(m.get("type") == "PONG" for m in melds), "應形成明刻（PONG）"
