@@ -3,7 +3,13 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
 import random
 
-from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
+from .tiles import (
+    chi_options,
+    full_wall,
+    hand_to_str,
+    is_flower,
+    tile_to_str,
+)
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
 from .types import Action, Observation
@@ -12,51 +18,6 @@ from .flowers import FlowerManager, FlowerOutcome
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
-
-def is_suited(t: int) -> bool:
-    """Return True if tile id is a suited (萬/筒/條) tile.
-
-    Indexing convention:
-    - 0..8: 萬, 9..17: 筒, 18..26: 條, 27..33: 字
-    """
-    return 0 <= t <= 26
-
-def suit_of(t: int) -> int:
-    """Return suit index of a tile id: 0=萬, 1=筒, 2=條, 3=字。"""
-    if 0 <= t <= 8: return 0
-    if 9 <= t <= 17: return 1
-    if 18 <= t <= 26: return 2
-    return 3
-
-def rank_of(t: int) -> Optional[int]:
-    """Return rank (1..9) for suited tiles; None for honors/flowers."""
-    if not is_suited(t): return None
-    if 0 <= t <= 8: return t - 0 + 1
-    if 9 <= t <= 17: return t - 9 + 1
-    if 18 <= t <= 26: return t - 18 + 1
-    return None
-
-def chi_options(discard_tile: int, hand: List[int]) -> List[Tuple[int,int]]:
-    """Enumerate all 2‑tile choices (a,b) from hand that can CHI the discard.
-
-    Only suited tiles and immediate neighbor patterns are considered:
-      (r-2,r-1), (r-1,r+1), (r+1,r+2)
-    """
-    if not is_suited(discard_tile): return []
-    r = rank_of(discard_tile)
-    s = suit_of(discard_tile)
-    candidates = []
-    # 三種可能： (r-2,r-1), (r-1,r+1), (r+1,r+2)
-    patterns = [(-2,-1), (-1,1), (1,2)]
-    for dx, dy in patterns:
-        r1, r2 = r+dx, r+dy
-        if not (1 <= r1 <= 9 and 1 <= r2 <= 9): continue
-        # 轉回 tile id
-        base = 0 if s==0 else (9 if s==1 else 18)
-        a, b = base + (r1-1), base + (r2-1)
-        if hand.count(a) >= 1 and hand.count(b) >= 1:
-            candidates.append((a,b))
-    return candidates
 
 class Mahjong16Env:
     """Taiwan 16‑tile Mahjong single‑table environment.
