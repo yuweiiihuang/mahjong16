@@ -46,8 +46,7 @@ def test_flower_ba_xian_triggers_tsumo_win():
     # 清空現有花牌並重設追蹤集合
     for p in env.players:
         p.flowers = []
-    env._flower_sets = [set() for _ in range(env.rules.n_players)]
-    env._flower_union = set()
+    env._flower_manager.reset()
     env.flower_win_type = None
     env.done = False
     env.phase = "TURN"
@@ -73,8 +72,7 @@ def test_flower_qi_qiang_triggers_ron_win():
     env.reset()
     for p in env.players:
         p.flowers = []
-    env._flower_sets = [set() for _ in range(env.rules.n_players)]
-    env._flower_union = set()
+    env._flower_manager.reset()
     env.flower_win_type = None
     env.done = False
     env.phase = "TURN"

@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
 import random
 
-from .tiles import full_wall, is_flower, tile_to_str, hand_to_str, N_TILES, N_FLOWERS
+from .tiles import full_wall, is_flower, tile_to_str, hand_to_str
 from .ruleset import Ruleset
 from .hand import is_win_16, waits_after_discard_17
 from .types import Action, Observation
 from .state import PlayerState
+from .flowers import FlowerManager, FlowerOutcome
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -100,8 +101,10 @@ class Mahjong16Env:
         self.discard_count: int = 0
         self.total_open_melds: int = 0
         self.flower_win_type: str | None = None
-        self._flower_sets: List[set[int]] = [set() for _ in range(self.rules.n_players)]
-        self._flower_union: set[int] = set()
+        self._flower_manager = FlowerManager(
+            n_players=self.rules.n_players,
+            enable_flower_wins=getattr(self.rules, "enable_flower_wins", True),
+        )
         self.players: List[PlayerState] = [PlayerState(id=i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
         self.reaction_queue: List[int] = []   # 要依序詢問反應的玩家（丟牌者之下一家開始）
@@ -576,21 +579,6 @@ class Mahjong16Env:
                 candidates.append({"type": "TING", "tile": drawn, "from": "drawn", "waits": waits})
         return candidates
     # ====== 內部輔助 ======
-    def _flower_no(self, tile: int) -> int | None:
-        """Map a flower tile id to its ordinal number (F1..F8 -> 1..8)."""
-        if not is_flower(tile):
-            return None
-        return tile - N_TILES + 1
-
-    def _find_flower_holder(self, flower_no: int) -> tuple[int | None, int | None]:
-        """Return (pid, tile_id) for the player holding a specific flower number."""
-        for pid, player in enumerate(self.players):
-            flowers = getattr(player, "flowers", [])
-            for t in flowers:
-                if self._flower_no(t) == flower_no:
-                    return pid, t
-        return None, None
-
     def _resolve_flower_win(
         self,
         winner_pid: int,
@@ -619,72 +607,43 @@ class Mahjong16Env:
         self.qiang_gang_mode = False
         self.pending_kakan = None
 
+    def _handle_flower_draw(self, pid: int, tile: int) -> bool:
+        """Delegate flower tracking to the manager and apply any outcome."""
+
+        outcome = self._flower_manager.register_flower(
+            pid=pid,
+            tile=tile,
+            players=self.players,
+            round_done=getattr(self, "done", False),
+        )
+        return self._apply_flower_outcome(outcome)
+
+    def _apply_flower_outcome(self, outcome: FlowerOutcome) -> bool:
+        """Apply a flower outcome, finalizing wins when necessary."""
+
+        if outcome.is_win:
+            if outcome.winner_pid is None or outcome.flower_type is None or outcome.win_source is None:
+                raise ValueError("FlowerOutcome missing data for win resolution")
+            self._resolve_flower_win(
+                winner_pid=outcome.winner_pid,
+                loser_pid=outcome.loser_pid,
+                win_tile=outcome.win_tile,
+                flower_type=outcome.flower_type,
+                win_source=outcome.win_source,
+            )
+        return outcome.round_ended
+
     def _register_flower(self, pid: int, tile: int) -> bool:
-        """Add a flower to the player's collection and check special win cases.
+        """Backward-compatible wrapper delegating to the flower manager."""
 
-        Returns True when a flower-based win ends the round and drawing should stop.
-        """
-
-        self.players[pid].flowers.append(tile)
-
-        if not getattr(self.rules, "enable_flower_wins", True):
-            return False
-
-        flower_no = self._flower_no(tile)
-        if flower_no is None:
-            return False
-
-        if pid < len(self._flower_sets):
-            self._flower_sets[pid].add(flower_no)
-        else:
-            self._flower_sets.append({flower_no})
-        self._flower_union.add(flower_no)
-
-        if getattr(self, "done", False):
-            return True
-
-        if len(self._flower_union) < N_FLOWERS:
-            return False
-
-        # 八仙過海：任一玩家集齊八朵花 → 自摸結束
-        for candidate, fset in enumerate(self._flower_sets):
-            if len(fset) == N_FLOWERS:
-                win_tile = tile if candidate == pid else None
-                self._resolve_flower_win(
-                    winner_pid=candidate,
-                    loser_pid=candidate,
-                    win_tile=win_tile,
-                    flower_type="ba_xian",
-                    win_source="TSUMO",
-                )
-                return True
-
-        # 七搶一：有玩家集齊七朵花，最後一朵在其他人身上
-        for candidate, fset in enumerate(self._flower_sets):
-            if len(fset) == N_FLOWERS - 1:
-                missing = list(self._flower_union - fset)
-                if not missing:
-                    continue
-                holder_pid, held_tile = self._find_flower_holder(missing[0])
-                if holder_pid is None:
-                    continue
-                self._resolve_flower_win(
-                    winner_pid=candidate,
-                    loser_pid=holder_pid,
-                    win_tile=held_tile,
-                    flower_type="qi_qiang_yi",
-                    win_source="RON",
-                )
-                return True
-
-        return False
+        return self._handle_flower_draw(pid, tile)
 
     def _draw_into_hand(self, pid: int):
         """Draw from wall into hand, auto‑handling flowers (replacing immediately)."""
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
-                if self._register_flower(pid, t):
+                if self._handle_flower_draw(pid, t):
                     return
                 continue
             self.players[pid].hand.append(t)
@@ -696,7 +655,7 @@ class Mahjong16Env:
         while self._can_draw_from_wall():
             t = self.wall.pop()
             if is_flower(t) and self.rules.include_flowers:
-                if self._register_flower(pid, t):
+                if self._handle_flower_draw(pid, t):
                     return
                 continue
             self.players[pid].drawn = t
