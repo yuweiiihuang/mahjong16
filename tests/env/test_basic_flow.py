@@ -7,11 +7,11 @@ def test_reset_and_deal():
     obs = env.reset()
     # 每家 16 張手牌
     for i, p in enumerate(env.players):
-        assert len(p["hand"]) == env.rules.initial_hand
+        assert len(p.hand) == env.rules.initial_hand
         if i == 0:
-            assert p["drawn"] is not None, "莊家開局應有 drawn（一張第17張）"
+            assert p.drawn is not None, "莊家開局應有 drawn（一張第17張）"
         else:
-            assert p["drawn"] is None, "閒家開局不應有 drawn"
+            assert p.drawn is None, "閒家開局不應有 drawn"
     # 當前行動必為莊家
     assert obs["player"] == 0
     # 合法動作應包含丟 drawn
@@ -36,8 +36,8 @@ def test_discard_then_reaction_window_and_pass_all():
     obs5, _, _, _ = env.step({"type": "PASS"})
     assert obs5["phase"] == "TURN"
     assert obs5["player"] == 1
-    assert env.players[1]["drawn"] is not None
-    assert len(env.players[1]["hand"]) == env.rules.initial_hand
+    assert env.players[1].drawn is not None
+    assert len(env.players[1].hand) == env.rules.initial_hand
 
 
 def test_flower_ba_xian_triggers_tsumo_win():
@@ -45,9 +45,8 @@ def test_flower_ba_xian_triggers_tsumo_win():
     env.reset()
     # 清空現有花牌並重設追蹤集合
     for p in env.players:
-        p["flowers"] = []
-    env._flower_sets = [set() for _ in range(env.rules.n_players)]
-    env._flower_union = set()
+        p.flowers = []
+    env._flower_manager.reset()
     env.flower_win_type = None
     env.done = False
     env.phase = "TURN"
@@ -72,9 +71,8 @@ def test_flower_qi_qiang_triggers_ron_win():
     env = Mahjong16Env(Ruleset(), seed=43)
     env.reset()
     for p in env.players:
-        p["flowers"] = []
-    env._flower_sets = [set() for _ in range(env.rules.n_players)]
-    env._flower_union = set()
+        p.flowers = []
+    env._flower_manager.reset()
     env.flower_win_type = None
     env.done = False
     env.phase = "TURN"

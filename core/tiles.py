@@ -7,7 +7,7 @@ utilities to generate a shuffled wall.
 from __future__ import annotations
 from enum import IntEnum
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 # 0..33: 34 tiles (萬/筒/條 1..9, 字 E/S/W/N/C/F/P)
 # 34..41: 8 flowers (四季 + 四君子)
@@ -73,6 +73,65 @@ def hand_to_str(hand: List[int]) -> str:
 
 
 # Sorting helpers (pure, display-agnostic)
+
+
+def is_suited(t: int) -> bool:
+    """Return True if a tile id is one of the suited tiles (萬/筒/條)."""
+    return 0 <= t <= 26
+
+
+def suit_of(t: int) -> int:
+    """Return suit index of a tile id: 0=萬, 1=筒, 2=條, 3=字."""
+    if 0 <= t <= 8:
+        return 0
+    if 9 <= t <= 17:
+        return 1
+    if 18 <= t <= 26:
+        return 2
+    return 3
+
+
+def rank_of(t: int) -> Optional[int]:
+    """Return the rank (1..9) for suited tiles; None for honors/flowers."""
+    if not is_suited(t):
+        return None
+    if 0 <= t <= 8:
+        return t - 0 + 1
+    if 9 <= t <= 17:
+        return t - 9 + 1
+    if 18 <= t <= 26:
+        return t - 18 + 1
+    return None
+
+
+def chi_options(discard_tile: int, hand: List[int]) -> List[Tuple[int, int]]:
+    """Return all 2-tile combinations from ``hand`` that can chi ``discard_tile``.
+
+    Only suited tiles form chis. The function considers the three possible
+    sequences that include the discard: (r-2, r-1), (r-1, r+1), and (r+1, r+2),
+    where ``r`` is the discard's rank. Each candidate is returned as the
+    concrete tile ids found in the player's hand.
+    """
+
+    if not is_suited(discard_tile):
+        return []
+
+    rank = rank_of(discard_tile)
+    suit = suit_of(discard_tile)
+    if rank is None:
+        return []
+
+    base = 0 if suit == 0 else 9 if suit == 1 else 18
+    candidates: List[Tuple[int, int]] = []
+    for dx, dy in [(-2, -1), (-1, 1), (1, 2)]:
+        r1, r2 = rank + dx, rank + dy
+        if not (1 <= r1 <= 9 and 1 <= r2 <= 9):
+            continue
+        a, b = base + (r1 - 1), base + (r2 - 1)
+        if hand.count(a) >= 1 and hand.count(b) >= 1:
+            candidates.append((a, b))
+    return candidates
+
 
 def _suit_of_id(t: int) -> int:
     """Return suit index: 0=萬, 1=筒, 2=條, 3=字."""

@@ -313,6 +313,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[DiscardPub
     - 若 last_discard 在該家的河且仍是最後一張，反白顯示。
     """
     pl = env.players[pid]
+    get = pl.get if isinstance(pl, dict) else lambda key, default=None: getattr(pl, key, default)
     is_me = (pid == pov_pid)
 
     # 標題（玩家/剩餘張數/身份）
@@ -330,33 +331,35 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[DiscardPub
     except Exception:
         pass
     try:
-        if bool(env.players[pid].get("declared_ting", False)):
+        player_state = env.players[pid]
+        is_declared_ting = bool(player_state.get("declared_ting", False)) if isinstance(player_state, dict) else bool(getattr(player_state, "declared_ting", False))
+        if is_declared_ting:
             title += " (TING)"
     except Exception:
         pass
 
     # 手牌/摸牌
     if is_me:
-        hand = sorted(list(pl["hand"]), key=tile_sort_key)
-        drawn = pl.get("drawn")
+        hand = sorted(list(get("hand") or []), key=tile_sort_key)
+        drawn = get("drawn")
         hand_line = Text.assemble(Text("hand: ", style="bold"), join_tiles(hand))
         drawn_line = Text.assemble(Text("drawn: ", style="bold"),
                                    text_for_tile(drawn) if drawn is not None else Text("None", style="dim"))
     else:
         hand_line = Text.assemble(
             Text("hand: ", style="bold"),
-            Text(f"({len(pl['hand'])} tiles)", style="dim"),
+            Text(f"({len(get('hand') or [])} tiles)", style="dim"),
         )
         drawn_line = Text.assemble(Text("drawn: ", style="bold"), Text("Hidden", style="dim"))
 
     # 副露
     melds_line = Text.assemble(
         Text("melds: ", style="bold"),
-        render_melds(pl.get("melds") or [], mask_concealed=(not is_me))
+        render_melds(get("melds") or [], mask_concealed=(not is_me))
     )
 
     # 花牌（公開資訊，放在副露之下）
-    flowers = list(pl.get("flowers") or [])
+    flowers = list(get("flowers") or [])
     flowers.sort(key=tile_sort_key)
     flowers_line = Text.assemble(
         Text("flowers: ", style="bold"),
@@ -364,7 +367,7 @@ def _player_panel(env, pid: int, pov_pid: int, last_discard: Optional[DiscardPub
     )
 
     # 河牌（若最後一張等於 last_discard 且此家就是丟牌者，反白）
-    river = list(pl.get("river") or [])
+    river = list(get("river") or [])
     river_line = Text("river: ", style="bold")
     if river:
         # 決定是否反白最後一張
@@ -574,16 +577,17 @@ def render_reveal(
         order_pids = list(range(env.rules.n_players))
     for pid in order_pids:
         pl = env.players[pid]
+        get = pl.get if isinstance(pl, dict) else lambda key, default=None: getattr(pl, key, default)
         # hand / melds / river
-        hand = sorted(list(pl["hand"]), key=tile_sort_key)
+        hand = sorted(list(get("hand") or []), key=tile_sort_key)
         hand_txt = Text.assemble(Text("hand: ", style="bold"),
                                  join_tiles(hand) if hand else Text("(empty)", style="dim"))
         melds_txt = Text.assemble(Text("melds: ", style="bold"),
-                                  render_melds(pl.get("melds") or []))
-        flowers = sorted(list(pl.get("flowers") or []), key=tile_sort_key)
+                                  render_melds(get("melds") or []))
+        flowers = sorted(list(get("flowers") or []), key=tile_sort_key)
         flowers_txt = Text.assemble(Text("flowers: ", style="bold"),
                                     join_tiles(flowers) if flowers else Text("(empty)", style="dim"))
-        river = list(pl.get("river") or [])
+        river = list(get("river") or [])
         river_txt = Text.assemble(Text("river: ", style="bold"),
                                   join_tiles(river) if river else Text("(empty)", style="dim"))
 

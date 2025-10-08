@@ -121,8 +121,10 @@ class ScoringContext:
         """
         players = []
         for p in env.players:
+            get = p.get if isinstance(p, dict) else lambda key, default=None: getattr(p, key, default)
             meld_objs: List[Meld] = []
-            for m in (p.get("melds") or []):
+            meld_source = get("melds") or []
+            for m in meld_source:
                 if isinstance(m, dict):
                     meld_objs.append(Meld(type=str(m.get("type", "")).upper(), tiles=list(m.get("tiles") or []), from_pid=m.get("from_pid")))
                 else:
@@ -134,15 +136,15 @@ class ScoringContext:
                         meld_objs.append(Meld(type="", tiles=[]))
             players.append(
                 PlayerView(
-                    id=p.get("id"),
-                    hand=list(p.get("hand") or []),
-                    drawn=p.get("drawn"),
+                    id=get("id"),
+                    hand=list(get("hand") or []),
+                    drawn=get("drawn"),
                     melds=meld_objs,
-                    flowers=list(p.get("flowers") or []),
-                    river=list(p.get("river") or []),
-                    declared_ting=bool(p.get("declared_ting", False)),
-                    ting_declared_at=p.get("ting_declared_at"),
-                    ting_declared_open_melds=p.get("ting_declared_open_melds"),
+                    flowers=list(get("flowers") or []),
+                    river=list(get("river") or []),
+                    declared_ting=bool(get("declared_ting", False)),
+                    ting_declared_at=get("ting_declared_at"),
+                    ting_declared_open_melds=get("ting_declared_open_melds"),
                 )
             )
         return ScoringContext(
