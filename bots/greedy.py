@@ -176,18 +176,21 @@ class GreedyBotStrategy:
         if phase == "REACTION":
             # 比較 PASS vs CHI/PONG/GANG
             best = {"type": "PASS"}
-            best_cost = self._heuristic_cost(
+            baseline_cost = self._heuristic_cost(
                 list(obs.get("hand") or []),
                 list(obs.get("melds") or []),
             )
+            best_key = (baseline_cost, 1)  # default: PASS 有較低優先序
             for a in acts:
                 t = (a.get("type") or "").upper()
                 if t not in ("CHI", "PONG", "GANG"):
                     continue
                 h2, m2 = self._after_claim(obs, a)
                 cst = self._heuristic_cost(h2, m2)
-                if cst < best_cost:
-                    best_cost = cst
+                priority = 0 if t == "GANG" else 1  # 成本相等時偏好槓
+                key = (cst, priority)
+                if key < best_key:
+                    best_key = key
                     best = a
             return best
 
