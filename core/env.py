@@ -88,6 +88,13 @@ class Mahjong16Env:
     # ====== API ======
     def reset(self) -> Observation:
         """Reset the table, deal hands, and return the first observation for the dealer."""
+        self._reset_round_state()
+        self._assign_seats_and_dealer()
+        self._deal_initial_hands()
+        return self._obs(self.turn)
+
+    def _reset_round_state(self) -> None:
+        """Clear prior round bookkeeping and reinitialize mutable table state."""
         self.wall: List[int] = full_wall(self.rules.include_flowers, self.rng)
         self.discard_pile: List[int] = []
         self.discard_count: int = 0
@@ -97,58 +104,9 @@ class Mahjong16Env:
         self._flower_union: set[int] = set()
         self.players: List[PlayerState] = [PlayerState(id=i) for i in range(self.rules.n_players)]
         self.n_gang: int = 0  # 場上槓數（供「一槓一」模式計算尾牌留置）
-        # ====== 風位與莊家 / 座次 ======
-        winds_cycle = ["E", "S", "W", "N"]
-        # 優先採用外部預設的 pid->風位（供 TableManager 餵入）
-        preset_winds = getattr(self, "preset_seat_winds", None)
-        if isinstance(preset_winds, list) and len(preset_winds) == self.rules.n_players:
-            self.seat_winds = list(preset_winds)
-        else:
-            if getattr(self.rules, "randomize_seating_and_dealer", False):
-                # 完整打亂相對座次：建立 seating_order 並依序指派 ESWN 給各 pid
-                order = list(range(self.rules.n_players))
-                self.rng.shuffle(order)
-                winds = [None] * self.rules.n_players
-                for i, pid in enumerate(order):
-                    winds[pid] = winds_cycle[i]
-                self.seat_winds = winds
-            else:
-                # 固定：P0=東、P1=南、P2=西、P3=北
-                self.seat_winds = winds_cycle[: self.rules.n_players]
-
-        # 由 seat_winds 推導圓桌座次（索引0=東、1=南、2=西、3=北）
-        try:
-            order_map = {w: i for i, w in enumerate(winds_cycle)}
-            pairs = [(order_map.get(w, 99), pid) for pid, w in enumerate(self.seat_winds)]
-            pairs.sort()
-            self.seating_order = [pid for _, pid in pairs if _ != 99]
-        except Exception:
-            self.seating_order = list(range(self.rules.n_players))
-        # 反查：pid -> 座位索引
-        self._seat_index = {pid: i for i, pid in enumerate(self.seating_order)}
-
-        preset_dealer_pid = getattr(self, "preset_dealer_pid", None)
-        if isinstance(preset_dealer_pid, int) and 0 <= preset_dealer_pid < self.rules.n_players:
-            self.dealer_pid = int(preset_dealer_pid)
-        else:
-            # 開局莊家為東（座次索引0）
-            self.dealer_pid = self.seating_order[0] if self.seating_order else 0
-
-        # 圈風：優先採用外部預設；預設 'E'
-        self.quan_feng: str = (getattr(self, "preset_quan_feng", None) or getattr(self, "quan_feng", "E") or "E")
-        # 連莊次數：優先採用外部預設（起手 0）
-        ds = getattr(self, "preset_dealer_streak", None)
-        self.dealer_streak = int(ds) if isinstance(ds, int) else 0
-        self.winner_is_dealer: bool = False
-
-        # 起手回合從莊家開始
-        self.turn = self.dealer_pid
-        self.phase = "TURN"  # or "REACTION"
         self.reaction_queue: List[int] = []   # 要依序詢問反應的玩家（丟牌者之下一家開始）
         self.reaction_idx: int = 0
         self.claims: List[Dict[str, Any]] = []
-
-        # 重置上一局留下的結算狀態，避免影響新局發牌流程
         self.last_discard: Optional[Dict[str, Any]] = None
         self.done = False
         self.winner: Optional[int] = None
@@ -161,8 +119,47 @@ class Mahjong16Env:
         self.qiang_gang_mode: bool = False       # 是否進入搶槓反應
         self.pending_kakan: Optional[Dict[str, Any]] = None  # {pid,tile}
 
-        # 發牌：每家 16 張（補花到非花）；直接放入手牌
-        # 按座次（ESWN）之順序發牌
+    def _assign_seats_and_dealer(self) -> None:
+        """Determine seat winds, seating order, and dealer selection for the round."""
+        winds_cycle = ["E", "S", "W", "N"]
+        preset_winds = getattr(self, "preset_seat_winds", None)
+        if isinstance(preset_winds, list) and len(preset_winds) == self.rules.n_players:
+            self.seat_winds = list(preset_winds)
+        else:
+            if getattr(self.rules, "randomize_seating_and_dealer", False):
+                order = list(range(self.rules.n_players))
+                self.rng.shuffle(order)
+                winds = [None] * self.rules.n_players
+                for i, pid in enumerate(order):
+                    winds[pid] = winds_cycle[i]
+                self.seat_winds = winds
+            else:
+                self.seat_winds = winds_cycle[: self.rules.n_players]
+
+        try:
+            order_map = {w: i for i, w in enumerate(winds_cycle)}
+            pairs = [(order_map.get(w, 99), pid) for pid, w in enumerate(self.seat_winds)]
+            pairs.sort()
+            self.seating_order = [pid for _, pid in pairs if _ != 99]
+        except Exception:
+            self.seating_order = list(range(self.rules.n_players))
+        self._seat_index = {pid: i for i, pid in enumerate(self.seating_order)}
+
+        preset_dealer_pid = getattr(self, "preset_dealer_pid", None)
+        if isinstance(preset_dealer_pid, int) and 0 <= preset_dealer_pid < self.rules.n_players:
+            self.dealer_pid = int(preset_dealer_pid)
+        else:
+            self.dealer_pid = self.seating_order[0] if self.seating_order else 0
+
+        self.quan_feng: str = (getattr(self, "preset_quan_feng", None) or getattr(self, "quan_feng", "E") or "E")
+        ds = getattr(self, "preset_dealer_streak", None)
+        self.dealer_streak = int(ds) if isinstance(ds, int) else 0
+        self.winner_is_dealer: bool = False
+        self.turn = self.dealer_pid
+        self.phase = "TURN"  # or "REACTION"
+
+    def _deal_initial_hands(self) -> None:
+        """Distribute initial concealed tiles and draw the dealer's starting tile."""
         order_pids: List[int] = list(self.seating_order) if getattr(self, "seating_order", None) else list(range(self.rules.n_players))
         for _ in range(self.rules.initial_hand):
             for pid in order_pids:
@@ -172,11 +169,8 @@ class Mahjong16Env:
             if getattr(self, "done", False):
                 break
 
-        # 莊家先摸一張至 drawn（16+drawn=17）
         if not getattr(self, "done", False):
             self._draw_to_drawn(self.dealer_pid)
-
-        return self._obs(self.turn)
 
     def legal_actions(self, pid: Optional[int]=None) -> List[Action]:
         """List legal actions for current player (TURN) or current reactor (REACTION)."""
