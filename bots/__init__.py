@@ -6,10 +6,10 @@ with a running :class:`core.env.Mahjong16Env` instance and an optional
 configuration to adjust simulation count or rollout depth.
 """
 
-from .random_bot import RandomBot
-from .rulebot import RuleBot
 from .greedy import GreedyBotStrategy
 from .mcts import MCTSBot, MCTSBotConfig
+from .random_bot import RandomBot
+from .rulebot import RuleBot
 
 __all__ = [
     "GreedyBotStrategy",

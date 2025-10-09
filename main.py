@@ -23,8 +23,12 @@ if __name__ == "__main__":
         "--bot",
         type=str,
         default="greedy",
-        choices=["auto", "greedy", "human"],
-        help="Bot strategy for non-human players. Default: greedy",
+        choices=["auto", "greedy", "human", "mcts"],
+        help=(
+            "Bot strategy for non-human players (auto, greedy, mcts, human). "
+            "Default: greedy. Advanced MCTS tuning is available via API kwargs or"
+            " config files."
+        ),
     )
     parser.add_argument(
         "--hands",

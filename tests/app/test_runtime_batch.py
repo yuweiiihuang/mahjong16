@@ -29,3 +29,20 @@ def test_headless_batch_creates_single_log(tmp_path):
         header = next(handle)
         assert "session_index" in header
         assert "global_hand_index" in header
+
+
+def test_headless_batch_accepts_mcts_kwargs():
+    summaries = run_demo_headless_batch(
+        sessions=1,
+        cores=1,
+        seed=321,
+        bot="mcts",
+        bot_kwargs={"simulations": 4, "rollout_depth": 4, "seed": 11},
+        hands=1,
+        start_points=200,
+        emit_logs=False,
+    )
+
+    assert len(summaries) >= 1
+    assert summaries[0]["session_index"] == 0
+    assert summaries[0]["session_seed"] is not None

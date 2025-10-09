@@ -1,8 +1,9 @@
 from __future__ import annotations
-from typing import Dict, Any, List, Optional, Tuple, Protocol
-from bots import GreedyBotStrategy
+from typing import Any, Dict, List, Optional, Protocol, Tuple
+
+from bots import GreedyBotStrategy, MCTSBot, MCTSBotConfig
 from ui.console import prompt_turn_action, prompt_reaction_action
-from core import Action, Observation
+from core import Action, Observation, Mahjong16Env
 
 # Reaction priority: HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -89,8 +90,33 @@ class HumanStrategy:
             return prompt_reaction_action(obs)
 
 
-def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List[Strategy]:
+def build_strategies(
+    n_players: int,
+    human_pid: Optional[int],
+    bot: str,
+    *,
+    env: Optional[Mahjong16Env] = None,
+    bot_kwargs: Optional[Dict[str, Any]] = None,
+) -> List[Strategy]:
     strategies: List[Strategy] = []
+    options = dict(bot_kwargs or {})
+
+    def _resolve_mcts_config() -> MCTSBotConfig:
+        config = options.get("config")
+        if config is not None:
+            if isinstance(config, MCTSBotConfig):
+                return config
+            if isinstance(config, dict):
+                return MCTSBotConfig(**config)
+            raise TypeError("config must be a MCTSBotConfig or mapping")
+
+        config_kwargs = {
+            key: options[key]
+            for key in ("simulations", "uct_c", "rollout_depth", "seed")
+            if key in options
+        }
+        return MCTSBotConfig(**config_kwargs)
+
     for pid in range(n_players):
         if human_pid is not None and pid == human_pid:
             strategies.append(HumanStrategy())
@@ -99,6 +125,11 @@ def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List
                 strategies.append(GreedyBotStrategy())
             elif bot == "human":
                 strategies.append(HumanStrategy())
+            elif bot == "mcts":
+                if env is None:
+                    raise ValueError("MCTS bot requires an active Mahjong16Env instance.")
+                config = _resolve_mcts_config()
+                strategies.append(MCTSBot(env, config=config))
             else:
                 strategies.append(AutoStrategy())
     return strategies
