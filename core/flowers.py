@@ -40,6 +40,21 @@ class FlowerManager:
         self._player_sets = [set() for _ in range(self.n_players)]
         self._union = set()
 
+    def snapshot(self) -> dict[str, object]:
+        """Return a copy of the current tracking state for cloning."""
+
+        return {
+            "player_sets": [list(s) for s in self._player_sets],
+            "union": list(self._union),
+        }
+
+    def restore(self, snapshot: dict[str, object]) -> None:
+        """Restore tracking state from a prior snapshot."""
+
+        player_sets = snapshot.get("player_sets", [])
+        self._player_sets = [set(s) for s in player_sets]
+        self._union = set(snapshot.get("union", []))
+
     @property
     def player_sets(self) -> list[set[int]]:
         """Return per-player flower number collections."""
