@@ -200,6 +200,7 @@ class MCTSBot:
         if self._last_action_key is not None and self._last_action_key in candidate.children:
             candidate = candidate.children[self._last_action_key]
 
+        cached_player = candidate.player
         candidate.parent = None
         candidate.player = player
         candidate.phase = phase
@@ -226,6 +227,8 @@ class MCTSBot:
                 del candidate.children[key]
 
         candidate.unexpanded_actions = new_unexpanded
+        if cached_player != player:
+            self._reset_statistics(candidate)
         self._root_cache = candidate
         return candidate
 
@@ -365,6 +368,15 @@ class MCTSBot:
             node.visits += 1
             node.w += value
             node.q = node.w / node.visits if node.visits else 0.0
+
+    def _reset_statistics(self, node: MCTSNode) -> None:
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            current.visits = 0
+            current.w = 0.0
+            current.q = 0.0
+            stack.extend(current.children.values())
 
     # ------------------------------------------------------------------
     # Policy helpers
