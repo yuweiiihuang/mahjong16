@@ -1,6 +1,7 @@
 # file: core/env.py
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
+import copy
 import random
 
 from .tiles import (
@@ -33,6 +34,136 @@ class Mahjong16Env:
         self.rules = rules
         self.rng = random.Random(seed)
         self.reset_rng_seed = seed
+
+    @staticmethod
+    def _player_to_snapshot(player: PlayerState) -> Dict[str, Any]:
+        """Serialize a player state into snapshot-friendly primitives."""
+
+        return {
+            "id": player.id,
+            "hand": list(player.hand),
+            "drawn": player.drawn,
+            "flowers": list(player.flowers),
+            "melds": copy.deepcopy(player.melds),
+            "river": list(player.river),
+            "score": player.score,
+            "declared_ting": player.declared_ting,
+            "ting_declared_at": player.ting_declared_at,
+            "ting_declared_open_melds": player.ting_declared_open_melds,
+        }
+
+    @staticmethod
+    def _player_from_snapshot(snapshot: Dict[str, Any]) -> PlayerState:
+        """Instantiate a PlayerState from snapshot primitives."""
+
+        return PlayerState(
+            id=snapshot["id"],
+            hand=list(snapshot.get("hand", [])),
+            drawn=snapshot.get("drawn"),
+            flowers=list(snapshot.get("flowers", [])),
+            melds=copy.deepcopy(snapshot.get("melds", [])),
+            river=list(snapshot.get("river", [])),
+            score=snapshot.get("score", 0),
+            declared_ting=bool(snapshot.get("declared_ting", False)),
+            ting_declared_at=snapshot.get("ting_declared_at"),
+            ting_declared_open_melds=snapshot.get("ting_declared_open_melds"),
+        )
+
+    def snapshot(self) -> Dict[str, Any]:
+        """Return a snapshot of the current mutable round state."""
+
+        return {
+            "reset_rng_seed": self.reset_rng_seed,
+            "rng_state": self.rng.getstate(),
+            "wall": list(self.wall),
+            "discard_pile": list(self.discard_pile),
+            "discard_count": self.discard_count,
+            "total_open_melds": self.total_open_melds,
+            "flower_win_type": self.flower_win_type,
+            "flower_manager": self._flower_manager.snapshot(),
+            "players": [self._player_to_snapshot(p) for p in self.players],
+            "n_gang": self.n_gang,
+            "reaction_queue": list(self.reaction_queue),
+            "reaction_idx": self.reaction_idx,
+            "claims": copy.deepcopy(self.claims),
+            "last_discard": copy.deepcopy(self.last_discard),
+            "done": self.done,
+            "winner": self.winner,
+            "win_source": self.win_source,
+            "win_tile": self.win_tile,
+            "turn_at_win": self.turn_at_win,
+            "win_by_gang_draw": self.win_by_gang_draw,
+            "win_by_qiang_gang": self.win_by_qiang_gang,
+            "_recent_gang_draw_pid": self._recent_gang_draw_pid,
+            "qiang_gang_mode": self.qiang_gang_mode,
+            "pending_kakan": copy.deepcopy(self.pending_kakan),
+            "seat_winds": list(self.seat_winds),
+            "seating_order": list(self.seating_order),
+            "_seat_index": dict(self._seat_index),
+            "dealer_pid": self.dealer_pid,
+            "quan_feng": self.quan_feng,
+            "dealer_streak": self.dealer_streak,
+            "winner_is_dealer": self.winner_is_dealer,
+            "turn": self.turn,
+            "phase": self.phase,
+        }
+
+    def restore(self, snapshot: Dict[str, Any]) -> None:
+        """Restore mutable state from a snapshot."""
+
+        self.reset_rng_seed = snapshot.get("reset_rng_seed")
+        rng_state = snapshot.get("rng_state")
+        if rng_state is not None:
+            self.rng.setstate(rng_state)
+        self.wall = list(snapshot.get("wall", []))
+        self.discard_pile = list(snapshot.get("discard_pile", []))
+        self.discard_count = int(snapshot.get("discard_count", 0))
+        self.total_open_melds = int(snapshot.get("total_open_melds", 0))
+        self.flower_win_type = snapshot.get("flower_win_type")
+        self._flower_manager = FlowerManager(
+            n_players=self.rules.n_players,
+            enable_flower_wins=getattr(self.rules, "enable_flower_wins", True),
+        )
+        self._flower_manager.restore(snapshot.get("flower_manager", {}))
+        self.players = [self._player_from_snapshot(p) for p in snapshot.get("players", [])]
+        self.n_gang = int(snapshot.get("n_gang", 0))
+        self.reaction_queue = list(snapshot.get("reaction_queue", []))
+        self.reaction_idx = int(snapshot.get("reaction_idx", 0))
+        self.claims = copy.deepcopy(snapshot.get("claims", []))
+        self.last_discard = copy.deepcopy(snapshot.get("last_discard"))
+        self.done = bool(snapshot.get("done", False))
+        self.winner = snapshot.get("winner")
+        self.win_source = snapshot.get("win_source")
+        self.win_tile = snapshot.get("win_tile")
+        self.turn_at_win = snapshot.get("turn_at_win")
+        self.win_by_gang_draw = bool(snapshot.get("win_by_gang_draw", False))
+        self.win_by_qiang_gang = bool(snapshot.get("win_by_qiang_gang", False))
+        self._recent_gang_draw_pid = snapshot.get("_recent_gang_draw_pid")
+        self.qiang_gang_mode = bool(snapshot.get("qiang_gang_mode", False))
+        self.pending_kakan = copy.deepcopy(snapshot.get("pending_kakan"))
+        self.seat_winds = list(snapshot.get("seat_winds", []))
+        self.seating_order = list(snapshot.get("seating_order", []))
+        self._seat_index = dict(snapshot.get("_seat_index", {}))
+        self.dealer_pid = snapshot.get("dealer_pid")
+        self.quan_feng = snapshot.get("quan_feng", "E")
+        self.dealer_streak = int(snapshot.get("dealer_streak", 0))
+        self.winner_is_dealer = bool(snapshot.get("winner_is_dealer", False))
+        self.turn = snapshot.get("turn", 0)
+        self.phase = snapshot.get("phase", "TURN")
+
+    @classmethod
+    def from_snapshot(cls, rules: Ruleset, snapshot: Dict[str, Any]) -> "Mahjong16Env":
+        """Construct a new environment from a snapshot."""
+
+        seed = snapshot.get("reset_rng_seed")
+        env = cls(rules, seed=seed)
+        env.restore(snapshot)
+        return env
+
+    def clone(self) -> "Mahjong16Env":
+        """Return a deep clone of the environment state."""
+
+        return self.from_snapshot(self.rules, self.snapshot())
 
     # ====== 尾牌留置（流局）判斷 ======
     def _dead_wall_reserved(self) -> int:
