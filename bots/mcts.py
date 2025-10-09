@@ -5,11 +5,14 @@ from __future__ import annotations
 import copy
 import math
 import random
+import threading
 from collections import defaultdict
-from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import dataclass, asdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from bots.heuristics import HeuristicSnapshot, heuristic as evaluate_heuristic
+from core import Ruleset
 from core.env import PRIORITY, Mahjong16Env
 
 
@@ -42,6 +45,29 @@ class MCTSBotConfig:
     pw_c: float = 1.5
     pw_alpha: float = 0.5
     rave_k: float = 200.0
+    threads: int = 1
+    processes: int = 0
+
+
+@dataclass
+class MCTSStatistics:
+    """Aggregate statistics collected during the latest search."""
+
+    simulations: int = 0
+    total_depth: int = 0
+    max_depth: int = 0
+
+    def record(self, depth: int) -> None:
+        self.simulations += 1
+        self.total_depth += depth
+        if depth > self.max_depth:
+            self.max_depth = depth
+
+    @property
+    def average_depth(self) -> float:
+        if self.simulations == 0:
+            return 0.0
+        return self.total_depth / self.simulations
 
 
 def _freeze_value(value: Any) -> Any:
@@ -54,13 +80,20 @@ def _freeze_value(value: Any) -> Any:
     return value
 
 
-def _encode_action_key(action: Action, table: Dict[Tuple[Tuple[str, Any], ...], int]) -> int:
+def _encode_action_key(
+    action: Action,
+    table: Dict[Tuple[Tuple[str, Any], ...], int],
+    lookup: Dict[int, Action],
+) -> int:
     """Return a stable integer identifier for the given action."""
 
     frozen = tuple(sorted((k, _freeze_value(v)) for k, v in action.items()))
-    if frozen not in table:
-        table[frozen] = len(table)
-    return table[frozen]
+    action_id = table.get(frozen)
+    if action_id is None:
+        action_id = len(table)
+        table[frozen] = action_id
+        lookup[action_id] = copy.deepcopy(action)
+    return action_id
 
 def _candidate_sort_key(action: Action, prior: float) -> Tuple[bool, int, float]:
     action_type = (action.get("type") or "").upper()
@@ -69,13 +102,26 @@ def _candidate_sort_key(action: Action, prior: float) -> Tuple[bool, int, float]
     return (is_pass, -priority, -prior)
 
 
-def _sort_candidates(
-    candidates: Iterable[Tuple[Action, float]]
-) -> List[Tuple[Action, float]]:
-    return sorted(
-        [(copy.deepcopy(action), prior) for action, prior in candidates],
-        key=lambda item: _candidate_sort_key(item[0], item[1]),
-    )
+def _process_search_task(
+    payload: Tuple[Ruleset, Dict[str, Any], Observation, Dict[str, Any]]
+) -> Tuple[List[Tuple[Action, int, float]], int, int, int]:
+    rules, snapshot, obs, config_dict = payload
+    env = Mahjong16Env.from_snapshot(rules, copy.deepcopy(snapshot))
+    bot = MCTSBot(env, MCTSBotConfig(**config_dict))
+    bot.choose(copy.deepcopy(obs))
+    root = bot._root_cache
+    data: List[Tuple[Action, int, float]] = []
+    if root is not None:
+        for action_id, child in root.children.items():
+            action = bot._action_lookup.get(action_id)
+            if action is None:
+                continue
+            data.append((copy.deepcopy(action), child.visits, child.w))
+    stats = getattr(bot, "last_stats", None)
+    simulations = int(getattr(stats, "simulations", 0)) if stats is not None else 0
+    depth_total = int(getattr(stats, "total_depth", 0)) if stats is not None else 0
+    depth_max = int(getattr(stats, "max_depth", 0)) if stats is not None else 0
+    return data, simulations, depth_total, depth_max
 
 
 class MCTSNode:
@@ -84,8 +130,7 @@ class MCTSNode:
     __slots__ = (
         "player",
         "phase",
-        "action",
-        "action_key",
+        "action_id",
         "parent",
         "visits",
         "prior",
@@ -94,6 +139,8 @@ class MCTSNode:
         "rave_stats",
         "children",
         "unexpanded_actions",
+        "pending",
+        "lock",
     )
 
     def __init__(
@@ -101,19 +148,14 @@ class MCTSNode:
         *,
         player: int,
         phase: str,
-        legal_actions: Sequence[Action],
-        priors: Sequence[float],
-        action: Optional[Action] = None,
-        action_key: Optional[int] = None,
+        unexpanded_actions: Sequence[Tuple[int, float]],
+        action_id: Optional[int] = None,
         parent: Optional["MCTSNode"] = None,
         prior: float = 1.0,
     ) -> None:
-        if len(priors) != len(legal_actions):
-            raise ValueError("priors must match legal_actions length")
         self.player = player
         self.phase = phase
-        self.action = copy.deepcopy(action) if action is not None else None
-        self.action_key = action_key
+        self.action_id = action_id
         self.parent = parent
         self.visits = 0
         self.prior = prior
@@ -121,9 +163,9 @@ class MCTSNode:
         self.q = 0.0
         self.rave_stats: Dict[int, Tuple[float, int]] = {}
         self.children: Dict[int, "MCTSNode"] = {}
-        self.unexpanded_actions: List[Tuple[Action, float]] = _sort_candidates(
-            zip(legal_actions, priors),
-        )
+        self.unexpanded_actions: List[Tuple[int, float]] = list(unexpanded_actions)
+        self.pending = 0
+        self.lock = threading.Lock()
 
     def is_terminal(self) -> bool:
         return not self.unexpanded_actions and not self.children
@@ -144,9 +186,14 @@ class MCTSBot:
         self.config = config or MCTSBotConfig()
         self.rng = random.Random(self.config.seed)
         self._action_table: Dict[Tuple[Tuple[str, Any], ...], int] = {}
+        self._action_lookup: Dict[int, Action] = {}
+        self._action_lock = threading.Lock()
         self._root_cache: Optional[MCTSNode] = None
-        self._last_action_key: Optional[int] = None
+        self._last_action_id: Optional[int] = None
         self._root_snapshot: Optional[Dict[str, Any]] = None
+        self._stats = MCTSStatistics()
+        self._last_stats = MCTSStatistics()
+        self._stats_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Public API
@@ -165,14 +212,32 @@ class MCTSBot:
         if len(actions) == 1:
             return copy.deepcopy(actions[0])
 
+        self._stats = MCTSStatistics()
         root, root_snapshot = self._prepare_root(obs, actions)
+        simulations = max(1, self.config.simulations)
+        processes = max(0, int(self.config.processes))
+        threads = 0 if processes > 0 else max(1, int(self.config.threads))
 
-        for _ in range(max(1, self.config.simulations)):
-            self._simulate(root, root_snapshot, obs)
+        if threads > 0:
+            if threads > 1:
+                with ThreadPoolExecutor(max_workers=threads) as executor:
+                    futures = [
+                        executor.submit(self._simulate, root, root_snapshot, obs)
+                        for _ in range(simulations)
+                    ]
+                    for future in futures:
+                        future.result()
+            else:
+                for _ in range(simulations):
+                    self._simulate(root, root_snapshot, obs)
+
+        if processes > 0:
+            self._run_process_pool(root, root_snapshot, obs, simulations)
 
         if not root.children:
             self._root_cache = root
-            self._last_action_key = None
+            self._last_action_id = None
+            self._last_stats = self._stats
             return copy.deepcopy(actions[0])
 
         best_child = max(
@@ -181,71 +246,206 @@ class MCTSBot:
         )
 
         self._root_cache = root
-        self._last_action_key = best_child.action_key
-        return copy.deepcopy(best_child.action or actions[0])
+        self._last_action_id = best_child.action_id
+        self._last_stats = self._stats
+        if best_child.action_id is None:
+            return copy.deepcopy(actions[0])
+        return copy.deepcopy(self._action_lookup.get(best_child.action_id, actions[0]))
 
     # ------------------------------------------------------------------
     # Core MCTS steps
+
+    @property
+    def last_stats(self) -> MCTSStatistics:
+        """Return statistics collected during the previous :meth:`choose` call."""
+
+        return self._last_stats
+
+    def _register_action(self, action: Action) -> int:
+        with self._action_lock:
+            return _encode_action_key(action, self._action_table, self._action_lookup)
+
+    def _sort_candidates(
+        self, candidates: Iterable[Tuple[int, float]]
+    ) -> List[Tuple[int, float]]:
+        return sorted(
+            [(action_id, prior) for action_id, prior in candidates],
+            key=lambda item: _candidate_sort_key(
+                self._action_lookup[item[0]], item[1]
+            ),
+        )
+
+    def _prepare_candidates(
+        self, actions: Sequence[Action], priors: Sequence[float]
+    ) -> List[Tuple[int, float]]:
+        if len(actions) != len(priors):
+            raise ValueError("priors must match legal_actions length")
+        pairs = [
+            (self._register_action(action), prior)
+            for action, prior in zip(actions, priors)
+        ]
+        return self._sort_candidates(pairs)
+
+    def _action_copy(self, action_id: int) -> Action:
+        return copy.deepcopy(self._action_lookup[action_id])
 
     def _prepare_root(self, obs: Observation, actions: Sequence[Action]) -> Tuple[MCTSNode, Dict[str, Any]]:
         snapshot = self.env.snapshot()
         player = obs.get("player", 0)
         phase = obs.get("phase", "TURN")
         priors = self.policy_prior(phase, actions)
+        candidates = self._prepare_candidates(actions, priors)
 
         if self.config.reuse_tree and self._root_cache is not None:
-            root = self._reuse_root(player, phase, actions, priors)
+            root = self._reuse_root(player, phase, candidates)
         else:
             root = MCTSNode(
                 player=player,
                 phase=phase,
-                legal_actions=actions,
-                priors=priors,
+                unexpanded_actions=candidates,
             )
 
         self._root_snapshot = snapshot
         return root, snapshot
 
+    def _run_process_pool(
+        self,
+        root: MCTSNode,
+        snapshot: Dict[str, Any],
+        obs: Observation,
+        simulations: int,
+    ) -> None:
+        processes = max(0, int(self.config.processes))
+        if processes <= 0 or simulations <= 0:
+            return
+
+        base = simulations // processes
+        remainder = simulations % processes
+        counts = [base + (1 if idx < remainder else 0) for idx in range(processes)]
+        tasks: List[Tuple[Ruleset, Dict[str, Any], Observation, Dict[str, Any]]] = []
+        config_dict = asdict(self.config)
+        config_dict.update({"threads": 1, "processes": 0, "reuse_tree": False})
+        for count in counts:
+            if count <= 0:
+                continue
+            det_snapshot = self._determinize_snapshot(snapshot, obs, root.player)
+            task_config = dict(config_dict)
+            task_config["simulations"] = count
+            tasks.append(
+                (
+                    self.env.rules,
+                    det_snapshot,
+                    copy.deepcopy(obs),
+                    task_config,
+                )
+            )
+
+        if not tasks:
+            return
+
+        with ProcessPoolExecutor(max_workers=processes) as executor:
+            futures = [executor.submit(_process_search_task, task) for task in tasks]
+            results = [future.result() for future in futures]
+
+        self._apply_process_results(root, results)
+
+    def _apply_process_results(
+        self,
+        root: MCTSNode,
+        results: Sequence[Tuple[List[Tuple[Action, int, float]], int, int, int]],
+    ) -> None:
+        total_sim = 0
+        total_depth = 0
+        max_depth = self._stats.max_depth
+        root_w_increment = 0.0
+
+        for data, sim_count, depth_total, depth_max in results:
+            total_sim += sim_count
+            total_depth += depth_total
+            if depth_max > max_depth:
+                max_depth = depth_max
+            child_w_sum = 0.0
+            for action, visits, w in data:
+                action_id = self._register_action(action)
+                child = root.children.get(action_id)
+                if child is None:
+                    prior = 1.0
+                    for index, (candidate_id, candidate_prior) in enumerate(
+                        root.unexpanded_actions
+                    ):
+                        if candidate_id == action_id:
+                            prior = candidate_prior
+                            del root.unexpanded_actions[index]
+                            break
+                    child = MCTSNode(
+                        player=root.player,
+                        phase=root.phase,
+                        unexpanded_actions=[],
+                        action_id=action_id,
+                        parent=root,
+                        prior=prior,
+                    )
+                    root.children[action_id] = child
+                with child.lock:
+                    child.visits += visits
+                    child.w += w
+                    child.q = child.w / child.visits if child.visits else 0.0
+                child_w_sum += w
+            root_w_increment += child_w_sum
+
+        if total_sim:
+            with root.lock:
+                root.visits += total_sim
+                root.w += root_w_increment
+                root.q = root.w / root.visits if root.visits else 0.0
+
+        if total_sim:
+            with self._stats_lock:
+                self._stats.simulations += total_sim
+                self._stats.total_depth += total_depth
+                if max_depth > self._stats.max_depth:
+                    self._stats.max_depth = max_depth
+
     def _reuse_root(
         self,
         player: int,
         phase: str,
-        actions: Sequence[Action],
-        priors: Sequence[float],
+        candidates: Sequence[Tuple[int, float]],
     ) -> MCTSNode:
         assert self._root_cache is not None
         node = self._root_cache
         candidate = node
-        if self._last_action_key is not None and self._last_action_key in candidate.children:
-            candidate = candidate.children[self._last_action_key]
+        if (
+            self._last_action_id is not None
+            and self._last_action_id in candidate.children
+        ):
+            candidate = candidate.children[self._last_action_id]
 
         cached_player = candidate.player
         candidate.parent = None
         candidate.player = player
         candidate.phase = phase
-        candidate.action = None
-        candidate.action_key = None
+        candidate.action_id = None
         candidate.prior = 1.0
+        candidate.pending = 0
 
-        legal_keys: set[int] = set()
-        new_unexpanded: List[Tuple[Action, float]] = []
-        for action, prior in zip(actions, priors):
-            key = _encode_action_key(action, self._action_table)
-            legal_keys.add(key)
-            if key in candidate.children:
-                child = candidate.children[key]
-                child.prior = prior
-                child.parent = candidate
-                child.action = copy.deepcopy(action)
-                child.action_key = key
+        legal_ids: set[int] = set()
+        new_unexpanded: List[Tuple[int, float]] = []
+        for action_id, prior in candidates:
+            legal_ids.add(action_id)
+            if action_id in candidate.children:
+                child = candidate.children[action_id]
+                with child.lock:
+                    child.prior = prior
+                    child.parent = candidate
             else:
-                new_unexpanded.append((action, prior))
+                new_unexpanded.append((action_id, prior))
 
-        for key in list(candidate.children.keys()):
-            if key not in legal_keys:
-                del candidate.children[key]
+        for action_id in list(candidate.children.keys()):
+            if action_id not in legal_ids:
+                del candidate.children[action_id]
 
-        candidate.unexpanded_actions = _sort_candidates(new_unexpanded)
+        candidate.unexpanded_actions = self._sort_candidates(new_unexpanded)
         if cached_player != player:
             self._reset_statistics(candidate)
         self._root_cache = candidate
@@ -258,79 +458,117 @@ class MCTSBot:
         env = Mahjong16Env.from_snapshot(self.env.rules, det_snapshot)
         node = root
         obs = env._obs(node.player)
-        path = [node]
+        path: List[MCTSNode] = []
+        pending_nodes: List[MCTSNode] = []
+        value = 0.0
 
-        while True:
-            if getattr(env, "done", False):
-                value = self._evaluate(env, root.player)
-                self._backpropagate(path, value)
-                return
+        node.lock.acquire()
+        lock_held = True
+        try:
+            while True:
+                path.append(node)
+                node.pending += 1
+                pending_nodes.append(node)
 
-            legal = obs.get("legal_actions", []) or env.legal_actions()
-            self._refresh_node(node, obs, legal)
+                if getattr(env, "done", False):
+                    value = self._evaluate(env, root.player)
+                    node.lock.release()
+                    lock_held = False
+                    break
 
-            if not legal:
-                value = self._evaluate(env, root.player)
-                self._backpropagate(path, value)
-                return
-
-            max_children = self._progressive_widening_limit(node)
-            if node.unexpanded_actions and len(node.children) < max_children:
-                action, prior = node.unexpanded_actions.pop(0)
-                obs, _, done, _ = env.step(copy.deepcopy(action))
                 legal = obs.get("legal_actions", []) or env.legal_actions()
-                priors = self.policy_prior(obs.get("phase", "TURN"), legal)
-                key = _encode_action_key(action, self._action_table)
-                child = MCTSNode(
-                    player=obs.get("player", root.player),
-                    phase=obs.get("phase", "TURN"),
-                    legal_actions=legal,
-                    priors=priors,
-                    action=action,
-                    action_key=key,
-                    parent=node,
-                    prior=prior,
-                )
-                node.children[key] = child
-                path.append(child)
-                value = self._rollout(env, obs, done, root.player)
-                self._backpropagate(path, value)
-                return
+                self._refresh_node(node, obs, legal)
 
-            if not node.children:
-                value = self._evaluate(env, root.player)
-                self._backpropagate(path, value)
-                return
+                if not legal:
+                    value = self._evaluate(env, root.player)
+                    node.lock.release()
+                    lock_held = False
+                    break
 
-            child = self._select_child(node)
-            if child.action is None:
-                if child.action_key is not None:
-                    node.children.pop(child.action_key, None)
-                continue
-            obs, _, done, _ = env.step(copy.deepcopy(child.action))
-            node = child
-            path.append(node)
-            if done:
-                value = self._evaluate(env, root.player)
-                self._backpropagate(path, value)
-                return
+                max_children = self._progressive_widening_limit(node)
+                if node.unexpanded_actions and len(node.children) < max_children:
+                    action_id, prior = node.unexpanded_actions.pop(0)
+                    action = self._action_copy(action_id)
+                    obs, _, done, _ = env.step(action)
+                    legal = obs.get("legal_actions", []) or env.legal_actions()
+                    priors = self.policy_prior(obs.get("phase", "TURN"), legal)
+                    child_candidates = self._prepare_candidates(legal, priors)
+                    child = MCTSNode(
+                        player=obs.get("player", root.player),
+                        phase=obs.get("phase", "TURN"),
+                        unexpanded_actions=child_candidates,
+                        action_id=action_id,
+                        parent=node,
+                        prior=prior,
+                    )
+                    node.children[action_id] = child
+                    child.lock.acquire()
+                    child.pending += 1
+                    pending_nodes.append(child)
+                    path.append(child)
+                    child.lock.release()
+                    node.lock.release()
+                    lock_held = False
+                    value = self._rollout(env, obs, done, root.player)
+                    break
+
+                if not node.children:
+                    value = self._evaluate(env, root.player)
+                    node.lock.release()
+                    lock_held = False
+                    break
+
+                child = self._select_child(node)
+                action_id = child.action_id
+                if action_id is None:
+                    node.children.pop(
+                        next(
+                            (key for key, value_child in node.children.items() if value_child is child),
+                            None,
+                        ),
+                        None,
+                    )
+                    continue
+
+                child.lock.acquire()
+                node.lock.release()
+                node = child
+                obs, _, _done, _ = env.step(self._action_copy(action_id))
+                lock_held = True
+        except Exception:
+            if lock_held:
+                node.lock.release()
+            raise
+        finally:
+            if lock_held:
+                node.lock.release()
+
+        for pending in reversed(pending_nodes):
+            with pending.lock:
+                if pending.pending > 0:
+                    pending.pending -= 1
+
+        with self._stats_lock:
+            self._stats.record(max(0, len(path) - 1))
+        self._backpropagate(path, value)
 
     def _select_child(self, node: MCTSNode) -> MCTSNode:
         assert node.children, "select_child called on node without children"
 
-        parent_visits = max(1, node.visits)
+        parent_visits = max(1, node.visits + node.pending)
         sqrt_parent = math.sqrt(parent_visits)
         best_score = -float("inf")
         best_children: List[MCTSNode] = []
 
         for child in node.children.values():
-            exploration = self.config.puct_c * child.prior * sqrt_parent / (1 + child.visits)
-            rave_total, rave_visits = node.rave_stats.get(child.action_key or -1, (0.0, 0))
+            visits = child.visits + child.pending
+            exploration = self.config.puct_c * child.prior * sqrt_parent / (1 + visits)
+            rave_total, rave_visits = node.rave_stats.get(child.action_id or -1, (0.0, 0))
             q_rave = rave_total / rave_visits if rave_visits else 0.0
             beta_den = child.visits + rave_visits + self.config.rave_k
             beta = 0.0 if beta_den <= 0 else rave_visits / beta_den
             mixed_q = (1.0 - beta) * child.q + beta * q_rave
-            score = mixed_q + exploration
+            score = mixed_q - self.config.virtual_loss * child.pending + exploration
             if score > best_score + 1e-12:
                 best_score = score
                 best_children = [child]
@@ -343,7 +581,7 @@ class MCTSBot:
         if self.config.pw_c <= 0:
             return len(node.children) + len(node.unexpanded_actions)
 
-        visits = max(1, node.visits)
+        visits = max(1, node.visits + node.pending)
         limit = int(self.config.pw_c * (visits ** self.config.pw_alpha))
         return max(1, limit)
 
@@ -472,7 +710,7 @@ class MCTSBot:
                 if used in hand:
                     hand.remove(used)
             melds.append({"type": "CHI", "tiles": tiles + [tile]})
-        elif claim_type in {"PONG", "KONG", "GANG"}:
+        elif claim_type in {"PONG", "KONG", "GANG", "BU_KONG", "AN_KONG"}:
             needed = 2 if claim_type == "PONG" else 3
             removed = 0
             for idx in range(len(hand) - 1, -1, -1):
@@ -523,17 +761,19 @@ class MCTSBot:
     def _backpropagate(self, path: Sequence[MCTSNode], value: float) -> None:
         seen_actions: Dict[int, set[int]] = defaultdict(set)
         for node in reversed(path):
-            node.visits += 1
-            node.w += value
-            node.q = node.w / node.visits if node.visits else 0.0
-            follow_up = seen_actions.get(node.player)
-            if follow_up:
-                for action_key in follow_up:
-                    total, visits = node.rave_stats.get(action_key, (0.0, 0))
-                    node.rave_stats[action_key] = (total + value, visits + 1)
-            if node.action_key is not None and node.parent is not None:
-                actor = node.parent.player
-                seen_actions[actor].add(node.action_key)
+            with node.lock:
+                node.visits += 1
+                node.w += value
+                node.q = node.w / node.visits if node.visits else 0.0
+                follow_up = seen_actions.get(node.player)
+                if follow_up:
+                    for action_id in follow_up:
+                        total, visits = node.rave_stats.get(action_id, (0.0, 0))
+                        node.rave_stats[action_id] = (total + value, visits + 1)
+                action_id = node.action_id
+                parent = node.parent
+            if action_id is not None and parent is not None:
+                seen_actions[parent.player].add(action_id)
 
     def _reset_statistics(self, node: MCTSNode) -> None:
         stack = [node]
@@ -543,6 +783,7 @@ class MCTSBot:
             current.w = 0.0
             current.q = 0.0
             current.rave_stats.clear()
+            current.pending = 0
             stack.extend(current.children.values())
 
     def _refresh_node(self, node: MCTSNode, obs: Observation, legal_actions: Sequence[Action]) -> None:
@@ -557,26 +798,25 @@ class MCTSBot:
             return
 
         priors = self.policy_prior(phase, legal_actions)
-        legal_keys: set[int] = set()
-        fresh_unexpanded: List[Tuple[Action, float]] = []
+        legal_ids: set[int] = set()
+        fresh_unexpanded: List[Tuple[int, float]] = []
 
         for action, prior in zip(legal_actions, priors):
-            key = _encode_action_key(action, self._action_table)
-            legal_keys.add(key)
-            if key in node.children:
-                child = node.children[key]
-                child.parent = node
-                child.prior = prior
-                child.action = copy.deepcopy(action)
-                child.action_key = key
+            action_id = self._register_action(action)
+            legal_ids.add(action_id)
+            if action_id in node.children:
+                child = node.children[action_id]
+                with child.lock:
+                    child.parent = node
+                    child.prior = prior
             else:
-                fresh_unexpanded.append((action, prior))
+                fresh_unexpanded.append((action_id, prior))
 
-        for key in list(node.children.keys()):
-            if key not in legal_keys:
-                del node.children[key]
+        for action_id in list(node.children.keys()):
+            if action_id not in legal_ids:
+                del node.children[action_id]
 
-        node.unexpanded_actions = _sort_candidates(fresh_unexpanded)
+        node.unexpanded_actions = self._sort_candidates(fresh_unexpanded)
 
     # ------------------------------------------------------------------
     # Determinization helpers
@@ -610,7 +850,7 @@ class MCTSBot:
                 forced_tiles[pid].extend(claim.get("use") or [])
             elif claim_type == "PONG" and discard_tile is not None:
                 forced_tiles[pid].extend([discard_tile, discard_tile])
-            elif claim_type in {"KONG", "GANG"} and discard_tile is not None:
+            elif claim_type in {"KONG", "GANG", "BU_KONG"} and discard_tile is not None:
                 forced_tiles[pid].extend([discard_tile] * 3)
 
         for idx, player in enumerate(players):
