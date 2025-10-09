@@ -239,7 +239,15 @@ class MCTSBot:
         path = [node]
 
         while True:
-            if getattr(env, "done", False) or node.is_terminal():
+            if getattr(env, "done", False):
+                value = self._evaluate(env, root.player)
+                self._backpropagate(path, value)
+                return
+
+            legal = obs.get("legal_actions", []) or env.legal_actions()
+            self._refresh_node(node, obs, legal)
+
+            if not legal:
                 value = self._evaluate(env, root.player)
                 self._backpropagate(path, value)
                 return
@@ -268,8 +276,11 @@ class MCTSBot:
                 return
 
             child = self._select_child(node)
-            next_action = copy.deepcopy(child.action) if child.action is not None else {"type": "PASS"}
-            obs, _, done, _ = env.step(next_action)
+            if child.action is None:
+                if child.action_key is not None:
+                    node.children.pop(child.action_key, None)
+                continue
+            obs, _, done, _ = env.step(copy.deepcopy(child.action))
             node = child
             path.append(node)
             if done:
@@ -377,6 +388,39 @@ class MCTSBot:
             current.w = 0.0
             current.q = 0.0
             stack.extend(current.children.values())
+
+    def _refresh_node(self, node: MCTSNode, obs: Observation, legal_actions: Sequence[Action]) -> None:
+        phase = obs.get("phase", node.phase)
+        player = obs.get("player", node.player)
+        node.phase = phase
+        node.player = player
+
+        if not legal_actions:
+            node.unexpanded_actions = []
+            node.children.clear()
+            return
+
+        priors = self.policy_prior(phase, legal_actions)
+        legal_keys: set[int] = set()
+        fresh_unexpanded: List[Tuple[Action, float]] = []
+
+        for action, prior in zip(legal_actions, priors):
+            key = _encode_action_key(action, self._action_table)
+            legal_keys.add(key)
+            if key in node.children:
+                child = node.children[key]
+                child.parent = node
+                child.prior = prior
+                child.action = copy.deepcopy(action)
+                child.action_key = key
+            else:
+                fresh_unexpanded.append((copy.deepcopy(action), prior))
+
+        for key in list(node.children.keys()):
+            if key not in legal_keys:
+                del node.children[key]
+
+        node.unexpanded_actions = fresh_unexpanded
 
     # ------------------------------------------------------------------
     # Policy helpers
