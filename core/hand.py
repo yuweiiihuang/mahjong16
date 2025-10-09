@@ -30,7 +30,11 @@ def _same_suit_triplet_ok(idx: int) -> bool:
     return suit == ((idx + 1) // 9) == ((idx + 2) // 9)
 
 
-@lru_cache(maxsize=None)
+# Cache size is bounded to avoid unbounded growth during long-lived processes.
+_MELD_CACHE_MAXSIZE = 100_000
+
+
+@lru_cache(maxsize=_MELD_CACHE_MAXSIZE)
 def _dfs_melds(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
     """Depth-first search for meld decomposition with memoisation."""
 
@@ -70,6 +74,12 @@ def _dfs_melds(state: Tuple[int, ...], need: int, eye_used: bool) -> bool:
             return True
 
     return False
+
+
+def clear_meld_cache() -> None:
+    """Clear cached meld search states."""
+
+    _dfs_melds.cache_clear()
 
 
 def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
