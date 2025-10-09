@@ -27,14 +27,18 @@ class MCTSBotConfig:
         puct_c: Exploration constant for the PUCT selection formula.
         reuse_tree: Whether to reuse the previous search tree between turns.
         virtual_loss: Virtual loss used to support speculative parallel playouts.
+        pw_c: Progressive widening constant applied to visit counts.
+        pw_alpha: Progressive widening exponent controlling growth of children.
     """
 
     simulations: int = 128
-    rollout_depth: int = 12
+    rollout_depth: int = 6
     seed: Optional[int] = None
     puct_c: float = 1.4
     reuse_tree: bool = True
     virtual_loss: float = 0.0
+    pw_c: float = 1.5
+    pw_alpha: float = 0.5
 
 
 def _freeze_value(value: Any) -> Any:
@@ -55,9 +59,20 @@ def _encode_action_key(action: Action, table: Dict[Tuple[Tuple[str, Any], ...], 
         table[frozen] = len(table)
     return table[frozen]
 
+def _candidate_sort_key(action: Action, prior: float) -> Tuple[bool, int, float]:
+    action_type = (action.get("type") or "").upper()
+    is_pass = action_type == "PASS"
+    priority = PRIORITY.get(action_type, 0)
+    return (is_pass, -priority, -prior)
 
-def _copy_actions(actions: Iterable[Action]) -> List[Action]:
-    return [copy.deepcopy(a) for a in actions]
+
+def _sort_candidates(
+    candidates: Iterable[Tuple[Action, float]]
+) -> List[Tuple[Action, float]]:
+    return sorted(
+        [(copy.deepcopy(action), prior) for action, prior in candidates],
+        key=lambda item: _candidate_sort_key(item[0], item[1]),
+    )
 
 
 class MCTSNode:
@@ -101,10 +116,9 @@ class MCTSNode:
         self.w = 0.0
         self.q = 0.0
         self.children: Dict[int, "MCTSNode"] = {}
-        self.unexpanded_actions: List[Tuple[Action, float]] = [
-            (copy.deepcopy(act), pri)
-            for act, pri in zip(_copy_actions(legal_actions), priors)
-        ]
+        self.unexpanded_actions: List[Tuple[Action, float]] = _sort_candidates(
+            zip(legal_actions, priors),
+        )
 
     def is_terminal(self) -> bool:
         return not self.unexpanded_actions and not self.children
@@ -220,13 +234,13 @@ class MCTSBot:
                 child.action = copy.deepcopy(action)
                 child.action_key = key
             else:
-                new_unexpanded.append((copy.deepcopy(action), prior))
+                new_unexpanded.append((action, prior))
 
         for key in list(candidate.children.keys()):
             if key not in legal_keys:
                 del candidate.children[key]
 
-        candidate.unexpanded_actions = new_unexpanded
+        candidate.unexpanded_actions = _sort_candidates(new_unexpanded)
         if cached_player != player:
             self._reset_statistics(candidate)
         self._root_cache = candidate
@@ -252,9 +266,9 @@ class MCTSBot:
                 self._backpropagate(path, value)
                 return
 
-            if node.unexpanded_actions:
-                idx = self._sample_unexpanded(node.unexpanded_actions)
-                action, prior = node.unexpanded_actions.pop(idx)
+            max_children = self._progressive_widening_limit(node)
+            if node.unexpanded_actions and len(node.children) < max_children:
+                action, prior = node.unexpanded_actions.pop(0)
                 obs, _, done, _ = env.step(copy.deepcopy(action))
                 legal = obs.get("legal_actions", []) or env.legal_actions()
                 priors = self.policy_prior(obs.get("phase", "TURN"), legal)
@@ -275,6 +289,11 @@ class MCTSBot:
                 self._backpropagate(path, value)
                 return
 
+            if not node.children:
+                value = self._evaluate(env, root.player)
+                self._backpropagate(path, value)
+                return
+
             child = self._select_child(node)
             if child.action is None:
                 if child.action_key is not None:
@@ -287,23 +306,6 @@ class MCTSBot:
                 value = self._evaluate(env, root.player)
                 self._backpropagate(path, value)
                 return
-
-    def _sample_unexpanded(self, unexpanded: Sequence[Tuple[Action, float]]) -> int:
-        if not unexpanded:
-            raise ValueError("cannot sample from empty unexpanded set")
-
-        weights = [max(prior, 0.0) for _action, prior in unexpanded]
-        total = sum(weights)
-        if total <= 0.0:
-            return self.rng.randrange(len(unexpanded))
-
-        threshold = self.rng.random() * total
-        cumulative = 0.0
-        for idx, weight in enumerate(weights):
-            cumulative += weight
-            if threshold <= cumulative:
-                return idx
-        return len(unexpanded) - 1
 
     def _select_child(self, node: MCTSNode) -> MCTSNode:
         assert node.children, "select_child called on node without children"
@@ -324,33 +326,164 @@ class MCTSBot:
 
         return self.rng.choice(best_children)
 
+    def _progressive_widening_limit(self, node: MCTSNode) -> int:
+        if self.config.pw_c <= 0:
+            return len(node.children) + len(node.unexpanded_actions)
+
+        visits = max(1, node.visits)
+        limit = int(self.config.pw_c * (visits ** self.config.pw_alpha))
+        return max(1, limit)
+
     def _rollout(self, env: Mahjong16Env, obs: Observation, done: bool, root_player: int) -> float:
         depth = 0
         while not done and depth < self.config.rollout_depth:
             actions = obs.get("legal_actions", []) or env.legal_actions()
             if not actions:
                 break
-            action = self._rollout_policy(obs.get("phase"), actions)
-            obs, _, done, _ = env.step(action)
+            action = self._rollout_policy(obs, actions)
+            obs, _, done, _ = env.step(copy.deepcopy(action))
             depth += 1
         return self._evaluate(env, root_player)
 
-    def _rollout_policy(self, phase: Optional[str], actions: Sequence[Action]) -> Action:
+    def _rollout_policy(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        phase = obs.get("phase")
         for action in actions:
             if (action.get("type") or "").upper() == "HU":
                 return action
 
         if phase == "REACTION":
-            candidates = [a for a in actions if (a.get("type") or "").upper() != "PASS"]
-            if candidates:
-                candidates.sort(key=lambda a: PRIORITY.get((a.get("type") or "").upper(), -1), reverse=True)
-                return candidates[0]
-            return actions[0]
+            return self._rollout_reaction_action(obs, actions)
 
-        discards = [a for a in actions if (a.get("type") or "").upper() == "DISCARD"]
-        if discards:
-            return self.rng.choice(discards)
-        return self.rng.choice(list(actions))
+        return self._rollout_turn_action(obs, actions)
+
+    def _rollout_reaction_action(
+        self, obs: Observation, actions: Sequence[Action]
+    ) -> Action:
+        pass_action = next(
+            (a for a in actions if (a.get("type") or "").upper() == "PASS"),
+            actions[0],
+        )
+        candidates = [
+            a for a in actions if (a.get("type") or "").upper() != "PASS"
+        ]
+        if not candidates:
+            return pass_action
+
+        baseline = evaluate_heuristic(obs.get("hand") or [], obs.get("melds"))
+        best_action = pass_action
+        best_score: Tuple[int, float, int, float] = (
+            0,
+            0.0,
+            0,
+            -baseline.cost,
+        )
+
+        for action in candidates:
+            action_type = (action.get("type") or "").upper()
+            priority = PRIORITY.get(action_type, 0)
+            hand, melds = self._simulate_claim_state(obs, action)
+            snapshot = evaluate_heuristic(hand, melds)
+            improvement = baseline.cost - snapshot.cost
+            waits = len(action.get("waits") or [])
+            score = (priority, improvement, waits, -snapshot.cost)
+            if score > best_score:
+                best_action = action
+                best_score = score
+
+        return best_action
+
+    def _rollout_turn_action(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        tings = [a for a in actions if (a.get("type") or "").upper() == "TING"]
+        if tings:
+            return max(tings, key=lambda action: len(action.get("waits") or []))
+
+        discards = [
+            a for a in actions if (a.get("type") or "").upper() == "DISCARD"
+        ]
+        if not discards:
+            return self.rng.choice(list(actions))
+
+        baseline = evaluate_heuristic(obs.get("hand") or [], obs.get("melds"))
+        best_action = discards[0]
+        best_score: Optional[Tuple[float, int, int, float]] = None
+
+        for action in discards:
+            hand, melds = self._simulate_discard_state(obs, action)
+            snapshot = evaluate_heuristic(hand, melds)
+            improvement = baseline.cost - snapshot.cost
+            danger = self._estimate_tile_danger(action.get("tile"))
+            waits = len(action.get("waits") or [])
+            score = (improvement, danger, waits, -snapshot.cost)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_action = action
+
+        return best_action
+
+    def _simulate_discard_state(
+        self, obs: Observation, action: Action
+    ) -> Tuple[List[int], List[dict]]:
+        hand = list(obs.get("hand") or [])
+        drawn = obs.get("drawn")
+        melds = [copy.deepcopy(meld) for meld in (obs.get("melds") or [])]
+
+        tile = action.get("tile")
+        source = action.get("from", "hand")
+
+        if source != "drawn":
+            if tile in hand:
+                hand.remove(tile)
+            if drawn is not None:
+                hand.append(drawn)
+        else:
+            # Discarding the drawn tile; it never entered the hand list.
+            pass
+
+        return hand, melds
+
+    def _simulate_claim_state(
+        self, obs: Observation, action: Action
+    ) -> Tuple[List[int], List[dict]]:
+        hand = list(obs.get("hand") or [])
+        melds = [copy.deepcopy(meld) for meld in (obs.get("melds") or [])]
+        last_discard = (obs.get("last_discard") or {})
+        tile = last_discard.get("tile")
+        claim_type = (action.get("type") or "").upper()
+
+        if tile is None:
+            return hand, melds
+
+        if claim_type == "CHI":
+            tiles = list(action.get("use") or [])
+            for used in tiles:
+                if used in hand:
+                    hand.remove(used)
+            melds.append({"type": "CHI", "tiles": tiles + [tile]})
+        elif claim_type in {"PONG", "KONG", "GANG"}:
+            needed = 2 if claim_type == "PONG" else 3
+            removed = 0
+            for idx in range(len(hand) - 1, -1, -1):
+                if hand[idx] == tile:
+                    hand.pop(idx)
+                    removed += 1
+                    if removed == needed:
+                        break
+            meld_size = needed + 1
+            melds.append({"type": claim_type, "tiles": [tile] * meld_size})
+
+        return hand, melds
+
+    def _estimate_tile_danger(self, tile: Optional[int]) -> int:
+        if tile is None:
+            return 0
+        if tile >= 27:
+            return 3
+        rank = tile % 9
+        if rank in (0, 8):
+            return 2
+        if rank in (1, 7):
+            return 1
+        return 0
 
     def _evaluate(self, env: Mahjong16Env, root_player: int) -> float:
         if getattr(env, "done", False):
@@ -414,13 +547,13 @@ class MCTSBot:
                 child.action = copy.deepcopy(action)
                 child.action_key = key
             else:
-                fresh_unexpanded.append((copy.deepcopy(action), prior))
+                fresh_unexpanded.append((action, prior))
 
         for key in list(node.children.keys()):
             if key not in legal_keys:
                 del node.children[key]
 
-        node.unexpanded_actions = fresh_unexpanded
+        node.unexpanded_actions = _sort_candidates(fresh_unexpanded)
 
     # ------------------------------------------------------------------
     # Policy helpers

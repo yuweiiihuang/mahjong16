@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+import copy
+
+from typing import Iterable, List, Tuple
 
 import pytest
 
@@ -146,3 +148,68 @@ def test_tree_reuse_accumulates_visits_between_calls():
 
     assert bot._root_cache is reused_child
     assert reused_child.visits > previous_visits
+
+
+def test_progressive_widening_limit_scales_with_visits():
+    env = Mahjong16Env(_build_rules(), seed=31)
+    bot = MCTSBot(env, MCTSBotConfig(simulations=1, seed=0))
+
+    obs = env.reset()
+    root, _snapshot = bot._prepare_root(obs, obs["legal_actions"])
+
+    limits: List[int] = []
+    for visits in (0, 1, 4, 16):
+        root.visits = visits
+        limits.append(bot._progressive_widening_limit(root))
+
+    assert limits[0] >= 1
+    assert limits == sorted(limits)
+    assert limits[-1] > limits[1]
+
+
+class _DummyRolloutEnv:
+    def __init__(self) -> None:
+        self.depth = 0
+        self.done = False
+        self._action = {"type": "DISCARD", "tile": 0, "from": "drawn"}
+
+    def legal_actions(self) -> List[dict]:
+        return [copy.deepcopy(self._action)]
+
+    def step(self, action: dict) -> Tuple[dict, float, bool, dict]:
+        self.depth += 1
+        obs = {
+            "phase": "TURN",
+            "hand": [],
+            "melds": [],
+            "drawn": None,
+            "legal_actions": [copy.deepcopy(self._action)],
+        }
+        return obs, 0.0, False, {}
+
+
+class _DepthTrackingMCTSBot(MCTSBot):
+    def _evaluate(self, env: _DummyRolloutEnv, root_player: int) -> float:  # type: ignore[override]
+        return float(env.depth)
+
+
+def test_rollout_depth_hits_configured_cap():
+    env = _DummyRolloutEnv()
+    bot = _DepthTrackingMCTSBot(env, MCTSBotConfig(simulations=1, seed=9))
+
+    template_obs = {
+        "phase": "TURN",
+        "hand": [],
+        "melds": [],
+        "drawn": None,
+        "legal_actions": env.legal_actions(),
+    }
+
+    depths = []
+    for _ in range(5):
+        env.depth = 0
+        obs = copy.deepcopy(template_obs)
+        value = bot._rollout(env, obs, False, 0)
+        depths.append(int(value))
+
+    assert all(depth == bot.config.rollout_depth for depth in depths)
