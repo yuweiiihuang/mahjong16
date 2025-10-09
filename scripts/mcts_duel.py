@@ -6,6 +6,7 @@ import json
 import sys
 import time
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -69,9 +70,8 @@ def build_bots(env: Mahjong16Env, upgraded: MCTSBotConfig, legacy: MCTSBotConfig
     base_seed = getattr(env, "seed", None)
     for seat in range(TABLE_SIZE):
         config = upgraded if seat % 2 == 0 else legacy
-        config = MCTSBotConfig(**config.__dict__)
-        config.seed = (base_seed or 0) + seat if base_seed is not None else None
-        bots.append(MCTSBot(env, config=config))
+        seat_seed = (base_seed or 0) + seat if base_seed is not None else None
+        bots.append(MCTSBot(env, config=replace(config, seed=seat_seed)))
     return bots
 
 
