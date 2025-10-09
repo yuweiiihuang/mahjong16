@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from ..hand import _counts34, waits_for_hand_16
 from .common import is_honor
@@ -14,9 +14,9 @@ class HandState:
 
     concealed_tiles: List[int]
     concealed_for_patterns: List[int]
-    counts34: List[int]
-    counts34_concealed: List[int]
-    counts16: List[int]
+    counts34: Tuple[int, ...]
+    counts34_concealed: Tuple[int, ...]
+    counts16: Tuple[int, ...]
     base_hand_for_waits: List[int]
     fixed_melds: int
     fixed_melds_pungs: int
