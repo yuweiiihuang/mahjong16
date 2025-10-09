@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 import random
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -24,12 +25,14 @@ class MCTSBotConfig:
         simulations: Number of playouts performed per decision.
         uct_c: Exploration constant for the UCT formula.
         rollout_depth: Maximum depth for rollout simulations.
+        time_budget: Optional wall-clock budget (seconds) per decision.
         seed: Optional RNG seed used for deterministic behaviour.
     """
 
     simulations: int = 128
     uct_c: float = 1.4
     rollout_depth: int = 12
+    time_budget: Optional[float] = 0.6
     seed: Optional[int] = None
 
 
@@ -132,6 +135,7 @@ class MCTSBot:
         self.env = env
         self.config = config or MCTSBotConfig()
         self.rng = random.Random(self.config.seed)
+        self._scratch_env: Optional[Mahjong16Env] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -158,7 +162,14 @@ class MCTSBot:
             snapshot=root_snapshot,
         )
 
-        for _ in range(max(1, self.config.simulations)):
+        max_iterations = max(1, self.config.simulations)
+        start_time = time.perf_counter()
+        for _ in range(max_iterations):
+            if (
+                self.config.time_budget is not None
+                and time.perf_counter() - start_time >= self.config.time_budget
+            ):
+                break
             self._simulate(root)
 
         if not root.children:
@@ -174,7 +185,7 @@ class MCTSBot:
     # Core MCTS steps
 
     def _simulate(self, root: MCTSNode) -> None:
-        env = Mahjong16Env.from_snapshot(self.env.rules, root.snapshot)
+        env = self._scratch_from_snapshot(root.snapshot)
         node = root
         obs = env._obs(node.player)
         path = [node]
@@ -186,7 +197,9 @@ class MCTSBot:
                 return
 
             if node.unexpanded_actions:
-                action = node.unexpanded_actions.pop(self.rng.randrange(len(node.unexpanded_actions)))
+                action = node.unexpanded_actions.pop(
+                    self.rng.randrange(len(node.unexpanded_actions))
+                )
                 obs, _, done, _ = env.step(action)
                 child = MCTSNode(
                     player=obs.get("player", root.player),
@@ -217,27 +230,63 @@ class MCTSBot:
             actions = obs.get("legal_actions", []) or env.legal_actions()
             if not actions:
                 break
-            action = self._rollout_policy(obs.get("phase"), actions)
+            action = self._rollout_policy(obs, actions)
             obs, _, done, _ = env.step(action)
             depth += 1
         return self._evaluate(env, root_player)
 
-    def _rollout_policy(self, phase: Optional[str], actions: Sequence[Action]) -> Action:
+    def _rollout_policy(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        phase = obs.get("phase")
         for action in actions:
             if (action.get("type") or "").upper() == "HU":
                 return action
 
         if phase == "REACTION":
-            candidates = [a for a in actions if (a.get("type") or "").upper() != "PASS"]
-            if candidates:
-                candidates.sort(key=lambda a: PRIORITY.get((a.get("type") or "").upper(), -1), reverse=True)
-                return candidates[0]
-            return actions[0]
+            return self._rollout_reaction(obs, actions)
+        return self._rollout_turn(obs, actions)
 
-        discards = [a for a in actions if (a.get("type") or "").upper() == "DISCARD"]
-        if discards:
-            return self.rng.choice(discards)
-        return self.rng.choice(list(actions))
+    def _rollout_reaction(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        baseline = evaluate_heuristic(obs.get("hand") or [], obs.get("melds"))
+        best_action: Optional[Action] = None
+        best_key = (baseline.cost, 1)
+
+        for action in actions:
+            atype = (action.get("type") or "").upper()
+            if atype not in {"CHI", "PONG", "GANG"}:
+                continue
+
+            hand, melds = self._after_claim(obs, action)
+            snapshot = evaluate_heuristic(hand, melds)
+            priority = 0 if atype == "GANG" else 1
+            key = (snapshot.cost, priority)
+            if key < best_key:
+                best_key = key
+                best_action = action
+
+        return best_action if best_action is not None else {"type": "PASS"}
+
+    def _rollout_turn(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        tings = [a for a in actions if (a.get("type") or "").upper() == "TING"]
+        if tings:
+            return max(tings, key=lambda action: len(action.get("waits") or []))
+
+        best_action: Optional[Action] = None
+        best_key: Optional[Tuple[int, int, int]] = None
+
+        for action in actions:
+            if (action.get("type") or "").upper() != "DISCARD":
+                continue
+
+            hand, melds = self._after_discard(obs, action)
+            snapshot = evaluate_heuristic(hand, melds)
+            singles = snapshot.singles
+            tie_break = 0 if action.get("from") == "drawn" else 1
+            key = (snapshot.cost, singles, tie_break)
+            if best_key is None or key < best_key:
+                best_key = key
+                best_action = action
+
+        return best_action if best_action is not None else self.rng.choice(list(actions))
 
     def _evaluate(self, env: Mahjong16Env, root_player: int) -> float:
         if getattr(env, "done", False):
@@ -265,6 +314,66 @@ class MCTSBot:
         for node in reversed(path):
             node.visits += 1
             node.total_value += value
+
+    # ------------------------------------------------------------------
+    # Helpers
+
+    def _scratch_from_snapshot(self, snapshot: Dict[str, Any]) -> Mahjong16Env:
+        if self._scratch_env is None:
+            self._scratch_env = Mahjong16Env.from_snapshot(self.env.rules, snapshot)
+        else:
+            self._scratch_env.restore(snapshot)
+        return self._scratch_env
+
+    def _after_discard(self, obs: Observation, action: Action) -> Tuple[List[int], List[dict]]:
+        hand = list(obs.get("hand") or [])
+        drawn = obs.get("drawn")
+        melds = [dict(m) for m in (obs.get("melds") or [])]
+
+        tile = action.get("tile")
+        source = action.get("from", "hand")
+
+        if source != "drawn":
+            if tile in hand:
+                hand.remove(tile)
+            if drawn is not None:
+                hand.append(drawn)
+
+        return hand, melds
+
+    def _after_claim(self, obs: Observation, action: Action) -> Tuple[List[int], List[dict]]:
+        hand = list(obs.get("hand") or [])
+        melds = [dict(m) for m in (obs.get("melds") or [])]
+        last_discard = obs.get("last_discard") or {}
+        tile = last_discard.get("tile")
+        atype = (action.get("type") or "").upper()
+
+        def _remove_tiles(target: List[int], value: int, amount: int) -> None:
+            removed = 0
+            for idx in range(len(target) - 1, -1, -1):
+                if target[idx] == value:
+                    target.pop(idx)
+                    removed += 1
+                    if removed == amount:
+                        return
+
+        if atype == "CHI":
+            a, b = action.get("use", [None, None])
+            if a in hand:
+                hand.remove(a)
+            if b in hand:
+                hand.remove(b)
+            melds.append({"type": "CHI", "tiles": [a, b, tile]})
+        elif atype == "PONG":
+            if tile is not None:
+                _remove_tiles(hand, tile, 2)
+                melds.append({"type": "PONG", "tiles": [tile] * 3})
+        elif atype == "GANG":
+            if tile is not None:
+                _remove_tiles(hand, tile, 3)
+                melds.append({"type": "GANG", "tiles": [tile] * 4})
+
+        return hand, melds
 
 
 __all__ = ["MCTSBot", "MCTSBotConfig"]
