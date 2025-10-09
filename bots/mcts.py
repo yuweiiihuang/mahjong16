@@ -104,16 +104,19 @@ def _candidate_sort_key(action: Action, prior: float) -> Tuple[bool, int, float]
 
 def _process_search_task(
     payload: Tuple[Ruleset, Dict[str, Any], Observation, Dict[str, Any]]
-) -> Tuple[List[Tuple[int, int, float]], int, int, int]:
+) -> Tuple[List[Tuple[Action, int, float]], int, int, int]:
     rules, snapshot, obs, config_dict = payload
     env = Mahjong16Env.from_snapshot(rules, copy.deepcopy(snapshot))
     bot = MCTSBot(env, MCTSBotConfig(**config_dict))
     bot.choose(copy.deepcopy(obs))
     root = bot._root_cache
-    data: List[Tuple[int, int, float]] = []
+    data: List[Tuple[Action, int, float]] = []
     if root is not None:
         for action_id, child in root.children.items():
-            data.append((action_id, child.visits, child.w))
+            action = bot._action_lookup.get(action_id)
+            if action is None:
+                continue
+            data.append((copy.deepcopy(action), child.visits, child.w))
     stats = getattr(bot, "last_stats", None)
     simulations = int(getattr(stats, "simulations", 0)) if stats is not None else 0
     depth_total = int(getattr(stats, "total_depth", 0)) if stats is not None else 0
@@ -349,7 +352,7 @@ class MCTSBot:
     def _apply_process_results(
         self,
         root: MCTSNode,
-        results: Sequence[Tuple[List[Tuple[int, int, float]], int, int, int]],
+        results: Sequence[Tuple[List[Tuple[Action, int, float]], int, int, int]],
     ) -> None:
         total_sim = 0
         total_depth = 0
@@ -362,15 +365,25 @@ class MCTSBot:
             if depth_max > max_depth:
                 max_depth = depth_max
             child_w_sum = 0.0
-            for action_id, visits, w in data:
+            for action, visits, w in data:
+                action_id = self._register_action(action)
                 child = root.children.get(action_id)
                 if child is None:
+                    prior = 1.0
+                    for index, (candidate_id, candidate_prior) in enumerate(
+                        root.unexpanded_actions
+                    ):
+                        if candidate_id == action_id:
+                            prior = candidate_prior
+                            del root.unexpanded_actions[index]
+                            break
                     child = MCTSNode(
                         player=root.player,
                         phase=root.phase,
                         unexpanded_actions=[],
                         action_id=action_id,
                         parent=root,
+                        prior=prior,
                     )
                     root.children[action_id] = child
                 with child.lock:
