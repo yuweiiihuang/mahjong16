@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import pytest
+
 from bots import MCTSBot, MCTSBotConfig
 from core import Mahjong16Env, Ruleset
 from core.tiles import Tile
@@ -105,3 +107,42 @@ def test_mcts_rollout_heuristic_is_deterministic():
     second_action = bot_clone.choose(obs_clone)
 
     assert second_action == first_action
+
+
+def test_policy_prior_biases_winning_actions():
+    env = Mahjong16Env(_build_rules(), seed=17)
+    bot = MCTSBot(env, MCTSBotConfig(simulations=4, rollout_depth=1, seed=4))
+
+    actions = [
+        {"type": "PASS"},
+        {"type": "PONG"},
+        {"type": "HU"},
+    ]
+
+    priors = bot.policy_prior("REACTION", actions)
+    assert pytest.approx(sum(priors), rel=1e-9) == 1.0
+
+    pass_prior, pong_prior, hu_prior = priors
+    assert hu_prior > pong_prior > pass_prior
+
+
+def test_tree_reuse_accumulates_visits_between_calls():
+    env = Mahjong16Env(_build_rules(), seed=23)
+    config = MCTSBotConfig(simulations=6, rollout_depth=2, seed=5, reuse_tree=True)
+    bot = MCTSBot(env, config)
+
+    obs = env.reset()
+    bot.choose(obs)
+
+    root = bot._root_cache
+    assert root is not None
+    action_key = bot._last_action_key
+    assert action_key is not None
+    reused_child = root.children.get(action_key)
+    assert reused_child is not None
+    previous_visits = reused_child.visits
+
+    bot.choose(obs)
+
+    assert bot._root_cache is reused_child
+    assert reused_child.visits > previous_visits

@@ -112,7 +112,14 @@ def build_strategies(
 
         config_kwargs = {
             key: options[key]
-            for key in ("simulations", "uct_c", "rollout_depth", "seed")
+            for key in (
+                "simulations",
+                "rollout_depth",
+                "seed",
+                "puct_c",
+                "reuse_tree",
+                "virtual_loss",
+            )
             if key in options
         }
         return MCTSBotConfig(**config_kwargs)
