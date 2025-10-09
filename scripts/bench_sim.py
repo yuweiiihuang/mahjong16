@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.table import TableManager
 from app.strategies import AutoStrategy
 from bots.greedy import GreedyBotStrategy
+from bots.mcts import MCTSBot, MCTSBotConfig
 from bots.random_bot import RandomBot
 from bots.rulebot import RuleBot
 from core import Mahjong16Env, Ruleset
@@ -42,7 +43,13 @@ class StrategyWrapper:
         raise TypeError(f"Strategy object {self.impl!r} does not support choose/select")
 
 
-def build_strategy(alias: str, seat_index: int, base_seed: int | None) -> StrategyWrapper:
+def build_strategy(
+    alias: str,
+    seat_index: int,
+    base_seed: int | None,
+    env: Mahjong16Env,
+    args: argparse.Namespace,
+) -> StrategyWrapper:
     """Instantiate a benchmark bot for the given seat."""
 
     alias_norm = alias.lower()
@@ -51,6 +58,15 @@ def build_strategy(alias: str, seat_index: int, base_seed: int | None) -> Strate
         impl = AutoStrategy()
     elif alias_norm in {"greedy", "greedybot"}:
         impl = GreedyBotStrategy()
+    elif alias_norm in {"mcts", "mctsbot"}:
+        cfg_seed = args.mcts_seed if args.mcts_seed is not None else seed
+        config = MCTSBotConfig(
+            simulations=int(args.mcts_simulations),
+            uct_c=float(args.mcts_uct),
+            rollout_depth=int(args.mcts_depth),
+            seed=cfg_seed,
+        )
+        impl = MCTSBot(env, config=config)
     elif alias_norm in {"random", "randombot"}:
         impl = RandomBot(seed=seed)
     elif alias_norm in {"rule", "rulebot"}:
@@ -84,7 +100,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-n", "--hands", type=int, default=1000, help="Number of hands to simulate (default: 1000)")
     parser.add_argument("--seed", type=int, default=None, help="Base RNG seed for env/table/agents")
-    parser.add_argument("--bot", default="auto", help="Bot alias to use for every seat (auto/greedy/random/rulebot)")
+    parser.add_argument(
+        "--bot",
+        default="auto",
+        help="Bot alias for every seat (auto/greedy/random/rulebot/mcts)",
+    )
     parser.add_argument("--profile", default="taiwan_base", help="Scoring profile key (default: taiwan_base)")
     parser.add_argument("--scoring-json", type=Path, default=None, help="Optional scoring JSON override path")
     parser.add_argument("--skip-scoring", action="store_true", help="Skip scoring to measure env throughput only")
@@ -100,6 +120,30 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=16,
         help="Base reserved tiles for the dead wall (default: 16)",
+    )
+    parser.add_argument(
+        "--mcts-simulations",
+        type=int,
+        default=32,
+        help="Number of simulations per decision for mcts bot (default: 32)",
+    )
+    parser.add_argument(
+        "--mcts-uct",
+        type=float,
+        default=1.4,
+        help="UCT exploration constant for mcts bot (default: 1.4)",
+    )
+    parser.add_argument(
+        "--mcts-depth",
+        type=int,
+        default=12,
+        help="Rollout depth limit for mcts bot (default: 12)",
+    )
+    parser.add_argument(
+        "--mcts-seed",
+        type=int,
+        default=None,
+        help="Optional RNG seed override for mcts bot (per seat offset still applied)",
     )
     parser.add_argument("--json-out", type=Path, help="Write metrics JSON to the given path")
     return parser.parse_args()
@@ -122,7 +166,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     table = TableManager(rules, seed=args.seed)
     table.initialize(n_players)
 
-    strategies = [build_strategy(args.bot, seat, args.seed) for seat in range(n_players)]
+    strategies = [build_strategy(args.bot, seat, args.seed, env, args) for seat in range(n_players)]
 
     scoring_table = None
     if not args.skip_scoring:
