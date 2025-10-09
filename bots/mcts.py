@@ -531,8 +531,9 @@ class MCTSBot:
                 for action_key in follow_up:
                     total, visits = node.rave_stats.get(action_key, (0.0, 0))
                     node.rave_stats[action_key] = (total + value, visits + 1)
-            if node.action_key is not None:
-                seen_actions[node.player].add(node.action_key)
+            if node.action_key is not None and node.parent is not None:
+                actor = node.parent.player
+                seen_actions[actor].add(node.action_key)
 
     def _reset_statistics(self, node: MCTSNode) -> None:
         stack = [node]

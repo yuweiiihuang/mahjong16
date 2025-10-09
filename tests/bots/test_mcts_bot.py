@@ -248,12 +248,16 @@ def test_rave_updates_prior_actions_in_path():
     path = [root, child_one, child_two]
     bot._backpropagate(path, 0.5)
 
-    follow_up = root.rave_stats.get(child_two.action_key)
+    follow_up = root.rave_stats.get(child_one.action_key)
     assert follow_up is not None
     total, visits = follow_up
     assert visits == 1
     assert total == pytest.approx(0.5)
-    assert child_one.rave_stats == {}
+    follow_up_child = child_one.rave_stats.get(child_two.action_key)
+    assert follow_up_child is not None
+    total_child, visits_child = follow_up_child
+    assert visits_child == 1
+    assert total_child == pytest.approx(0.5)
 
 
 def test_rave_selection_prefers_amaf_superior_child():
