@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -29,6 +30,7 @@ class MCTSBotConfig:
         virtual_loss: Virtual loss used to support speculative parallel playouts.
         pw_c: Progressive widening constant applied to visit counts.
         pw_alpha: Progressive widening exponent controlling growth of children.
+        rave_k: Bias constant controlling the blend between Q and RAVE estimates.
     """
 
     simulations: int = 128
@@ -39,6 +41,7 @@ class MCTSBotConfig:
     virtual_loss: float = 0.0
     pw_c: float = 1.5
     pw_alpha: float = 0.5
+    rave_k: float = 200.0
 
 
 def _freeze_value(value: Any) -> Any:
@@ -88,6 +91,7 @@ class MCTSNode:
         "prior",
         "w",
         "q",
+        "rave_stats",
         "children",
         "unexpanded_actions",
     )
@@ -115,6 +119,7 @@ class MCTSNode:
         self.prior = prior
         self.w = 0.0
         self.q = 0.0
+        self.rave_stats: Dict[int, Tuple[float, int]] = {}
         self.children: Dict[int, "MCTSNode"] = {}
         self.unexpanded_actions: List[Tuple[Action, float]] = _sort_candidates(
             zip(legal_actions, priors),
@@ -163,7 +168,7 @@ class MCTSBot:
         root, root_snapshot = self._prepare_root(obs, actions)
 
         for _ in range(max(1, self.config.simulations)):
-            self._simulate(root, root_snapshot)
+            self._simulate(root, root_snapshot, obs)
 
         if not root.children:
             self._root_cache = root
@@ -246,8 +251,11 @@ class MCTSBot:
         self._root_cache = candidate
         return candidate
 
-    def _simulate(self, root: MCTSNode, snapshot: Dict[str, Any]) -> None:
-        env = Mahjong16Env.from_snapshot(self.env.rules, snapshot)
+    def _simulate(
+        self, root: MCTSNode, snapshot: Dict[str, Any], root_obs: Observation
+    ) -> None:
+        det_snapshot = self._determinize_snapshot(snapshot, root_obs, root.player)
+        env = Mahjong16Env.from_snapshot(self.env.rules, det_snapshot)
         node = root
         obs = env._obs(node.player)
         path = [node]
@@ -317,7 +325,12 @@ class MCTSBot:
 
         for child in node.children.values():
             exploration = self.config.puct_c * child.prior * sqrt_parent / (1 + child.visits)
-            score = child.q + exploration
+            rave_total, rave_visits = node.rave_stats.get(child.action_key or -1, (0.0, 0))
+            q_rave = rave_total / rave_visits if rave_visits else 0.0
+            beta_den = child.visits + rave_visits + self.config.rave_k
+            beta = 0.0 if beta_den <= 0 else rave_visits / beta_den
+            mixed_q = (1.0 - beta) * child.q + beta * q_rave
+            score = mixed_q + exploration
             if score > best_score + 1e-12:
                 best_score = score
                 best_children = [child]
@@ -508,10 +521,18 @@ class MCTSBot:
         return max(-1.0, min(1.0, value))
 
     def _backpropagate(self, path: Sequence[MCTSNode], value: float) -> None:
+        seen_actions: Dict[int, set[int]] = defaultdict(set)
         for node in reversed(path):
             node.visits += 1
             node.w += value
             node.q = node.w / node.visits if node.visits else 0.0
+            follow_up = seen_actions.get(node.player)
+            if follow_up:
+                for action_key in follow_up:
+                    total, visits = node.rave_stats.get(action_key, (0.0, 0))
+                    node.rave_stats[action_key] = (total + value, visits + 1)
+            if node.action_key is not None:
+                seen_actions[node.player].add(node.action_key)
 
     def _reset_statistics(self, node: MCTSNode) -> None:
         stack = [node]
@@ -520,6 +541,7 @@ class MCTSBot:
             current.visits = 0
             current.w = 0.0
             current.q = 0.0
+            current.rave_stats.clear()
             stack.extend(current.children.values())
 
     def _refresh_node(self, node: MCTSNode, obs: Observation, legal_actions: Sequence[Action]) -> None:
@@ -554,6 +576,89 @@ class MCTSBot:
                 del node.children[key]
 
         node.unexpanded_actions = _sort_candidates(fresh_unexpanded)
+
+    # ------------------------------------------------------------------
+    # Determinization helpers
+
+    def _determinize_snapshot(
+        self, snapshot: Dict[str, Any], obs: Observation, root_player: int
+    ) -> Dict[str, Any]:
+        det_snapshot = copy.deepcopy(snapshot)
+        players = det_snapshot.get("players", [])
+        if not players:
+            return det_snapshot
+
+        original_players = snapshot.get("players", [])
+        hand_sizes = [len(p.get("hand", [])) for p in original_players]
+        had_drawn = [p.get("drawn") is not None for p in original_players]
+
+        hidden_tiles: List[int] = []
+        wall_tiles = list(det_snapshot.get("wall", []) or [])
+        wall_len = len(wall_tiles)
+        det_snapshot["wall"] = []
+
+        forced_tiles: Dict[int, List[int]] = defaultdict(list)
+        last_discard = snapshot.get("last_discard") or {}
+        discard_tile = last_discard.get("tile")
+        for claim in snapshot.get("claims", []) or []:
+            pid = claim.get("pid")
+            if pid is None:
+                continue
+            claim_type = (claim.get("type") or "").upper()
+            if claim_type == "CHI":
+                forced_tiles[pid].extend(claim.get("use") or [])
+            elif claim_type == "PONG" and discard_tile is not None:
+                forced_tiles[pid].extend([discard_tile, discard_tile])
+            elif claim_type in {"KONG", "GANG"} and discard_tile is not None:
+                forced_tiles[pid].extend([discard_tile] * 3)
+
+        for idx, player in enumerate(players):
+            if idx == root_player:
+                player["hand"] = list(obs.get("hand") or [])
+                player["drawn"] = obs.get("drawn")
+                continue
+            hidden_tiles.extend(player.get("hand") or [])
+            player["hand"] = []
+            drawn_tile = player.get("drawn")
+            if drawn_tile is not None:
+                hidden_tiles.append(drawn_tile)
+            player["drawn"] = None
+
+        hidden_tiles.extend(wall_tiles)
+        self.rng.shuffle(hidden_tiles)
+
+        available_tiles = hidden_tiles
+
+        for idx, player in enumerate(players):
+            if idx == root_player:
+                continue
+            hand_len = hand_sizes[idx]
+            forced = list(forced_tiles.get(idx, []))
+            assigned_hand: List[int] = []
+            for tile in forced[:hand_len]:
+                try:
+                    available_tiles.remove(tile)
+                except ValueError as exc:
+                    raise RuntimeError("forced tile missing during determinization") from exc
+                assigned_hand.append(tile)
+            remaining = hand_len - len(assigned_hand)
+            if remaining > 0:
+                assigned_hand.extend(available_tiles[:remaining])
+                del available_tiles[:remaining]
+            self.rng.shuffle(assigned_hand)
+            player["hand"] = assigned_hand
+            if had_drawn[idx]:
+                if not available_tiles:
+                    raise RuntimeError("insufficient tiles while determinizing drawn states")
+                player["drawn"] = available_tiles.pop(0)
+            else:
+                player["drawn"] = None
+
+        if len(available_tiles) < wall_len:
+            raise RuntimeError("insufficient tiles while determinizing hidden state")
+        det_snapshot["wall"] = list(available_tiles[:wall_len])
+        del available_tiles[:wall_len]
+        return det_snapshot
 
     # ------------------------------------------------------------------
     # Policy helpers
