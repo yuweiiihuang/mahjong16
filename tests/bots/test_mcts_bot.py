@@ -32,6 +32,10 @@ def _action_types(actions: Iterable[dict]) -> set[str]:
     return {(action.get("type") or "").upper() for action in actions}
 
 
+def _action_id(bot: MCTSBot, action: dict) -> int:
+    return _encode_action_key(action, bot._action_table, bot._action_lookup)
+
+
 def test_mcts_bot_returns_legal_actions_during_turn():
     env = Mahjong16Env(_build_rules(), seed=7)
     bot = MCTSBot(env, MCTSBotConfig(simulations=6, rollout_depth=2, seed=0))
@@ -140,9 +144,9 @@ def test_tree_reuse_accumulates_visits_between_calls():
 
     root = bot._root_cache
     assert root is not None
-    action_key = bot._last_action_key
-    assert action_key is not None
-    reused_child = root.children.get(action_key)
+    action_id = bot._last_action_id
+    assert action_id is not None
+    reused_child = root.children.get(action_id)
     assert reused_child is not None
     previous_visits = reused_child.visits
 
@@ -225,35 +229,37 @@ def test_rave_updates_prior_actions_in_path():
     discard_action = {"type": "DISCARD", "tile": 1, "from": "drawn"}
     call_action = {"type": "DISCARD", "tile": 2, "from": "drawn"}
 
-    root = MCTSNode(player=0, phase="TURN", legal_actions=[pass_action], priors=[1.0])
+    root = MCTSNode(
+        player=0,
+        phase="TURN",
+        unexpanded_actions=[(_action_id(bot, pass_action), 1.0)],
+    )
+    discard_id = _action_id(bot, discard_action)
     child_one = MCTSNode(
         player=1,
         phase="TURN",
-        legal_actions=[discard_action],
-        priors=[1.0],
+        unexpanded_actions=[(discard_id, 1.0)],
         parent=root,
-        action=discard_action,
-        action_key=_encode_action_key(discard_action, bot._action_table),
+        action_id=discard_id,
     )
+    call_id = _action_id(bot, call_action)
     child_two = MCTSNode(
         player=0,
         phase="TURN",
-        legal_actions=[call_action],
-        priors=[1.0],
+        unexpanded_actions=[(call_id, 1.0)],
         parent=child_one,
-        action=call_action,
-        action_key=_encode_action_key(call_action, bot._action_table),
+        action_id=call_id,
     )
 
     path = [root, child_one, child_two]
     bot._backpropagate(path, 0.5)
 
-    follow_up = root.rave_stats.get(child_one.action_key)
+    follow_up = root.rave_stats.get(child_one.action_id)
     assert follow_up is not None
     total, visits = follow_up
     assert visits == 1
     assert total == pytest.approx(0.5)
-    follow_up_child = child_one.rave_stats.get(child_two.action_key)
+    follow_up_child = child_one.rave_stats.get(child_two.action_id)
     assert follow_up_child is not None
     total_child, visits_child = follow_up_child
     assert visits_child == 1
@@ -267,34 +273,28 @@ def test_rave_selection_prefers_amaf_superior_child():
 
     action_a = {"type": "DISCARD", "tile": 3, "from": "drawn"}
     action_b = {"type": "DISCARD", "tile": 4, "from": "drawn"}
+    key_a = _action_id(bot, action_a)
+    key_b = _action_id(bot, action_b)
     root = MCTSNode(
         player=0,
         phase="TURN",
-        legal_actions=[action_a, action_b],
-        priors=[0.5, 0.5],
+        unexpanded_actions=[(key_a, 0.5), (key_b, 0.5)],
     )
-
-    key_a = _encode_action_key(action_a, bot._action_table)
-    key_b = _encode_action_key(action_b, bot._action_table)
 
     child_a = MCTSNode(
         player=1,
         phase="TURN",
-        legal_actions=[action_a],
-        priors=[1.0],
+        unexpanded_actions=[(key_a, 1.0)],
         parent=root,
-        action=action_a,
-        action_key=key_a,
+        action_id=key_a,
         prior=0.5,
     )
     child_b = MCTSNode(
         player=1,
         phase="TURN",
-        legal_actions=[action_b],
-        priors=[1.0],
+        unexpanded_actions=[(key_b, 1.0)],
         parent=root,
-        action=action_b,
-        action_key=key_b,
+        action_id=key_b,
         prior=0.5,
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, List, MutableSequence, Optional, Sequence, Tuple
 
 Tile = int
@@ -20,6 +21,17 @@ class HeuristicSnapshot:
 
 Counts34 = List[int]
 
+EXPOSED_MELD_TYPES = {
+    "CHI",
+    "PONG",
+    "GANG",
+    "KONG",
+    "AN_KONG",
+    "ANGANG",
+    "BU_KONG",
+    "KAKAN",
+}
+
 
 def counts34(tiles: Iterable[Tile]) -> Counts34:
     """Map tiles into the standard 34-tile histogram."""
@@ -28,6 +40,8 @@ def counts34(tiles: Iterable[Tile]) -> Counts34:
     for tile in tiles:
         if 0 <= tile < 34:
             histogram[tile] += 1
+        else:
+            return [0] * 34
     return histogram
 
 
@@ -82,22 +96,49 @@ def count_fixed_melds(melds: Optional[Sequence[dict]]) -> int:
 
     if not melds:
         return 0
-    exposed = {"CHI", "PONG", "GANG"}
-    return sum(1 for meld in melds if (meld.get("type") or "").upper() in exposed)
+    return sum(
+        1
+        for meld in melds
+        if (meld.get("type") or "").upper() in EXPOSED_MELD_TYPES
+    )
 
 
-def heuristic(hand: Sequence[Tile], melds: Optional[Sequence[dict]]) -> HeuristicSnapshot:
-    """Compute heuristic metrics for the current hand state."""
+def _freeze_hand(hand: Sequence[Tile]) -> Tuple[Tile, ...]:
+    return tuple(sorted(int(tile) for tile in hand))
 
-    fixed_melds = count_fixed_melds(melds)
+
+def _freeze_melds(melds: Optional[Sequence[dict]]) -> Tuple[Tuple[str, Tuple[Tile, ...]], ...]:
+    if not melds:
+        return ()
+    frozen: List[Tuple[str, Tuple[Tile, ...]]] = []
+    for meld in melds:
+        meld_type = (meld.get("type") or "").upper()
+        tiles = tuple(int(tile) for tile in (meld.get("tiles") or []))
+        frozen.append((meld_type, tiles))
+    return tuple(frozen)
+
+
+@lru_cache(maxsize=4096)
+def _cached_heuristic(
+    hand_key: Tuple[Tile, ...], meld_key: Tuple[Tuple[str, Tuple[Tile, ...]], ...]
+) -> HeuristicSnapshot:
+    fixed_melds = sum(1 for meld_type, _tiles in meld_key if meld_type in EXPOSED_MELD_TYPES)
     need = max(0, 5 - fixed_melds)
-    histogram = counts34(hand)
+    histogram = counts34(hand_key)
     melds_from_hand, has_pair, singles = estimate_melds_and_pair(histogram)
 
     missing_melds = max(0, need - melds_from_hand)
     missing_eye = 0 if has_pair else 1
     cost = missing_melds * 10 + missing_eye * 3 + min(3, singles)
     return HeuristicSnapshot(cost, melds_from_hand, has_pair, singles)
+
+
+def heuristic(hand: Sequence[Tile], melds: Optional[Sequence[dict]]) -> HeuristicSnapshot:
+    """Compute heuristic metrics for the current hand state."""
+
+    hand_key = _freeze_hand(hand)
+    meld_key = _freeze_melds(melds)
+    return _cached_heuristic(hand_key, meld_key)
 
 
 __all__ = [

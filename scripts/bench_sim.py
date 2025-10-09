@@ -62,9 +62,13 @@ def build_strategy(
         cfg_seed = args.mcts_seed if args.mcts_seed is not None else seed
         config = MCTSBotConfig(
             simulations=int(args.mcts_simulations),
-            uct_c=float(args.mcts_uct),
+            puct_c=float(args.mcts_uct),
             rollout_depth=int(args.mcts_depth),
             seed=cfg_seed,
+            threads=int(getattr(args, "mcts_threads", 1)),
+            processes=int(getattr(args, "mcts_processes", 0)),
+            pw_alpha=float(getattr(args, "mcts_pw_alpha", MCTSBotConfig.pw_alpha)),
+            pw_c=float(getattr(args, "mcts_pw_c", MCTSBotConfig.pw_c)),
         )
         impl = MCTSBot(env, config=config)
     elif alias_norm in {"random", "randombot"}:
@@ -140,10 +144,34 @@ def parse_args() -> argparse.Namespace:
         help="Rollout depth limit for mcts bot (default: 12)",
     )
     parser.add_argument(
+        "--mcts-pw-alpha",
+        type=float,
+        default=MCTSBotConfig.pw_alpha,
+        help="Progressive widening alpha exponent (default: 0.5)",
+    )
+    parser.add_argument(
+        "--mcts-pw-c",
+        type=float,
+        default=MCTSBotConfig.pw_c,
+        help="Progressive widening growth constant (default: 1.5)",
+    )
+    parser.add_argument(
         "--mcts-seed",
         type=int,
         default=None,
         help="Optional RNG seed override for mcts bot (per seat offset still applied)",
+    )
+    parser.add_argument(
+        "--mcts-threads",
+        type=int,
+        default=1,
+        help="Number of worker threads for each MCTS bot (default: 1)",
+    )
+    parser.add_argument(
+        "--mcts-processes",
+        type=int,
+        default=0,
+        help="Optional number of process workers for MCTS rollouts (default: 0)",
     )
     parser.add_argument("--json-out", type=Path, help="Write metrics JSON to the given path")
     return parser.parse_args()
@@ -182,6 +210,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "ron_wins": 0,
         "gang_total": 0,
     }
+    mcts_metrics = {
+        "simulations": 0,
+        "depth_total": 0,
+        "depth_max": 0,
+        "duration": 0.0,
+    }
     win_sources: Counter[str] = Counter()
     flower_wins: Counter[str] = Counter()
     payments_accum = [0 for _ in range(n_players)]
@@ -194,10 +228,23 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         while not done:
             pid = int(obs.get("player", env.turn)) if isinstance(obs, Mapping) else env.turn
             legal = ensure_legal_actions(obs, env, pid) or []
+            choose_start = time.perf_counter()
             try:
                 action = strategies[pid].choose(obs)
             except Exception:
                 action = {"type": "PASS"}
+            choose_duration = time.perf_counter() - choose_start
+
+            impl = strategies[pid].impl
+            stats = getattr(impl, "last_stats", None)
+            sims = int(getattr(stats, "simulations", 0)) if stats is not None else 0
+            if sims:
+                mcts_metrics["simulations"] += sims
+                mcts_metrics["depth_total"] += int(getattr(stats, "total_depth", 0))
+                mcts_metrics["depth_max"] = max(
+                    mcts_metrics["depth_max"], int(getattr(stats, "max_depth", 0))
+                )
+                mcts_metrics["duration"] += choose_duration
             if isinstance(action, Mapping):
                 action = dict(action)
             if not isinstance(action, dict) or not action:
@@ -261,6 +308,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "avg_time_per_hand": elapsed / hands_played,
         "avg_time_per_step": elapsed / steps,
     }
+    if mcts_metrics["simulations"]:
+        metrics["mcts_simulations"] = mcts_metrics["simulations"]
+        metrics["mcts_avg_depth"] = (
+            mcts_metrics["depth_total"] / mcts_metrics["simulations"]
+        )
+        metrics["mcts_max_depth"] = mcts_metrics["depth_max"]
+    if mcts_metrics["duration"] > 0:
+        metrics["mcts_simulations_per_second"] = (
+            mcts_metrics["simulations"] / mcts_metrics["duration"]
+        )
     if scoring_table is not None:
         metrics["payments_total"] = payments_accum
         metrics["payments_avg_per_hand"] = [
@@ -284,6 +341,16 @@ def print_summary(metrics: Mapping[str, Any]) -> None:
     print(f"Avg time/hand  : {metrics.get('avg_time_per_hand'):.4f} s")
     print(f"Draws          : {metrics.get('draws')}")
     print(f"Wins           : {metrics.get('wins')} (tsumo={metrics.get('tsumo_wins')}, ron={metrics.get('ron_wins')})")
+    sims = metrics.get("mcts_simulations")
+    if sims:
+        print(f"MCTS sims      : {int(sims)}")
+        rate = metrics.get("mcts_simulations_per_second")
+        if rate:
+            print(f"MCTS sims/sec  : {rate:.2f}")
+        avg_depth = metrics.get("mcts_avg_depth")
+        if avg_depth is not None:
+            print(f"MCTS avg depth : {avg_depth:.2f}")
+        print(f"MCTS max depth : {int(metrics.get('mcts_max_depth', 0))}")
     win_sources = metrics.get("win_sources") or {}
     if win_sources:
         items = ", ".join(f"{k}:{v}" for k, v in sorted(win_sources.items()))
