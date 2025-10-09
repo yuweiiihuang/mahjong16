@@ -76,6 +76,9 @@ def _remove_sequences(counts: MutableSequence[int], suit_start: int) -> int:
 def _estimate_melds_and_pair(counts: Sequence[int]) -> Tuple[int, bool, int]:
     """Estimate meld count, whether a pair exists, and the singles penalty."""
 
+    # The singles penalty must be computed from the original histogram to match the
+    # behaviour of the pre-refactor implementation.
+    singles = sum(1 for value in counts if value == 1)
     mutable = list(counts)
     melds = _remove_triplets(mutable)
     melds += _remove_sequences(mutable, 0)
@@ -83,7 +86,6 @@ def _estimate_melds_and_pair(counts: Sequence[int]) -> Tuple[int, bool, int]:
     melds += _remove_sequences(mutable, 18)
 
     has_pair = any(value >= 2 for value in mutable)
-    singles = sum(1 for value in mutable if value == 1)
     return melds, has_pair, singles
 
 
