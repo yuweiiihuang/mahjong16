@@ -88,6 +88,7 @@ class _BaseDemoRunner:
         seed=None,
         human_pid: Optional[int] = 0,
         bot: str = "auto",
+        bot_kwargs: Optional[Dict[str, Any]] = None,
         hands: int = 1,
         jangs: int = 0,
         start_points: int = 1000,
@@ -97,6 +98,7 @@ class _BaseDemoRunner:
         self.seed = seed
         self.human_pid = human_pid
         self.bot = bot
+        self.bot_kwargs = dict(bot_kwargs or {})
         self.hands = hands
         self.jangs = jangs
         self.log_dir = log_dir
@@ -117,7 +119,13 @@ class _BaseDemoRunner:
 
         self.tm = TableManager(self.rules, seed=seed)
         self.tm.initialize(self.env.rules.n_players)
-        self.strategies = build_strategies(self.env.rules.n_players, human_pid, bot)
+        self.strategies = build_strategies(
+            self.env.rules.n_players,
+            human_pid,
+            bot,
+            env=self.env,
+            bot_kwargs=self.bot_kwargs,
+        )
 
         self.n_players = self.env.rules.n_players
         start_points_value = self._normalize_start_points(start_points)
@@ -471,6 +479,7 @@ class _HeadlessDemoRunner(_BaseDemoRunner):
         seed=None,
         human_pid: Optional[int] = None,
         bot: str = "auto",
+        bot_kwargs: Optional[Dict[str, Any]] = None,
         hands: int = 1,
         jangs: int = 0,
         start_points: int = 1000,
@@ -482,6 +491,7 @@ class _HeadlessDemoRunner(_BaseDemoRunner):
             seed=seed,
             human_pid=human_pid,
             bot=bot,
+            bot_kwargs=bot_kwargs,
             hands=hands,
             jangs=jangs,
             start_points=start_points,
@@ -558,6 +568,7 @@ def run_demo_ui(
     seed=None,
     human_pid: Optional[int] = 0,
     bot: str = "auto",
+    bot_kwargs: Optional[Dict[str, Any]] = None,
     hands: int = 1,
     jangs: int = 0,
     start_points: int = 1000,
@@ -568,6 +579,7 @@ def run_demo_ui(
         seed=seed,
         human_pid=human_pid,
         bot=bot,
+        bot_kwargs=bot_kwargs,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
@@ -580,6 +592,7 @@ def run_demo_headless(
     seed=None,
     human_pid: Optional[int] = None,
     bot: str = "auto",
+    bot_kwargs: Optional[Dict[str, Any]] = None,
     hands: int = 1,
     jangs: int = 0,
     start_points: int = 1000,
@@ -590,6 +603,7 @@ def run_demo_headless(
         seed=seed,
         human_pid=None,
         bot=bot,
+        bot_kwargs=bot_kwargs,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
@@ -602,6 +616,7 @@ def run_demo_headless_collect(
     seed=None,
     human_pid: Optional[int] = None,
     bot: str = "auto",
+    bot_kwargs: Optional[Dict[str, Any]] = None,
     hands: int = 1,
     jangs: int = 0,
     start_points: int = 1000,
@@ -613,6 +628,7 @@ def run_demo_headless_collect(
         seed=seed,
         human_pid=human_pid,
         bot=bot,
+        bot_kwargs=bot_kwargs,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
@@ -627,6 +643,7 @@ def run_demo(
     seed=None,
     human_pid: Optional[int] = 0,
     bot: str = "auto",
+    bot_kwargs: Optional[Dict[str, Any]] = None,
     hands: int = 1,
     jangs: int = 0,
     start_points: int = 1000,
@@ -642,6 +659,7 @@ def run_demo(
             seed=seed,
             human_pid=human_pid,
             bot=bot,
+            bot_kwargs=bot_kwargs,
             hands=hands,
             jangs=jangs,
             start_points=start_points,
@@ -651,6 +669,7 @@ def run_demo(
         seed=seed,
         human_pid=None,
         bot=bot,
+        bot_kwargs=bot_kwargs,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
@@ -664,6 +683,7 @@ def run_demo_headless_batch(
     cores: Optional[int] = None,
     seed: Optional[int] = None,
     bot: str = "auto",
+    bot_kwargs: Optional[Dict[str, Any]] = None,
     hands: int = 1,
     jangs: int = 0,
     start_points: int = 1000,
@@ -778,6 +798,7 @@ def run_demo_headless_batch(
                     seed=session_seed,
                     human_pid=None,
                     bot=bot,
+                    bot_kwargs=bot_kwargs,
                     hands=hands,
                     jangs=jangs,
                     start_points=start_points,
@@ -798,6 +819,7 @@ def run_demo_headless_batch(
                             idx,
                             session_seed,
                             bot,
+                            bot_kwargs,
                             hands,
                             jangs,
                             start_points,
@@ -896,6 +918,7 @@ def _run_headless_batch_session(
     session_index: int,
     session_seed: Optional[int],
     bot: str,
+    bot_kwargs: Optional[Dict[str, Any]],
     hands: int,
     jangs: int,
     start_points: int,
@@ -912,6 +935,7 @@ def _run_headless_batch_session(
         seed=session_seed,
         human_pid=None,
         bot=bot,
+        bot_kwargs=bot_kwargs,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
