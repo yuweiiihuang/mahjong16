@@ -105,3 +105,33 @@ def test_mcts_rollout_heuristic_is_deterministic():
     second_action = bot_clone.choose(obs_clone)
 
     assert second_action == first_action
+
+
+def test_rollout_policy_prefers_discarding_isolated_tiles():
+    env = Mahjong16Env(_build_rules(), seed=19)
+    bot = MCTSBot(env, MCTSBotConfig(simulations=4, rollout_depth=2, seed=13))
+
+    base_hand = [
+        int(Tile.W2), int(Tile.W3), int(Tile.W4),
+        int(Tile.W5), int(Tile.W6), int(Tile.W7),
+        int(Tile.D2), int(Tile.D3), int(Tile.D4),
+        int(Tile.B2), int(Tile.B3), int(Tile.B4),
+        int(Tile.E), int(Tile.E),
+        int(Tile.S), int(Tile.S),
+    ]
+    drawn = int(Tile.C)
+
+    actions = [
+        {"type": "DISCARD", "tile": drawn},
+        {"type": "DISCARD", "tile": int(Tile.W2)},
+    ]
+
+    obs = {
+        "phase": "TURN",
+        "hand": base_hand,
+        "drawn": drawn,
+        "melds": [],
+    }
+
+    chosen = bot._rollout_policy(obs, actions)
+    assert chosen["tile"] == drawn

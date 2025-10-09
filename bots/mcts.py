@@ -132,6 +132,7 @@ class MCTSBot:
         self.env = env
         self.config = config or MCTSBotConfig()
         self.rng = random.Random(self.config.seed)
+        self._scratch_env: Optional[Mahjong16Env] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -174,7 +175,10 @@ class MCTSBot:
     # Core MCTS steps
 
     def _simulate(self, root: MCTSNode) -> None:
-        env = Mahjong16Env.from_snapshot(self.env.rules, root.snapshot)
+        if self._scratch_env is None:
+            self._scratch_env = Mahjong16Env(self.env.rules)
+        env = self._scratch_env
+        env.restore(root.snapshot)
         node = root
         obs = env._obs(node.player)
         path = [node]
@@ -217,12 +221,13 @@ class MCTSBot:
             actions = obs.get("legal_actions", []) or env.legal_actions()
             if not actions:
                 break
-            action = self._rollout_policy(obs.get("phase"), actions)
+            action = self._rollout_policy(obs, actions)
             obs, _, done, _ = env.step(action)
             depth += 1
         return self._evaluate(env, root_player)
 
-    def _rollout_policy(self, phase: Optional[str], actions: Sequence[Action]) -> Action:
+    def _rollout_policy(self, obs: Observation, actions: Sequence[Action]) -> Action:
+        phase = obs.get("phase")
         for action in actions:
             if (action.get("type") or "").upper() == "HU":
                 return action
@@ -236,6 +241,31 @@ class MCTSBot:
 
         discards = [a for a in actions if (a.get("type") or "").upper() == "DISCARD"]
         if discards:
+            base_hand = list(obs.get("hand") or [])
+            drawn = obs.get("drawn")
+            if drawn is not None:
+                base_hand.append(drawn)
+            melds = obs.get("melds")
+            best_cost: Optional[int] = None
+            best: List[Action] = []
+            for action in discards:
+                tile = action.get("tile")
+                if tile is None:
+                    continue
+                candidate_hand = list(base_hand)
+                try:
+                    candidate_hand.remove(tile)
+                except ValueError:
+                    continue
+                snapshot = evaluate_heuristic(candidate_hand, melds)
+                cost = snapshot.cost
+                if best_cost is None or cost < best_cost:
+                    best_cost = cost
+                    best = [action]
+                elif cost == best_cost:
+                    best.append(action)
+            if best:
+                return self.rng.choice(best)
             return self.rng.choice(discards)
         return self.rng.choice(list(actions))
 
