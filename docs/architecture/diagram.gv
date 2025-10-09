@@ -12,7 +12,9 @@ digraph Mahjong16 {
         core_tiles    [label="tiles.py\nTile ids & helpers"];
         core_ruleset  [label="ruleset.py\nRuleset config"];
         core_types    [label="types.py\nAction/Observation"];
+        core_state    [label="state.py\nPlayerState"];
         core_hand     [label="hand.py\nWin & waits logic"];
+        core_flowers  [label="flowers.py\nFlowerManager"];
         core_env      [label="env.py\nMahjong16Env"];
         core_analysis [label="analysis.py\nObservation helpers"];
 
@@ -88,7 +90,7 @@ digraph Mahjong16 {
     // Core dependencies
     core_tiles -> core_hand;
     core_tiles -> core_env;
-    core_tiles -> core_analysis;
+    core_tiles -> core_flowers;
     core_tiles -> core_sc_common;
     core_tiles -> core_sc_rules_flowers;
     core_tiles -> ui_console;
@@ -105,19 +107,21 @@ digraph Mahjong16 {
     core_types -> ui_console;
     core_types -> app_strat;
 
+    core_state -> core_flowers;
+    core_state -> core_env;
+
     core_hand -> core_env;
     core_hand -> core_sc_state;
     core_hand -> ui_console;
+
+    core_flowers -> core_env;
 
     core_analysis -> ui_console;
 
     core_env -> app_table;
     core_env -> app_runtime;
-    core_env -> bot_greedy;
-    core_env -> rl_selfplay;
 
     core_sc_tables -> app_runtime;
-    core_sc_tables -> core_sc_engine;
     core_sc_types -> core_sc_state;
     core_sc_common -> core_sc_rules_patterns;
     core_sc_common -> core_sc_rules_honors;
@@ -132,7 +136,7 @@ digraph Mahjong16 {
     core_sc_rules_timings -> core_sc_rules_pipeline;
     core_sc_rules_pipeline -> core_sc_engine;
     core_sc_engine -> app_runtime;
-    core_sc_engine -> core_sc_breakdown;
+    core_sc_breakdown -> core_sc_engine;
 
     ui_helpers -> ui_console;
 
