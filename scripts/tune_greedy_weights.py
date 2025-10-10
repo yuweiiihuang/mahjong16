@@ -197,23 +197,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--structure-weight-range",
-        default="8:14",
-        help="Domain for structure_weight (aligned to grid, default: 8:14)",
+        default="80:120",
+        help="Domain for structure_weight (aligned to grid, default: 80:120)",
     )
     parser.add_argument(
         "--bad-shape-weight-range",
-        default="2:6",
-        help="Domain for bad_shape_weight (aligned to grid, default: 2:6)",
+        default="3:8",
+        help="Domain for bad_shape_weight (aligned to grid, default: 3:8)",
     )
     parser.add_argument(
         "--isolated-weight-range",
-        default="0:2",
-        help="Domain for isolated_weight (aligned to grid, default: 0:2)",
+        default="1:3",
+        help="Domain for isolated_weight (aligned to grid, default: 1:3)",
     )
     parser.add_argument(
         "--isolated-cap-range",
-        default="2:4",
-        help="Domain for isolated_cap (min:max or comma list, default: 2:4)",
+        default="8:16",
+        help="Domain for isolated_cap (min:max or comma list, default: 8:16)",
     )
     parser.add_argument(
         "--json-out",
@@ -262,6 +262,8 @@ def run_trial(
         obs = table.start_hand(env)
         done = False
         while not done:
+            if getattr(env, "done", False):
+                break
             pid = int(obs.get("player", env.turn)) if isinstance(obs, Mapping) else env.turn
             legal = ensure_legal_actions(obs, env, pid) or []
             try:
@@ -276,6 +278,12 @@ def run_trial(
                 action = legal[0]
             obs, _reward, done, _info = env.step(action)
             steps += 1
+        else:
+            # Loop exhausted naturally; mirror env.done for clarity
+            done = getattr(env, "done", done)
+
+        if getattr(env, "done", False) and not done:
+            done = True
 
         hands_played += 1
         winner = getattr(env, "winner", None)
