@@ -154,6 +154,85 @@ def _hand_summary_to_row(
     return row
 
 
+class HandLogWriter:
+    """Incrementally append hand summaries to a single CSV log."""
+
+    def __init__(
+        self,
+        log_dir: Union[str, Path],
+        *,
+        max_players: Optional[int] = None,
+        optional_fields: Optional[List[str]] = None,
+        filename: Optional[Union[str, Path]] = None,
+    ) -> None:
+        self.directory = Path(log_dir).expanduser()
+        self.directory.mkdir(parents=True, exist_ok=True)
+
+        if filename is None:
+            self._file_path: Optional[Path] = None
+        else:
+            candidate = Path(filename)
+            if not candidate.is_absolute():
+                candidate = self.directory / candidate
+            self._file_path = candidate
+
+        self._max_players = max_players
+        self._optional_fields = list(optional_fields) if optional_fields is not None else OPTIONAL_FIELD_ORDER.copy()
+
+        self._handle = None
+        self._writer = None
+
+    @property
+    def path(self) -> Optional[Path]:
+        """Return the file path once the log has been created."""
+        return self._file_path
+
+    def append(self, summary: Dict[str, Any]) -> None:
+        """Append a single hand summary to the CSV, creating it if needed."""
+        self._ensure_writer(summary)
+        if self._writer is None:
+            return
+        row = _hand_summary_to_row(summary, self._max_players, self._optional_fields)
+        self._writer.writerow(row)
+        self._handle.flush()
+
+    def append_many(self, summaries: List[Dict[str, Any]]) -> None:
+        """Append multiple summaries to the CSV."""
+        for summary in summaries:
+            self.append(summary)
+
+    def close(self) -> None:
+        """Close the underlying file handle, if open."""
+        if self._handle is not None:
+            try:
+                self._handle.flush()
+            finally:
+                self._handle.close()
+        self._handle = None
+        self._writer = None
+
+    def _ensure_writer(self, summary: Dict[str, Any]) -> None:
+        if self._writer is not None:
+            return
+
+        inferred_players = _infer_player_count([summary])
+        if self._max_players is None:
+            self._max_players = inferred_players or DEFAULT_PLAYER_COUNT
+        else:
+            self._max_players = max(self._max_players, inferred_players)
+
+        if self._file_path is None:
+            filename = f"{datetime.now().strftime(TIMESTAMP_FORMAT)}.csv"
+            self._file_path = self.directory / filename
+        else:
+            self._file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self._handle = self._file_path.open("w", newline="", encoding="utf-8")
+        fieldnames = _build_log_fieldnames(self._max_players, self._optional_fields)
+        self._writer = csv.DictWriter(self._handle, fieldnames=fieldnames)
+        self._writer.writeheader()
+
+
 def _format_tile(tile_id: Any) -> str:
     if isinstance(tile_id, int):
         try:
