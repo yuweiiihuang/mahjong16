@@ -197,16 +197,20 @@ def load_rule_profile(profile_name: str) -> dict[str, Any]:
         profile = _extract_rule_profile(data, profile_key)
         if isinstance(profile, Mapping):
             return dict(profile)
-    raise FileNotFoundError(f"Rule profile '{profile_key}' not found under configs/rules.")
+    raise FileNotFoundError(f"Rule profile '{profile_key}' not found under configs/rules/profiles.")
 
 
 def _candidate_rule_paths(profile_name: str) -> list[Path]:
     root = _project_root()
     configs_dir = root / "configs"
     rules_dir = configs_dir / "rules"
-    paths = [rules_dir / f"{profile_name}.json"]
+    profiles_dir = rules_dir / "profiles"
+    paths = [profiles_dir / f"{profile_name}.json", rules_dir / f"{profile_name}.json"]
     if profile_name != "common":
-        paths.append(rules_dir / "common.json")
+        paths.extend([
+            profiles_dir / "common.json",
+            rules_dir / "common.json",
+        ])
     # Legacy fallback (flat configs/<profile>.json) for early exports
     paths.append(configs_dir / f"{profile_name}.json")
     if profile_name != "common":

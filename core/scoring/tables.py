@@ -13,9 +13,9 @@ def load_scoring_assets(profile_name: str, override_path: str | None = None) -> 
 
     Resolution order:
       1) ``override_path`` argument (or env var ``MAHJONG16_SCORING_JSON`` if set)
-      2) Project root ``configs/profiles/<profile_name>.json`` (per-profile export)
-      3) Project root ``configs/profiles/taiwan_base.json``
-      4) Legacy fallback ``configs/<profile_name>.json``
+      2) Project root ``configs/scoring/profiles/<profile_name>.json`` (per-profile export)
+      3) Project root ``configs/scoring/profiles/taiwan_base.json``
+      4) Legacy fallback ``configs/profiles/<profile_name>.json`` then ``configs/<profile_name>.json``
 
     JSON shapes supported:
       - { "profiles": { "<profile>": {...} }, "labels": {...} }
@@ -39,11 +39,17 @@ def load_scoring_assets(profile_name: str, override_path: str | None = None) -> 
 
     proj_root = _project_root()
     configs_dir = proj_root / "configs"
-    profiles_dir = configs_dir / "profiles"
+    scoring_dir = configs_dir / "scoring"
+    profiles_dir = scoring_dir / "profiles"
     if not path_str:
         candidates.append(profiles_dir / f"{profile_name}.json")
         if profile_name != "taiwan_base":
             candidates.append(profiles_dir / "taiwan_base.json")
+        # Backwards compatibility for repos still on configs/profiles/
+        legacy_profiles_dir = configs_dir / "profiles"
+        candidates.append(legacy_profiles_dir / f"{profile_name}.json")
+        if profile_name != "taiwan_base":
+            candidates.append(legacy_profiles_dir / "taiwan_base.json")
         # Legacy fallback for overrides that may still point to configs/<profile>.json
         candidates.append(configs_dir / f"{profile_name}.json")
         if profile_name != "taiwan_base":
@@ -126,9 +132,13 @@ def _resolve_labels(profile_name: str, table: dict[str, object], explicit_labels
 @lru_cache(maxsize=1)
 def _load_default_labels() -> dict[str, str]:
     configs_dir = _project_root() / "configs"
-    path = configs_dir / "labels.json"
+    scoring_dir = configs_dir / "scoring"
+    path = scoring_dir / "labels.json"
     if not path.is_file():
-        return {}
+        legacy = configs_dir / "labels.json"
+        if not legacy.is_file():
+            return {}
+        path = legacy
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)

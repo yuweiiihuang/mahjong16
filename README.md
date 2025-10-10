@@ -108,7 +108,7 @@ from core.scoring.tables import load_scoring_assets
 from core.scoring.engine import score_with_breakdown
 
 rules = Ruleset(
-    rule_profile="common",  # loads configs/rules/common.json toggles
+    rule_profile="common",  # loads configs/rules/profiles/common.json toggles
 )
 env = Mahjong16Env(rules, seed=1234)
 obs = env.reset()
@@ -116,8 +116,8 @@ obs = env.reset()
 table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 ```
 
-計分表以 `configs/profiles/` 內的 per-profile JSON 為基礎，並對應 `core/scoring/tables.py` 的 key。
-規則開關（如 `include_flowers`、`dead_wall_mode`、花牌/風位設定）集中於 `configs/rules/<rule_profile>.json`（預設 `common.json`），由 `Ruleset.rule_profile` 注入。
+計分表以 `configs/scoring/profiles/` 內的 per-profile JSON 為基礎，並對應 `core/scoring/tables.py` 的 key。
+規則開關（如 `include_flowers`、`dead_wall_mode`、花牌/風位設定）集中於 `configs/rules/profiles/<rule_profile>.json`（預設 `common.json`），由 `Ruleset.rule_profile` 注入。
 若需覆寫計分表，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path`（可指向任一 profile 檔案），並新增測試驗證。
 
 ## 後續方向

@@ -93,12 +93,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scoring-profile",
         default="taiwan_base",
-        help="Scoring profile key to load from configs/profiles (default: taiwan_base)",
+        help="Scoring profile key to load from configs/scoring/profiles (default: taiwan_base)",
     )
     parser.add_argument(
         "--rule-profile",
         default="common",
-        help="Rule profile key to load from configs/rules (default: common)",
+        help="Rule profile key to load from configs/rules/profiles (default: common)",
     )
     parser.add_argument("--skip-scoring", action="store_true", help="Skip scoring to measure env throughput only")
     parser.add_argument("--json-out", type=Path, help="Write metrics JSON to the given path")
