@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+
+from rich.console import Console
+from rich.progress import track
+
+
 TABLE_SIZE = 4
 
 # Ensure the project root (two levels up) is importable when invoked as a script.
@@ -102,6 +107,7 @@ def parse_args() -> argparse.Namespace:
         help="Base reserved tiles for the dead wall (default: 16)",
     )
     parser.add_argument("--json-out", type=Path, help="Write metrics JSON to the given path")
+    parser.add_argument("--no-progress", action="store_true", help="Disable the benchmark progress bar")
     return parser.parse_args()
 
 
@@ -144,7 +150,23 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     start = time.perf_counter()
 
-    for _ in range(hands_target):
+    hand_iterable = range(hands_target)
+    if (
+        hands_target > 0
+        and not getattr(args, "no_progress", False)
+        and track is not None
+        and Console is not None
+    ):
+        console_candidate = Console(stderr=True)
+        if console_candidate.is_terminal:
+            hand_iterable = track(
+                hand_iterable,
+                description="Simulating hands",
+                console=console_candidate,
+                transient=True,
+            )
+
+    for _ in hand_iterable:
         obs = table.start_hand(env)
         done = False
         while not done:
