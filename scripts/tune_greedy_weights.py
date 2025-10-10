@@ -178,22 +178,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grid-step", type=float, default=1.0, help="Grid resolution for weights (default: 1.0)")
     parser.add_argument("--seed", type=int, default=None, help="Base RNG seed for sampling and environment")
     parser.add_argument(
+        "--scoring-profile",
         "--profile",
+        dest="scoring_profile",
         default="taiwan_base",
         help="Scoring profile for the simulation ruleset (default: taiwan_base)",
     )
-    parser.add_argument("--no-flowers", action="store_true", help="Disable flowers while simulating")
     parser.add_argument(
-        "--dead-wall-mode",
-        choices=["fixed", "gang_plus_one"],
-        default="fixed",
-        help="Dead wall reservation mode (default: fixed)",
-    )
-    parser.add_argument(
-        "--dead-wall-base",
-        type=int,
-        default=16,
-        help="Number of reserved tiles when dead wall mode is fixed (default: 16)",
+        "--rule-profile",
+        default="common",
+        help="Rule profile for the simulation ruleset (default: common)",
     )
     parser.add_argument(
         "--structure-weight-range",
@@ -236,13 +230,9 @@ def run_trial(
     env_seed = (base_seed + trial_index) if base_seed is not None else None
 
     rules = Ruleset(
-        include_flowers=not args.no_flowers,
         n_players=TABLE_SIZE,
-        scoring_profile=args.profile,
-        scoring_overrides_path=None,
-        dead_wall_mode=args.dead_wall_mode,
-        dead_wall_base=int(args.dead_wall_base),
-        randomize_seating_and_dealer=True,
+        scoring_profile=args.scoring_profile,
+        rule_profile=args.rule_profile,
     )
 
     env = Mahjong16Env(rules, seed=env_seed)

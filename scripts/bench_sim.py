@@ -90,22 +90,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-n", "--hands", type=int, default=1000, help="Number of hands to simulate (default: 1000)")
     parser.add_argument("--seed", type=int, default=None, help="Base RNG seed for env/table/agents")
     parser.add_argument("--bot", default="auto", help="Bot alias to use for every seat (auto/greedy/random/rulebot)")
-    parser.add_argument("--profile", default="taiwan_base", help="Scoring profile key (default: taiwan_base)")
-    parser.add_argument("--scoring-json", type=Path, default=None, help="Optional scoring JSON override path")
+    parser.add_argument(
+        "--scoring-profile",
+        default="taiwan_base",
+        help="Scoring profile key to load from configs/profiles (default: taiwan_base)",
+    )
+    parser.add_argument(
+        "--rule-profile",
+        default="common",
+        help="Rule profile key to load from configs/rules (default: common)",
+    )
     parser.add_argument("--skip-scoring", action="store_true", help="Skip scoring to measure env throughput only")
-    parser.add_argument("--no-flowers", action="store_true", help="Disable flowers in the wall during benchmark")
-    parser.add_argument(
-        "--dead-wall-mode",
-        choices=["fixed", "gang_plus_one"],
-        default="fixed",
-        help="Dead-wall reservation mode (default: fixed)",
-    )
-    parser.add_argument(
-        "--dead-wall-base",
-        type=int,
-        default=16,
-        help="Base reserved tiles for the dead wall (default: 16)",
-    )
     parser.add_argument("--json-out", type=Path, help="Write metrics JSON to the given path")
     parser.add_argument("--no-progress", action="store_true", help="Disable the benchmark progress bar")
     return parser.parse_args()
@@ -115,13 +110,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     n_players = TABLE_SIZE
     hands_target = max(0, int(args.hands))
     rules = Ruleset(
-        include_flowers=not args.no_flowers,
         n_players=n_players,
-        scoring_profile=args.profile,
-        scoring_overrides_path=str(args.scoring_json) if args.scoring_json else None,
-        dead_wall_mode=args.dead_wall_mode,
-        dead_wall_base=int(args.dead_wall_base),
-        randomize_seating_and_dealer=True,
+        scoring_profile=args.scoring_profile,
+        rule_profile=args.rule_profile,
     )
 
     env = Mahjong16Env(rules, seed=args.seed)
@@ -132,8 +123,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     scoring_table = None
     if not args.skip_scoring:
-        override_path = str(args.scoring_json) if args.scoring_json else rules.scoring_overrides_path
-        scoring_table = load_scoring_assets(rules.scoring_profile, override_path)
+        scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 
     totals = {
         "hands_played": 0,

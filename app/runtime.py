@@ -103,13 +103,8 @@ class _BaseDemoRunner:
         self.emit_logs = emit_logs
 
         self.rules = Ruleset(
-            include_flowers=True,
-            dead_wall_mode="fixed",
-            dead_wall_base=16,
             scoring_profile="taiwan_base",
-            randomize_seating_and_dealer=True,
-            enable_wind_flower_scoring=True,
-            scoring_overrides_path=None,
+            rule_profile="common",
         )
         self.env = Mahjong16Env(self.rules, seed=seed)
         self.table = load_scoring_assets(self.rules.scoring_profile, self.rules.scoring_overrides_path)

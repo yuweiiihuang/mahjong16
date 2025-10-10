@@ -10,7 +10,14 @@ from core.scoring.engine import score_with_breakdown
 
 
 def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:
-    env = Mahjong16Env(Ruleset(include_flowers=include_flowers), seed=0)
+    env = Mahjong16Env(
+        Ruleset(
+            include_flowers=include_flowers,
+            rule_profile="common",
+            randomize_seating_and_dealer=False,
+        ),
+        seed=0,
+    )
     env.reset()
     # sanitize players
     for player in env.players:
