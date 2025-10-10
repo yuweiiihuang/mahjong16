@@ -9,6 +9,7 @@ is useful for unit tests and manual debugging.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, List, MutableSequence, Optional, Sequence, Tuple
 
 from core.tiles import tile_to_str
@@ -26,26 +27,40 @@ class HeuristicSnapshot:
     """Summary of the heuristic evaluation for a hand state."""
 
     cost: int
+    structure_distance: int
     melds: int
-    has_pair: bool
-    singles: int
+    eye_used: bool
+    bad_shapes: int
+    isolated: int
 
 
 @dataclass(frozen=True)
 class HeuristicWeights:
     """Tunables used by the greedy heuristic."""
 
-    missing_meld_weight: int = 10
-    missing_eye_weight: int = 3
-    singles_weight: int = 1
-    singles_cap: int = 3
+    missing_meld_weight: int = 100  # Dominant weight for structure distance
+    missing_eye_weight: int = 5      # Penalty per bad structure (劣形搭子)
+    singles_weight: int = 1          # Penalty per isolated tile (孤張)
+    singles_cap: int = 14            # Safety cap for isolated penalty
 
-    def evaluate(self, missing_melds: int, missing_eye: int, singles: int) -> int:
-        singles_penalty = min(self.singles_cap, singles) * self.singles_weight
+    @property
+    def structure_weight(self) -> int:
+        return self.missing_meld_weight
+
+    @property
+    def bad_shape_weight(self) -> int:
+        return self.missing_eye_weight
+
+    @property
+    def isolated_weight(self) -> int:
+        return self.singles_weight
+
+    def evaluate(self, structure_distance: int, bad_shapes: int, isolated: int) -> int:
+        isolated_penalty = min(self.singles_cap, isolated) * self.isolated_weight
         return (
-            missing_melds * self.missing_meld_weight
-            + missing_eye * self.missing_eye_weight
-            + singles_penalty
+            structure_distance * self.structure_weight
+            + bad_shapes * self.bad_shape_weight
+            + isolated_penalty
         )
 
 
@@ -62,51 +77,95 @@ def _counts34(tiles: Iterable[Tile]) -> List[int]:
     return counts
 
 
-def _remove_triplets(counts: MutableSequence[int]) -> int:
-    """Greedily consume triplets (刻) from the histogram."""
+@dataclass(frozen=True)
+class ShapeState:
+    """Intermediate partition of the concealed tiles within a suit block."""
 
-    melds = 0
-    for idx, value in enumerate(counts):
-        if value >= 3:
-            triplets = value // 3
-            counts[idx] -= 3 * triplets
-            melds += triplets
-    return melds
+    melds: int = 0
+    good_partials: int = 0
+    bad_partials: int = 0
+    pairs: int = 0
+    singles: int = 0
+
+    def with_delta(
+        self,
+        *,
+        melds: int = 0,
+        good_partials: int = 0,
+        bad_partials: int = 0,
+        pairs: int = 0,
+        singles: int = 0,
+    ) -> "ShapeState":
+        return ShapeState(
+            self.melds + melds,
+            self.good_partials + good_partials,
+            self.bad_partials + bad_partials,
+            self.pairs + pairs,
+            self.singles + singles,
+        )
+
+    def __add__(self, other: "ShapeState") -> "ShapeState":
+        return ShapeState(
+            self.melds + other.melds,
+            self.good_partials + other.good_partials,
+            self.bad_partials + other.bad_partials,
+            self.pairs + other.pairs,
+            self.singles + other.singles,
+        )
 
 
-def _remove_sequences(counts: MutableSequence[int], suit_start: int) -> int:
-    """Greedily consume sequences (順) within a single suit."""
+def _pareto_sort_key(state: ShapeState) -> Tuple[int, int, int, int, int]:
+    """Order states so that more promising ones are considered first."""
 
-    melds = 0
-    end = suit_start + 9
-    while True:
-        made = 0
-        for idx in range(suit_start, end - 2):
-            take = min(counts[idx], counts[idx + 1], counts[idx + 2])
-            if take:
-                counts[idx] -= take
-                counts[idx + 1] -= take
-                counts[idx + 2] -= take
-                melds += take
-                made += take
-        if made == 0:
-            break
-    return melds
+    return (
+        -state.melds,
+        -state.good_partials,
+        state.bad_partials,
+        -state.pairs,
+        state.singles,
+    )
 
 
-def _estimate_melds_and_pair(counts: Sequence[int]) -> Tuple[int, bool, int]:
-    """Estimate meld count, whether a pair exists, and the singles penalty."""
+def _dominates(a: ShapeState, b: ShapeState) -> bool:
+    """Return True if state ``a`` (weakly) dominates ``b`` with a strict gain."""
 
-    # The singles penalty is computed from the original histogram for consistency.
-    singles = sum(1 for value in counts if value == 1)
-    mutable = list(counts)
-    melds = _remove_triplets(mutable)
-    melds += _remove_sequences(mutable, 0)
-    melds += _remove_sequences(mutable, 9)
-    melds += _remove_sequences(mutable, 18)
+    if not (
+        a.melds >= b.melds
+        and a.good_partials >= b.good_partials
+        and a.bad_partials <= b.bad_partials
+        and a.pairs >= b.pairs
+        and a.singles <= b.singles
+    ):
+        return False
+    return (
+        a.melds > b.melds
+        or a.good_partials > b.good_partials
+        or a.bad_partials < b.bad_partials
+        or a.pairs > b.pairs
+        or a.singles < b.singles
+    )
 
-    has_pair = any(value >= 2 for value in mutable)
-    return melds, has_pair, singles
+
+def _pareto_prune(states: Iterable[ShapeState]) -> Tuple[ShapeState, ...]:
+    """Remove dominated states to keep the Cartesian expansion manageable."""
+
+    ordered = sorted(set(states), key=_pareto_sort_key)
+    frontier: List[ShapeState] = []
+    for candidate in ordered:
+        dominated = False
+        to_remove: List[int] = []
+        for idx, keep in enumerate(frontier):
+            if _dominates(keep, candidate):
+                dominated = True
+                break
+            if _dominates(candidate, keep):
+                to_remove.append(idx)
+        if dominated:
+            continue
+        for idx in reversed(to_remove):
+            frontier.pop(idx)
+        frontier.append(candidate)
+    return tuple(frontier)
 
 
 def _count_fixed_melds(melds: Optional[Sequence[dict]]) -> int:
@@ -118,6 +177,151 @@ def _count_fixed_melds(melds: Optional[Sequence[dict]]) -> int:
     return sum(1 for meld in melds if (meld.get("type") or "").upper() in exposed)
 
 
+@lru_cache(maxsize=None)
+def _analyze_suit(tuple_counts: Tuple[int, ...]) -> Tuple[ShapeState, ...]:
+    """Enumerate possible partitions for a suit (萬/筒/條)."""
+
+    try:
+        idx = next(i for i, value in enumerate(tuple_counts) if value)
+    except StopIteration:
+        return (ShapeState(),)
+
+    counts = list(tuple_counts)
+    results: set[ShapeState] = set()
+
+    # Treat current tile as a single
+    counts[idx] -= 1
+    for state in _analyze_suit(tuple(counts)):
+        results.add(state.with_delta(singles=1))
+    counts[idx] += 1
+
+    # Pair (could be used as eyes or triplet candidate)
+    if counts[idx] >= 2:
+        counts[idx] -= 2
+        for state in _analyze_suit(tuple(counts)):
+            results.add(state.with_delta(pairs=1))
+        counts[idx] += 2
+
+    # Triplet (complete meld)
+    if counts[idx] >= 3:
+        counts[idx] -= 3
+        for state in _analyze_suit(tuple(counts)):
+            results.add(state.with_delta(melds=1))
+        counts[idx] += 3
+
+    # Sequence (complete meld)
+    if idx <= len(counts) - 3 and counts[idx + 1] and counts[idx + 2]:
+        counts[idx] -= 1
+        counts[idx + 1] -= 1
+        counts[idx + 2] -= 1
+        for state in _analyze_suit(tuple(counts)):
+            results.add(state.with_delta(melds=1))
+        counts[idx] += 1
+        counts[idx + 1] += 1
+        counts[idx + 2] += 1
+
+    # Consecutive partial (open wait)
+    if idx <= len(counts) - 2 and counts[idx + 1]:
+        counts[idx] -= 1
+        counts[idx + 1] -= 1
+        is_edge = idx == 0 or (idx + 1) == 8
+        delta_good = 0 if is_edge else 1
+        delta_bad = 1 if is_edge else 0
+        for state in _analyze_suit(tuple(counts)):
+            results.add(
+                state.with_delta(
+                    good_partials=delta_good,
+                    bad_partials=delta_bad,
+                )
+            )
+        counts[idx] += 1
+        counts[idx + 1] += 1
+
+    # Gapped partial (kanchan)
+    if idx <= len(counts) - 3 and counts[idx + 2]:
+        counts[idx] -= 1
+        counts[idx + 2] -= 1
+        for state in _analyze_suit(tuple(counts)):
+            results.add(state.with_delta(bad_partials=1))
+        counts[idx] += 1
+        counts[idx + 2] += 1
+
+    return _pareto_prune(results)
+
+
+def _analyze_honors(tuple_counts: Tuple[int, ...]) -> ShapeState:
+    """Deterministic partition for honors (風/箭)."""
+
+    melds = 0
+    pairs = 0
+    singles = 0
+    for value in tuple_counts:
+        melds += value // 3
+        remainder = value % 3
+        if remainder == 2:
+            pairs += 1
+        elif remainder == 1:
+            singles += 1
+    return ShapeState(melds, 0, 0, pairs, singles)
+
+
+def _combine_shape_states(states_per_block: Sequence[Tuple[ShapeState, ...]]) -> Tuple[ShapeState, ...]:
+    combined: set[ShapeState] = {ShapeState()}
+    for block_states in states_per_block:
+        next_combined: set[ShapeState] = set()
+        for current in combined:
+            for candidate in block_states:
+                next_combined.add(current + candidate)
+        combined = next_combined
+    return _pareto_prune(combined)
+
+
+def _hand_shape_states(counts: Sequence[int]) -> Tuple[ShapeState, ...]:
+    """Return possible aggregate partitions of the concealed hand."""
+
+    wan = _analyze_suit(tuple(counts[0:9]))
+    tong = _analyze_suit(tuple(counts[9:18]))
+    tiao = _analyze_suit(tuple(counts[18:27]))
+    honors = _analyze_honors(tuple(counts[27:34]))
+    combined = _combine_shape_states((wan, tong, tiao))
+    return _pareto_prune(state + honors for state in combined)
+
+
+def _score_shape_state(
+    state: ShapeState,
+    fixed_melds: int,
+    use_eye: int,
+    weights: HeuristicWeights,
+) -> HeuristicSnapshot:
+    total_melds = fixed_melds + state.melds
+    missing_meld_slots = max(0, 5 - total_melds)
+
+    good_used = min(state.good_partials, missing_meld_slots)
+    remaining = missing_meld_slots - good_used
+
+    bad_used = min(state.bad_partials, remaining)
+    remaining -= bad_used
+
+    available_pairs = max(0, state.pairs - use_eye)
+    pair_used = min(available_pairs, remaining)
+    remaining -= pair_used
+
+    candidates_total = good_used + bad_used + pair_used
+    structure_distance = max(0, 5 - total_melds - candidates_total - use_eye)
+    bad_shapes = state.bad_partials + max(0, state.pairs - use_eye)
+    isolated = state.singles
+
+    cost = weights.evaluate(structure_distance, bad_shapes, isolated)
+    return HeuristicSnapshot(
+        cost=cost,
+        structure_distance=structure_distance,
+        melds=total_melds,
+        eye_used=bool(use_eye),
+        bad_shapes=bad_shapes,
+        isolated=isolated,
+    )
+
+
 def _heuristic(
     hand: Sequence[Tile],
     melds: Optional[Sequence[dict]],
@@ -126,14 +330,27 @@ def _heuristic(
     """Compute heuristic metrics for the current hand state."""
 
     fixed_melds = _count_fixed_melds(melds)
-    need = max(0, 5 - fixed_melds)  # Taiwan 16 uses 5 melds
     counts = _counts34(hand)
-    melds_from_hand, has_pair, singles = _estimate_melds_and_pair(counts)
+    shape_states = _hand_shape_states(counts)
 
-    missing_melds = max(0, need - melds_from_hand)
-    missing_eye = 0 if has_pair else 1
-    cost = weights.evaluate(missing_melds, missing_eye, singles)
-    return HeuristicSnapshot(cost, melds_from_hand, has_pair, singles)
+    best_snapshot: Optional[HeuristicSnapshot] = None
+    for state in shape_states:
+        for use_eye in (0, 1) if state.pairs > 0 else (0,):
+            snapshot = _score_shape_state(state, fixed_melds, use_eye, weights)
+            if best_snapshot is None or snapshot.cost < best_snapshot.cost:
+                best_snapshot = snapshot
+
+    if best_snapshot is None:
+        # Fallback: empty hand (should not occur for valid states)
+        best_snapshot = HeuristicSnapshot(
+            cost=0,
+            structure_distance=5,
+            melds=fixed_melds,
+            eye_used=False,
+            bad_shapes=0,
+            isolated=0,
+        )
+    return best_snapshot
 
 
 def _copy_melds(melds: Optional[Sequence[dict]]) -> List[dict]:
