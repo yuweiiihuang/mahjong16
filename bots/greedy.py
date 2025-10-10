@@ -31,6 +31,27 @@ class HeuristicSnapshot:
     singles: int
 
 
+@dataclass(frozen=True)
+class HeuristicWeights:
+    """Tunables used by the greedy heuristic."""
+
+    missing_meld_weight: int = 10
+    missing_eye_weight: int = 3
+    singles_weight: int = 1
+    singles_cap: int = 3
+
+    def evaluate(self, missing_melds: int, missing_eye: int, singles: int) -> int:
+        singles_penalty = min(self.singles_cap, singles) * self.singles_weight
+        return (
+            missing_melds * self.missing_meld_weight
+            + missing_eye * self.missing_eye_weight
+            + singles_penalty
+        )
+
+
+_DEFAULT_WEIGHTS = HeuristicWeights()
+
+
 def _counts34(tiles: Iterable[Tile]) -> List[int]:
     """Map tiles into the standard 34-tile histogram."""
 
@@ -98,7 +119,11 @@ def _count_fixed_melds(melds: Optional[Sequence[dict]]) -> int:
     return sum(1 for meld in melds if (meld.get("type") or "").upper() in exposed)
 
 
-def _heuristic(hand: Sequence[Tile], melds: Optional[Sequence[dict]]) -> HeuristicSnapshot:
+def _heuristic(
+    hand: Sequence[Tile],
+    melds: Optional[Sequence[dict]],
+    weights: HeuristicWeights = _DEFAULT_WEIGHTS,
+) -> HeuristicSnapshot:
     """Compute heuristic metrics for the current hand state."""
 
     fixed_melds = _count_fixed_melds(melds)
@@ -108,7 +133,7 @@ def _heuristic(hand: Sequence[Tile], melds: Optional[Sequence[dict]]) -> Heurist
 
     missing_melds = max(0, need - melds_from_hand)
     missing_eye = 0 if has_pair else 1
-    cost = missing_melds * 10 + missing_eye * 3 + min(3, singles)
+    cost = weights.evaluate(missing_melds, missing_eye, singles)
     return HeuristicSnapshot(cost, melds_from_hand, has_pair, singles)
 
 
@@ -174,6 +199,9 @@ def _after_claim(obs: dict, action: dict) -> Tuple[List[Tile], List[dict]]:
 class GreedyBotStrategy:
     """Heuristic-driven bot that focuses on shape instead of points."""
 
+    def __init__(self, weights: Optional[HeuristicWeights] = None) -> None:
+        self.weights = weights if weights is not None else HeuristicWeights()
+
     def choose(self, obs: dict) -> dict:
         """Choose an action using the greedy heuristic; HU if available."""
 
@@ -194,7 +222,7 @@ class GreedyBotStrategy:
     # Decision helpers
 
     def _choose_reaction(self, obs: dict, actions: Sequence[dict]) -> dict:
-        baseline = _heuristic(obs.get("hand") or [], obs.get("melds"))
+        baseline = _heuristic(obs.get("hand") or [], obs.get("melds"), self.weights)
         best_action = {"type": "PASS"}
         best_key = (baseline.cost, 1)
 
@@ -204,7 +232,7 @@ class GreedyBotStrategy:
                 continue
 
             hand, melds = _after_claim(obs, action)
-            snapshot = _heuristic(hand, melds)
+            snapshot = _heuristic(hand, melds, self.weights)
             priority = 0 if claim_type == "GANG" else 1
             key = (snapshot.cost, priority)
             if key < best_key:
@@ -226,7 +254,7 @@ class GreedyBotStrategy:
                 continue
 
             hand, melds = _after_discard(obs, action)
-            snapshot = _heuristic(hand, melds)
+            snapshot = _heuristic(hand, melds, self.weights)
             tie_break = 0
             label = tile_to_str(action.get("tile"))
             if label and len(label) == 1:  # honours: E/S/W/N/C/F/P
