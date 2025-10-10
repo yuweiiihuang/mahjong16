@@ -282,10 +282,10 @@ def _score_shape_state(
     weights: HeuristicWeights,
 ) -> HeuristicSnapshot:
     total_melds = fixed_melds + state.melds
-    missing_meld_slots = max(0, 5 - total_melds)
+    meld_slots = max(0, 4 - total_melds)
 
-    good_used = min(state.good_partials, missing_meld_slots)
-    remaining = missing_meld_slots - good_used
+    good_used = min(state.good_partials, meld_slots)
+    remaining = meld_slots - good_used
 
     bad_used = min(state.bad_partials, remaining)
     remaining -= bad_used
@@ -294,8 +294,24 @@ def _score_shape_state(
     pair_used = min(available_pairs, remaining)
     remaining -= pair_used
 
-    candidates_total = good_used + bad_used + pair_used
-    structure_distance = max(0, 5 - total_melds - candidates_total)
+    taatsu_total = good_used + bad_used + pair_used
+    unused_pairs = max(0, available_pairs - pair_used)
+    has_head = bool(use_eye or unused_pairs)
+
+    # structure_distance tracks the standard riichi shanten number, i.e. the
+    # minimum draws required to reach tenpai. We approximate it with the common
+    # ``8 - 2m - t - p`` formula while clamping excessive meld/taatsu counts and
+    # penalising the lack of a head (pair) when necessary.
+    shanten = 8 - 2 * total_melds - taatsu_total - unused_pairs
+    if has_head:
+        shanten -= 1
+    overflow = max(0, total_melds + taatsu_total + unused_pairs - 4)
+    shanten += overflow
+    if not has_head:
+        penalty = 1 if state.singles else 2
+        shanten = min(shanten + penalty, 8)
+
+    structure_distance = max(shanten, 0)
     bad_shapes = state.bad_partials + max(0, state.pairs - use_eye)
     isolated = state.singles
 
