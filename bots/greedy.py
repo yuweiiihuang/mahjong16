@@ -199,7 +199,7 @@ class GreedyBotStrategy:
     """Heuristic-driven bot that focuses on shape instead of points."""
 
     def __init__(self, weights: Optional[HeuristicWeights] = None) -> None:
-        self.weights = weights if weights is not None else HeuristicWeights()
+        self.weights = weights or HeuristicWeights()
 
     def choose(self, obs: dict) -> dict:
         """Choose an action using the greedy heuristic; HU if available."""
