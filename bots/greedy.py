@@ -295,28 +295,25 @@ def _score_shape_state(
     remaining -= bad_used
 
     available_pairs = max(0, state.pairs - use_eye)
-    pair_used = min(available_pairs, remaining)
-    remaining -= pair_used
-
-    taatsu_total = good_used + bad_used + pair_used
-    unused_pairs = max(0, available_pairs - pair_used)
+    taatsu_total = good_used + bad_used
+    unused_pairs = available_pairs
     has_head = bool(use_eye or unused_pairs)
 
-    # structure_distance mirrors the Taiwanese 16-tile shanten number: the
-    # minimum draws required to reach tenpai (5 melds plus a pair). We extend
-    # the standard ``8 - 2m - t - p`` riichi approximation to five meld slots
-    # and clamp excessive meld/taatsu counts while penalising states missing a
-    # head (pair).
-    shanten = _MAX_SHANTEN - 2 * total_melds - taatsu_total - unused_pairs
-    if has_head:
-        shanten -= 1
-    overflow = max(0, total_melds + taatsu_total + unused_pairs - _MELD_TARGET)
-    shanten += overflow
-    if not has_head:
-        penalty = 1 if state.singles else 2
-        shanten = min(shanten + penalty, _MAX_SHANTEN)
+    # structure_distance applies a 16-tile shanten-style approximation: the minimum
+    # draws to reach tenpai using ``10 - 2m - t - p`` with ``p`` in {0, 1}, plus
+    # standard overflow and no-head corrections, mirroring the common
+    # five-meld extension of the riichi formula.
+    meld_units = total_melds
+    partial_units = taatsu_total
+    pair_unit = 1 if has_head else 0
+    shanten = _MAX_SHANTEN - 2 * meld_units - partial_units - pair_unit
+    block_load = meld_units + partial_units
+    if block_load > _MELD_TARGET:
+        shanten += block_load - _MELD_TARGET
+    if pair_unit == 0 and meld_units < _MELD_TARGET:
+        shanten += 1
 
-    structure_distance = max(shanten, 0)
+    structure_distance = max(shanten, -1)
     bad_shapes = state.bad_partials + max(0, state.pairs - use_eye)
     isolated = state.singles
 
