@@ -100,22 +100,22 @@ class SearchDomain:
         return options
 
 def tuple_to_weights(values: tuple[int, int, int, int]) -> HeuristicWeights:
-    mm, me, singles, cap = values
+    structure, bad_shape, isolated, cap = values
     return HeuristicWeights(
-        missing_meld_weight=mm,
-        missing_eye_weight=me,
-        singles_weight=singles,
-        singles_cap=cap,
+        structure_weight=structure,
+        bad_shape_weight=bad_shape,
+        isolated_weight=isolated,
+        isolated_cap=cap,
     )
 
 
 def format_weights(weights: HeuristicWeights, scale: int) -> str:
-    meld = weights.missing_meld_weight / scale if scale else weights.missing_meld_weight
-    eye = weights.missing_eye_weight / scale if scale else weights.missing_eye_weight
-    singles = weights.singles_weight / scale if scale else weights.singles_weight
+    structure = weights.structure_weight / scale if scale else weights.structure_weight
+    bad_shape = weights.bad_shape_weight / scale if scale else weights.bad_shape_weight
+    isolated = weights.isolated_weight / scale if scale else weights.isolated_weight
     return (
-        f"meld={meld:.2f}, eye={eye:.2f}, "
-        f"singles_w={singles:.2f}, singles_cap={weights.singles_cap}"
+        f"struct={structure:.2f}, bad_shape={bad_shape:.2f}, "
+        f"isolated_w={isolated:.2f}, isolated_cap={weights.isolated_cap}"
     )
 
 
@@ -196,24 +196,24 @@ def parse_args() -> argparse.Namespace:
         help="Number of reserved tiles when dead wall mode is fixed (default: 16)",
     )
     parser.add_argument(
-        "--missing-meld-range",
-        default="8:14",
-        help="Domain for missing_meld_weight (aligned to grid, default: 8:14)",
+        "--structure-weight-range",
+        default="80:120",
+        help="Domain for structure_weight (aligned to grid, default: 80:120)",
     )
     parser.add_argument(
-        "--missing-eye-range",
-        default="2:6",
-        help="Domain for missing_eye_weight (aligned to grid, default: 2:6)",
+        "--bad-shape-weight-range",
+        default="3:8",
+        help="Domain for bad_shape_weight (aligned to grid, default: 3:8)",
     )
     parser.add_argument(
-        "--singles-weight-range",
-        default="0:2",
-        help="Domain for singles_weight (aligned to grid, default: 0:2)",
+        "--isolated-weight-range",
+        default="1:3",
+        help="Domain for isolated_weight (aligned to grid, default: 1:3)",
     )
     parser.add_argument(
-        "--singles-cap-range",
-        default="2:4",
-        help="Domain for singles_cap (min:max or comma list, default: 2:4)",
+        "--isolated-cap-range",
+        default="8:16",
+        help="Domain for isolated_cap (min:max or comma list, default: 8:16)",
     )
     parser.add_argument(
         "--json-out",
@@ -262,6 +262,8 @@ def run_trial(
         obs = table.start_hand(env)
         done = False
         while not done:
+            if getattr(env, "done", False):
+                break
             pid = int(obs.get("player", env.turn)) if isinstance(obs, Mapping) else env.turn
             legal = ensure_legal_actions(obs, env, pid) or []
             try:
@@ -276,6 +278,12 @@ def run_trial(
                 action = legal[0]
             obs, _reward, done, _info = env.step(action)
             steps += 1
+        else:
+            # Loop exhausted naturally; mirror env.done for clarity
+            done = getattr(env, "done", done)
+
+        if getattr(env, "done", False) and not done:
+            done = True
 
         hands_played += 1
         winner = getattr(env, "winner", None)
@@ -344,29 +352,29 @@ def main() -> None:
     if weight_scale <= 0 or not math.isclose(grid_step * weight_scale, 1.0, abs_tol=1e-9):
         raise SystemExit("grid_step must evenly divide 1.0 (e.g. 1, 0.5, 0.25, 0.2)")
 
-    mm_domain = SearchDomain.from_spec(
-        args.missing_meld_range,
-        name="missing_meld_range",
+    structure_domain = SearchDomain.from_spec(
+        args.structure_weight_range,
+        name="structure_weight_range",
         scale=weight_scale,
     )
-    me_domain = SearchDomain.from_spec(
-        args.missing_eye_range,
-        name="missing_eye_range",
+    bad_shape_domain = SearchDomain.from_spec(
+        args.bad_shape_weight_range,
+        name="bad_shape_weight_range",
         scale=weight_scale,
     )
-    singles_domain = SearchDomain.from_spec(
-        args.singles_weight_range,
-        name="singles_weight_range",
+    isolated_domain = SearchDomain.from_spec(
+        args.isolated_weight_range,
+        name="isolated_weight_range",
         scale=weight_scale,
     )
     cap_domain = SearchDomain.from_spec(
-        args.singles_cap_range,
-        name="singles_cap_range",
+        args.isolated_cap_range,
+        name="isolated_cap_range",
         scale=1,
         allow_float=False,
     )
 
-    domains = (mm_domain, me_domain, singles_domain, cap_domain)
+    domains = (structure_domain, bad_shape_domain, isolated_domain, cap_domain)
 
     hands = max(0, int(args.hands))
     restarts = max(0, int(args.trials))
@@ -412,9 +420,9 @@ def main() -> None:
     for restart in range(restarts):
         print(f"\n=== Restart {restart + 1}/{restarts} ===")
         start_config = (
-            mm_domain.sample(rng),
-            me_domain.sample(rng),
-            singles_domain.sample(rng),
+            structure_domain.sample(rng),
+            bad_shape_domain.sample(rng),
+            isolated_domain.sample(rng),
             cap_domain.sample(rng),
         )
         current_config = start_config
@@ -464,10 +472,10 @@ def main() -> None:
     )
     print(
         "HeuristicWeights("
-        f"missing_meld_weight={weights.missing_meld_weight / best.weight_scale if best.weight_scale else weights.missing_meld_weight:.2f}, "
-        f"missing_eye_weight={weights.missing_eye_weight / best.weight_scale if best.weight_scale else weights.missing_eye_weight:.2f}, "
-        f"singles_weight={((weights.singles_weight / best.weight_scale) if best.weight_scale else weights.singles_weight):.2f}, "
-        f"singles_cap={weights.singles_cap})"
+        f"structure_weight={weights.structure_weight / best.weight_scale if best.weight_scale else weights.structure_weight:.2f}, "
+        f"bad_shape_weight={weights.bad_shape_weight / best.weight_scale if best.weight_scale else weights.bad_shape_weight:.2f}, "
+        f"isolated_weight={((weights.isolated_weight / best.weight_scale) if best.weight_scale else weights.isolated_weight):.2f}, "
+        f"isolated_cap={weights.isolated_cap})"
     )
 
     json_out: Path | None = getattr(args, "json_out", None)
