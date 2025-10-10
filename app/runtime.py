@@ -25,7 +25,7 @@ from core.scoring.engine import score_with_breakdown, compute_payments
 from ui.console import render_public_view, render_reveal, render_winners_summary
 from .table import TableManager
 from .strategies import build_strategies
-from .logging import write_hand_log
+from .logging import HandLogWriter, write_hand_log
 
 
 def summarize_resolved_claim(info: Dict[str, Any]) -> Optional[Dict[str, str]]:
@@ -123,6 +123,9 @@ class _BaseDemoRunner:
         self.play_until_negative = (hands == -1 and self.target_jangs is None)
         self.max_hands = None if (self.play_until_negative or self.target_jangs is not None) else hands
         self.hand_summaries: list = []
+        self._log_writer: Optional[HandLogWriter] = None
+        self._log_writer_path = None
+        self._log_writer_failed = False
 
     def run(self) -> None:  # pragma: no cover - overridden by subclasses
         raise NotImplementedError
@@ -266,29 +269,28 @@ class _BaseDemoRunner:
                 except Exception:
                     dealer_wind = None
                     winner_wind = None
-                self.hand_summaries.append(
-                    {
-                        "hand_index": hand_idx,
-                        "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
-                        "winner": winner,
-                        "win_source": win_src,
-                        "ron_from": ron_from,
-                        "win_tile": win_tile,
-                        "hand": hand_tiles,
-                        "melds": melds,
-                        "flowers": flowers,
-                        "breakdown": list(bd.get(winner, [])),
-                        "payments": list(payments),
-                        "base_points": getattr(self.env.rules, "base_points", None),
-                        "tai_points": getattr(self.env.rules, "tai_points", None),
-                        "quan_feng": qf,
-                        "dealer_pid": dealer_pid,
-                        "dealer_wind": dealer_wind,
-                        "winner_wind": winner_wind,
-                        "totals_after_hand": list(self.totals),
-                        "remain_tiles": ctx.wall_len,
-                    }
-                )
+                summary = {
+                    "hand_index": hand_idx,
+                    "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
+                    "winner": winner,
+                    "win_source": win_src,
+                    "ron_from": ron_from,
+                    "win_tile": win_tile,
+                    "hand": hand_tiles,
+                    "melds": melds,
+                    "flowers": flowers,
+                    "breakdown": list(bd.get(winner, [])),
+                    "payments": list(payments),
+                    "base_points": getattr(self.env.rules, "base_points", None),
+                    "tai_points": getattr(self.env.rules, "tai_points", None),
+                    "quan_feng": qf,
+                    "dealer_pid": dealer_pid,
+                    "dealer_wind": dealer_wind,
+                    "winner_wind": winner_wind,
+                    "totals_after_hand": list(self.totals),
+                    "remain_tiles": ctx.wall_len,
+                }
+                self._record_hand_summary(summary)
             except Exception:
                 pass
         else:
@@ -302,22 +304,21 @@ class _BaseDemoRunner:
                         dealer_wind = seat_winds[dealer_pid]
                 except Exception:
                     dealer_wind = None
-                self.hand_summaries.append(
-                    {
-                        "hand_index": hand_idx,
-                        "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
-                        "winner": None,
-                        "result": "DRAW",
-                        "payments": list(payments),
-                        "base_points": getattr(self.env.rules, "base_points", None),
-                        "tai_points": getattr(self.env.rules, "tai_points", None),
-                        "quan_feng": qf,
-                        "dealer_pid": dealer_pid,
-                        "dealer_wind": dealer_wind,
-                        "totals_after_hand": list(self.totals),
-                        "remain_tiles": ctx.wall_len,
-                    }
-                )
+                summary = {
+                    "hand_index": hand_idx,
+                    "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
+                    "winner": None,
+                    "result": "DRAW",
+                    "payments": list(payments),
+                    "base_points": getattr(self.env.rules, "base_points", None),
+                    "tai_points": getattr(self.env.rules, "tai_points", None),
+                    "quan_feng": qf,
+                    "dealer_pid": dealer_pid,
+                    "dealer_wind": dealer_wind,
+                    "totals_after_hand": list(self.totals),
+                    "remain_tiles": ctx.wall_len,
+                }
+                self._record_hand_summary(summary)
             except Exception:
                 pass
 
@@ -359,9 +360,46 @@ class _BaseDemoRunner:
         return value
 
     def _finalize(self) -> list:
+        finalize_log_dir = self.log_dir
+        writer_path = self._log_writer_path
+        if self._log_writer is not None:
+            try:
+                self._log_writer.close()
+            finally:
+                self._log_writer = None
+            finalize_log_dir = None
+        if self._log_writer_failed:
+            finalize_log_dir = self.log_dir
+
         if self.emit_logs:
-            _finalize_demo(self.hand_summaries, log_dir=self.log_dir, enable_ui=self.provides_ui)
+            _finalize_demo(self.hand_summaries, log_dir=finalize_log_dir, enable_ui=self.provides_ui)
+            if writer_path is not None:
+                print(f"[log] appended per-hand summary to {writer_path}")
+        elif finalize_log_dir is not None:
+            write_hand_log(self.hand_summaries, finalize_log_dir)
         return self.hand_summaries
+
+    def _record_hand_summary(self, summary: Dict[str, Any]) -> None:
+        self.hand_summaries.append(summary)
+        self._append_log_summary(summary)
+
+    def _append_log_summary(self, summary: Dict[str, Any]) -> None:
+        if not self.log_dir or self._log_writer_failed:
+            return
+        try:
+            if self._log_writer is None:
+                self._log_writer = HandLogWriter(
+                    self.log_dir,
+                    max_players=self.n_players,
+                )
+            self._log_writer.append(summary)
+            if self._log_writer_path is None:
+                self._log_writer_path = self._log_writer.path
+        except Exception as exc:
+            self._log_writer_failed = True
+            self._log_writer = None
+            if self.emit_logs:
+                print(f"[warn] failed to append log in {self.log_dir}: {exc}")
 
 
 class _UIDemoRunner(_BaseDemoRunner):
@@ -675,10 +713,60 @@ def run_demo_headless_batch(
     max_workers = max(1, min(max_workers, sessions))
     session_seeds = _prepare_session_seeds(seed, sessions)
 
-    results: List[Tuple[int, Optional[int], List[Dict[str, Any]]]] = []
     jobs = list(enumerate(session_seeds))
 
     collapse_sessions = emit_logs and sessions > 8
+
+    batch_log_writer: Optional[HandLogWriter] = None
+    batch_log_path = None
+    batch_log_failed = False
+
+    def _append_batch_log(summary: Dict[str, Any]) -> None:
+        nonlocal batch_log_writer, batch_log_path, batch_log_failed
+        if log_dir is None or batch_log_failed:
+            return
+        try:
+            if batch_log_writer is None:
+                payments = summary.get("payments") or []
+                totals = summary.get("totals_after_hand") or []
+                max_players = max(len(payments), len(totals)) or None
+                batch_log_writer = HandLogWriter(
+                    log_dir,
+                    max_players=max_players,
+                )
+            batch_log_writer.append(summary)
+            if batch_log_path is None:
+                batch_log_path = batch_log_writer.path
+        except Exception as exc:
+            batch_log_failed = True
+            batch_log_writer = None
+            if emit_logs:
+                print(f"[warn] failed to append batch log in {log_dir}: {exc}")
+
+    pending_results: Dict[int, Tuple[Optional[int], List[Dict[str, Any]]]] = {}
+    next_flush_session = 0
+    all_summaries: List[Dict[str, Any]] = []
+    global_hand_index = 1
+
+    def _flush_ready_sessions() -> None:
+        nonlocal next_flush_session, global_hand_index
+        while next_flush_session in pending_results:
+            session_seed, summaries = pending_results.pop(next_flush_session)
+            for local_idx, summary in enumerate(summaries, start=1):
+                entry = dict(summary)
+                entry.setdefault("hand_index", local_idx)
+                entry["session_index"] = next_flush_session
+                entry["session_hand_index"] = local_idx
+                entry["global_hand_index"] = global_hand_index
+                entry["session_seed"] = session_seed
+                all_summaries.append(entry)
+                global_hand_index += 1
+                _append_batch_log(entry)
+            next_flush_session += 1
+
+    def _record_session(idx: int, session_seed: Optional[int], summaries: List[Dict[str, Any]]) -> None:
+        pending_results[idx] = (session_seed, summaries)
+        _flush_ready_sessions()
 
     progress_manager = (
         Progress(
@@ -778,7 +866,7 @@ def run_demo_headless_batch(
                     log_dir=None,
                     hand_progress_cb=hand_cb,
                 )
-                results.append((idx, session_seed, summaries))
+                _record_session(idx, session_seed, summaries)
                 _finish_session(idx, len(summaries))
         else:
             manager = mp.Manager() if progress is not None else None
@@ -814,7 +902,7 @@ def run_demo_headless_batch(
                         for fut in done:
                             pending.remove(fut)
                             idx, session_seed, summaries = fut.result()
-                            results.append((idx, session_seed, summaries))
+                            _record_session(idx, session_seed, summaries)
                             _finish_session(idx, len(summaries))
 
                     if progress_queue is not None:
@@ -829,23 +917,22 @@ def run_demo_headless_batch(
                 if manager is not None:
                     manager.shutdown()
 
-    results.sort(key=lambda item: item[0])
-    all_summaries: List[Dict[str, Any]] = []
-    global_hand_index = 1
-    for session_idx, session_seed, summaries in results:
-        for local_idx, summary in enumerate(summaries, start=1):
-            entry = dict(summary)
-            entry.setdefault("hand_index", local_idx)
-            entry["session_index"] = session_idx
-            entry["session_hand_index"] = local_idx
-            entry["global_hand_index"] = global_hand_index
-            entry["session_seed"] = session_seed
-            all_summaries.append(entry)
-            global_hand_index += 1
+    _flush_ready_sessions()
+
+    if batch_log_writer is not None:
+        batch_log_writer.close()
+
+    finalize_log_dir = log_dir
+    if batch_log_failed:
+        finalize_log_dir = log_dir
+    elif batch_log_writer is not None:
+        finalize_log_dir = None
 
     if emit_logs:
-        _finalize_demo(all_summaries, log_dir=log_dir, enable_ui=False)
-    elif log_dir is not None:
+        _finalize_demo(all_summaries, log_dir=finalize_log_dir, enable_ui=False)
+        if batch_log_writer is not None and batch_log_path is not None:
+            print(f"[log] appended per-hand summary to {batch_log_path}")
+    elif log_dir is not None and (batch_log_writer is None or batch_log_failed):
         write_hand_log(all_summaries, log_dir)
 
     return all_summaries
