@@ -295,7 +295,7 @@ def _score_shape_state(
     remaining -= pair_used
 
     candidates_total = good_used + bad_used + pair_used
-    structure_distance = max(0, 5 - total_melds - candidates_total - use_eye)
+    structure_distance = max(0, 5 - total_melds - candidates_total)
     bad_shapes = state.bad_partials + max(0, state.pairs - use_eye)
     isolated = state.singles
 
