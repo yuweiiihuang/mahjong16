@@ -22,7 +22,6 @@ class Ruleset:
       scoring_profile: Key used to load a scoring table from JSON.
       base_points: Flat amount each opponent pays before multiplying tai.
       tai_points: Monetary value per tai point.
-      see_flower_see_wind: Variant switch for certain rules (placeholder).
       scoring_overrides_path: Optional explicit scoring JSON path.
     """
     include_flowers: bool = True
@@ -48,8 +47,6 @@ class Ruleset:
     scoring_profile: str = "taiwan_base"
     base_points: int = 100
     tai_points: int = 20
-    # 是否採用見花見字（影響部份台型的定義；預設 True 以符合一般台灣 16 張）
-    see_flower_see_wind: bool = True
     # 外部 JSON 覆蓋檔路徑（可為 None；若提供則優先）
     scoring_overrides_path: str | None = None
 

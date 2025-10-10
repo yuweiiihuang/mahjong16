@@ -107,7 +107,6 @@ class _BaseDemoRunner:
             dead_wall_mode="fixed",
             dead_wall_base=16,
             scoring_profile="taiwan_base",
-            see_flower_see_wind=False,
             randomize_seating_and_dealer=True,
             enable_wind_flower_scoring=True,
             scoring_overrides_path=None,
