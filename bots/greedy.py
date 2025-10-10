@@ -38,25 +38,13 @@ class HeuristicSnapshot:
 class HeuristicWeights:
     """Tunables used by the greedy heuristic."""
 
-    missing_meld_weight: int = 100  # Dominant weight for structure distance
-    missing_eye_weight: int = 5      # Penalty per bad structure (劣形搭子)
-    singles_weight: int = 1          # Penalty per isolated tile (孤張)
-    singles_cap: int = 14            # Safety cap for isolated penalty
-
-    @property
-    def structure_weight(self) -> int:
-        return self.missing_meld_weight
-
-    @property
-    def bad_shape_weight(self) -> int:
-        return self.missing_eye_weight
-
-    @property
-    def isolated_weight(self) -> int:
-        return self.singles_weight
+    structure_weight: int = 100      # Dominant weight for structure distance
+    bad_shape_weight: int = 5        # Penalty per bad structure (劣形搭子)
+    isolated_weight: int = 1         # Penalty per isolated tile (孤張)
+    isolated_cap: int = 14           # Safety cap for isolated penalty
 
     def evaluate(self, structure_distance: int, bad_shapes: int, isolated: int) -> int:
-        isolated_penalty = min(self.singles_cap, isolated) * self.isolated_weight
+        isolated_penalty = min(self.isolated_cap, isolated) * self.isolated_weight
         return (
             structure_distance * self.structure_weight
             + bad_shapes * self.bad_shape_weight
