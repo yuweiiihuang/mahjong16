@@ -1,0 +1,9 @@
+{
+    "include_flowers": true,
+    "dead_wall_mode": "fixed",
+    "dead_wall_base": 16,
+    "scoring_overrides_path": null,
+    "randomize_seating_and_dealer": true,
+    "enable_wind_flower_scoring": true,
+    "enable_flower_wins": true
+}

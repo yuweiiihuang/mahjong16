@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from core.scoring.tables import load_scoring_assets
 
 DEFAULT_SCORING_JSON = (
-    Path(__file__).resolve().parent.parent / "configs" / "profiles" / "taiwan_base.json"
+    Path(__file__).resolve().parent.parent / "configs" / "scoring" / "profiles" / "taiwan_base.json"
 )
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
@@ -102,7 +102,7 @@ def parse_args() -> argparse.Namespace:
         "--scoring-json",
         type=Path,
         default=DEFAULT_SCORING_JSON,
-        help="Scoring config JSON that defines flag order (default: configs/profiles/taiwan_base.json)",
+        help="Scoring config JSON that defines flag order (default: configs/scoring/profiles/taiwan_base.json)",
     )
     parser.add_argument(
         "--profile",

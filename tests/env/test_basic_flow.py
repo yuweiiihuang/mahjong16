@@ -8,12 +8,12 @@ def test_reset_and_deal():
     # 每家 16 張手牌
     for i, p in enumerate(env.players):
         assert len(p.hand) == env.rules.initial_hand
-        if i == 0:
+        if i == env.dealer_pid:
             assert p.drawn is not None, "莊家開局應有 drawn（一張第17張）"
         else:
             assert p.drawn is None, "閒家開局不應有 drawn"
     # 當前行動必為莊家
-    assert obs["player"] == 0
+    assert obs["player"] == env.dealer_pid
     # 合法動作應包含丟 drawn
     assert any(
         action["type"] == "DISCARD" and action.get("from") == "drawn"

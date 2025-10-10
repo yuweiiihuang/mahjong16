@@ -472,15 +472,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=None, help="Base RNG seed for reproducibility.")
     parser.add_argument(
+        "--scoring-profile",
         "--profile",
+        dest="scoring_profile",
         default="taiwan_base",
         help="Scoring profile name (default: taiwan_base).",
     )
     parser.add_argument(
-        "--scoring-json",
-        type=Path,
-        default=None,
-        help="Optional path to override scoring assets (JSON).",
+        "--rule-profile",
+        default="common",
+        help="Rule profile name (default: common).",
     )
     parser.add_argument(
         "--base-points",
@@ -493,23 +494,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=int,
         default=20,
         help="Point value per tai (default: 20).",
-    )
-    parser.add_argument(
-        "--dead-wall-mode",
-        choices=["fixed", "gang_plus_one"],
-        default="fixed",
-        help="Dead wall reservation mode (default: fixed).",
-    )
-    parser.add_argument(
-        "--dead-wall-base",
-        type=int,
-        default=16,
-        help="Base reserved tiles for the dead wall (default: 16).",
-    )
-    parser.add_argument(
-        "--no-flowers",
-        action="store_true",
-        help="Disable flowers in the wall and scoring.",
     )
     parser.add_argument(
         "--json-out",
@@ -527,17 +511,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def build_rules(args: argparse.Namespace) -> Ruleset:
     return Ruleset(
-        include_flowers=not args.no_flowers,
         n_players=TABLE_SIZE,
-        dead_wall_mode=args.dead_wall_mode,
-        dead_wall_base=args.dead_wall_base,
-        scoring_profile=args.profile,
-        scoring_overrides_path=(
-            str(args.scoring_json) if args.scoring_json is not None else None
-        ),
+        scoring_profile=args.scoring_profile,
+        rule_profile=args.rule_profile,
         base_points=args.base_points,
         tai_points=args.tai_points,
-        randomize_seating_and_dealer=False,
     )
 
 
@@ -566,8 +544,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     rules = build_rules(args)
     scoring_table = load_scoring_assets(
-        args.profile,
-        str(args.scoring_json) if args.scoring_json is not None else rules.scoring_overrides_path,
+        rules.scoring_profile,
+        rules.scoring_overrides_path,
     )
 
     rng = random.Random(args.seed)
@@ -610,13 +588,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "jangs": args.jangs,
                 "matches_per_combo": args.matches,
                 "seed": args.seed,
-                "profile": args.profile,
-                "scoring_json": str(args.scoring_json) if args.scoring_json else None,
+                "scoring_profile": args.scoring_profile,
+                "rule_profile": args.rule_profile,
                 "base_points": args.base_points,
                 "tai_points": args.tai_points,
-                "include_flowers": not args.no_flowers,
-                "dead_wall_mode": args.dead_wall_mode,
-                "dead_wall_base": args.dead_wall_base,
             },
             "agents": metrics,
         }
