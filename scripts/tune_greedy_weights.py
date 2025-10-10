@@ -75,7 +75,7 @@ class SearchDomain:
             end = to_int(end_str)
             if start > end:
                 raise ValueError(f"{name} range requires start <= end (got {start}>{end})")
-            step = 1 if scale > 0 else 1
+            step = 1
             values = tuple(range(start, end + 1, step))
         else:
             parts = [part.strip() for part in spec.split(",") if part.strip()]
@@ -466,7 +466,7 @@ def main() -> None:
         "HeuristicWeights("
         f"missing_meld_weight={weights.missing_meld_weight / best.weight_scale if best.weight_scale else weights.missing_meld_weight:.2f}, "
         f"missing_eye_weight={weights.missing_eye_weight / best.weight_scale if best.weight_scale else weights.missing_eye_weight:.2f}, "
-        f"singles_weight={weights.singles_weight / best.weight_scale if best.weight_scale else weights.singles_weight:.2f}, "
+        f"singles_weight={((weights.singles_weight / best.weight_scale) if best.weight_scale else weights.singles_weight):.2f}, "
         f"singles_cap={weights.singles_cap})"
     )
 
