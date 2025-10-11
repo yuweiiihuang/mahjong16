@@ -20,23 +20,6 @@ from .flowers import FlowerManager, FlowerOutcome
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 
-
-def _iter_public_meld_tiles(meld: Dict[str, Any] | Iterable[int]) -> Iterable[int]:
-    """Yield tile ids that are visible from a meld structure."""
-
-    tiles: Iterable[int]
-    if isinstance(meld, dict):
-        tiles = meld.get("tiles") or []
-    else:
-        tiles = meld
-
-    for tile in tiles:
-        if tile is None:
-            continue
-        value = int(tile)
-        if 0 <= value < N_TILES:
-            yield value
-
 class Mahjong16Env:
     """Taiwan 16‑tile Mahjong single‑table environment.
 

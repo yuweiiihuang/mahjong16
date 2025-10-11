@@ -433,10 +433,6 @@ def _hand_shape_states_cached(counts_key: Tuple[int, ...]) -> Tuple[ShapeState, 
     return _pareto_prune(state + honors for state in combined)
 
 
-def _hand_shape_states(counts: Sequence[int]) -> Tuple[ShapeState, ...]:
-    return _hand_shape_states_cached(tuple(counts))
-
-
 def _score_shape_state(
     state: ShapeState,
     fixed_melds: int,
