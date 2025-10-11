@@ -28,7 +28,7 @@ import random
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 TABLE_SIZE = 4
 
@@ -37,6 +37,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from app.table import TableManager
 from bots.greedy import GreedyBotStrategy, HeuristicWeights
 from core import Mahjong16Env, Ruleset
@@ -99,13 +108,14 @@ class SearchDomain:
             options.append(self.values[idx + 1])
         return options
 
-def tuple_to_weights(values: tuple[int, int, int, int]) -> HeuristicWeights:
-    structure, bad_shape, isolated, cap = values
+def tuple_to_weights(values: tuple[int, int, int, int, int]) -> HeuristicWeights:
+    structure, bad_shape, isolated, cap, availability = values
     return HeuristicWeights(
         structure_weight=structure,
         bad_shape_weight=bad_shape,
         isolated_weight=isolated,
         isolated_cap=cap,
+        availability_weight=availability,
     )
 
 
@@ -113,9 +123,11 @@ def format_weights(weights: HeuristicWeights, scale: int) -> str:
     structure = weights.structure_weight / scale if scale else weights.structure_weight
     bad_shape = weights.bad_shape_weight / scale if scale else weights.bad_shape_weight
     isolated = weights.isolated_weight / scale if scale else weights.isolated_weight
+    availability = weights.availability_weight / scale if scale else weights.availability_weight
     return (
         f"struct={structure:.2f}, bad_shape={bad_shape:.2f}, "
-        f"isolated_w={isolated:.2f}, isolated_cap={weights.isolated_cap}"
+        f"isolated_w={isolated:.2f}, availability_w={availability:.2f}, "
+        f"isolated_cap={weights.isolated_cap}"
     )
 
 
@@ -205,6 +217,11 @@ def parse_args() -> argparse.Namespace:
         help="Domain for isolated_weight (aligned to grid, default: 1:3)",
     )
     parser.add_argument(
+        "--availability-weight-range",
+        default="1:4",
+        help="Domain for availability_weight (aligned to grid, default: 1:4)",
+    )
+    parser.add_argument(
         "--isolated-cap-range",
         default="8:16",
         help="Domain for isolated_cap (min:max or comma list, default: 8:16)",
@@ -214,6 +231,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional path for serialised trial metrics (JSON list)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bar output",
     )
     return parser.parse_args()
 
@@ -226,6 +248,8 @@ def run_trial(
     args: argparse.Namespace,
     hands: int,
     base_seed: int | None,
+    progress: Progress | None = None,
+    task_id: TaskID | None = None,
 ) -> TrialMetrics:
     env_seed = (base_seed + trial_index) if base_seed is not None else None
 
@@ -288,6 +312,8 @@ def run_trial(
                 ron_wins += 1
 
         table.finish_hand(env)
+        if progress is not None and task_id is not None:
+            progress.advance(task_id)
 
     draw_rate = (draws / hands_played) if hands_played else math.nan
 
@@ -307,9 +333,9 @@ def run_trial(
     )
 
 
-def print_progress(result: TrialMetrics) -> None:
+def print_progress(result: TrialMetrics, *, log: Callable[[str], None] = print) -> None:
     draw_pct = result.draw_rate * 100 if not math.isnan(result.draw_rate) else float("nan")
-    print(
+    log(
         f"Eval {result.trial_index + 1:02d} | "
         f"draws={result.draws}/{result.hands_played} ({draw_pct:.2f}%) | "
         f"wins={result.wins} (tsumo={result.tsumo_wins}, ron={result.ron_wins}) | "
@@ -333,147 +359,191 @@ def choose_best(results: Sequence[TrialMetrics]) -> TrialMetrics | None:
 def main() -> None:
     args = parse_args()
 
-    rng = random.Random(args.seed)
+    progress_cm: Progress | None = None
+    progress: Progress | None = None
+    if not args.no_progress:
+        progress_cm = Progress(
+            TextColumn("[bold]{task.description}"),
+            BarColumn(bar_width=None),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            transient=True,
+        )
+        progress = progress_cm.__enter__()
 
-    grid_step = float(args.grid_step)
-    if grid_step <= 0 or grid_step > 1:
-        raise SystemExit("grid_step must be in the interval (0, 1]")
-    weight_scale = int(round(1.0 / grid_step))
-    if weight_scale <= 0 or not math.isclose(grid_step * weight_scale, 1.0, abs_tol=1e-9):
-        raise SystemExit("grid_step must evenly divide 1.0 (e.g. 1, 0.5, 0.25, 0.2)")
+    try:
+        rng = random.Random(args.seed)
 
-    structure_domain = SearchDomain.from_spec(
-        args.structure_weight_range,
-        name="structure_weight_range",
-        scale=weight_scale,
-    )
-    bad_shape_domain = SearchDomain.from_spec(
-        args.bad_shape_weight_range,
-        name="bad_shape_weight_range",
-        scale=weight_scale,
-    )
-    isolated_domain = SearchDomain.from_spec(
-        args.isolated_weight_range,
-        name="isolated_weight_range",
-        scale=weight_scale,
-    )
-    cap_domain = SearchDomain.from_spec(
-        args.isolated_cap_range,
-        name="isolated_cap_range",
-        scale=1,
-        allow_float=False,
-    )
+        grid_step = float(args.grid_step)
+        if grid_step <= 0 or grid_step > 1:
+            raise SystemExit("grid_step must be in the interval (0, 1]")
+        weight_scale = int(round(1.0 / grid_step))
+        if weight_scale <= 0 or not math.isclose(grid_step * weight_scale, 1.0, abs_tol=1e-9):
+            raise SystemExit("grid_step must evenly divide 1.0 (e.g. 1, 0.5, 0.25, 0.2)")
 
-    domains = (structure_domain, bad_shape_domain, isolated_domain, cap_domain)
+        structure_domain = SearchDomain.from_spec(
+            args.structure_weight_range,
+            name="structure_weight_range",
+            scale=weight_scale,
+        )
+        bad_shape_domain = SearchDomain.from_spec(
+            args.bad_shape_weight_range,
+            name="bad_shape_weight_range",
+            scale=weight_scale,
+        )
+        isolated_domain = SearchDomain.from_spec(
+            args.isolated_weight_range,
+            name="isolated_weight_range",
+            scale=weight_scale,
+        )
+        availability_domain = SearchDomain.from_spec(
+            args.availability_weight_range,
+            name="availability_weight_range",
+            scale=weight_scale,
+        )
+        cap_domain = SearchDomain.from_spec(
+            args.isolated_cap_range,
+            name="isolated_cap_range",
+            scale=1,
+            allow_float=False,
+        )
 
-    hands = max(0, int(args.hands))
-    restarts = max(0, int(args.trials))
-    max_steps = max(1, int(args.max_steps))
+        domains = (structure_domain, bad_shape_domain, isolated_domain, cap_domain, availability_domain)
 
-    results: list[TrialMetrics] = []
-    cache: dict[tuple[int, int, int, int], TrialMetrics] = {}
-    eval_counter = 0
+        hands = max(0, int(args.hands))
+        restarts = max(0, int(args.trials))
+        max_steps = max(1, int(args.max_steps))
 
-    def evaluate(config: tuple[int, int, int, int]) -> TrialMetrics:
-        nonlocal eval_counter
-        metric = cache.get(config)
-        if metric is not None:
+        results: list[TrialMetrics] = []
+        cache: dict[tuple[int, int, int, int, int], TrialMetrics] = {}
+        eval_counter = 0
+
+        def evaluate(config: tuple[int, int, int, int, int]) -> TrialMetrics:
+            nonlocal eval_counter
+            metric = cache.get(config)
+            if metric is not None:
+                return metric
+
+            task_id: TaskID | None = None
+            if progress is not None and hands > 0:
+                task_id = progress.add_task(f"Eval {eval_counter + 1}", total=hands)
+
+            weights = tuple_to_weights(config)
+            try:
+                metric = run_trial(
+                    eval_counter,
+                    weights=weights,
+                    weight_scale=weight_scale,
+                    args=args,
+                    hands=hands,
+                    base_seed=args.seed,
+                    progress=progress,
+                    task_id=task_id,
+                )
+            except Exception:
+                if progress is not None and task_id is not None:
+                    progress.remove_task(task_id)
+                raise
+
+            cache[config] = metric
+            results.append(metric)
+
+            log_fn = progress.console.print if progress is not None else print
+            print_progress(metric, log=log_fn)
+
+            if progress is not None and task_id is not None:
+                progress.remove_task(task_id)
+
+            eval_counter += 1
             return metric
-        weights = tuple_to_weights(config)
-        metric = run_trial(
-            eval_counter,
-            weights=weights,
-            weight_scale=weight_scale,
-            args=args,
-            hands=hands,
-            base_seed=args.seed,
-        )
-        cache[config] = metric
-        results.append(metric)
-        print_progress(metric)
-        eval_counter += 1
-        return metric
 
-    def is_better(candidate: TrialMetrics, baseline: TrialMetrics) -> bool:
-        if math.isnan(candidate.draw_rate):
+        def is_better(candidate: TrialMetrics, baseline: TrialMetrics) -> bool:
+            if math.isnan(candidate.draw_rate):
+                return False
+            if math.isnan(baseline.draw_rate):
+                return True
+            if candidate.draw_rate < baseline.draw_rate - 1e-9:
+                return True
+            if math.isclose(candidate.draw_rate, baseline.draw_rate, abs_tol=1e-9):
+                return candidate.wins > baseline.wins
             return False
-        if math.isnan(baseline.draw_rate):
-            return True
-        if candidate.draw_rate < baseline.draw_rate - 1e-9:
-            return True
-        if math.isclose(candidate.draw_rate, baseline.draw_rate, abs_tol=1e-9):
-            return candidate.wins > baseline.wins
-        return False
 
-    best_overall: TrialMetrics | None = None
+        best_overall: TrialMetrics | None = None
+        log = progress.console.print if progress is not None else print
 
-    for restart in range(restarts):
-        print(f"\n=== Restart {restart + 1}/{restarts} ===")
-        start_config = (
-            structure_domain.sample(rng),
-            bad_shape_domain.sample(rng),
-            isolated_domain.sample(rng),
-            cap_domain.sample(rng),
+        for restart in range(restarts):
+            log(f"\n=== Restart {restart + 1}/{restarts} ===")
+            start_config = (
+                structure_domain.sample(rng),
+                bad_shape_domain.sample(rng),
+                isolated_domain.sample(rng),
+                cap_domain.sample(rng),
+                availability_domain.sample(rng),
+            )
+            current_config = start_config
+            current_result = evaluate(current_config)
+
+            for _ in range(max_steps):
+                neighbours: list[tuple[int, int, int, int, int]] = []
+                for idx, domain in enumerate(domains):
+                    for neighbour_value in domain.neighbours(current_config[idx]):
+                        candidate = list(current_config)
+                        candidate[idx] = neighbour_value
+                        neighbours.append(tuple(candidate))
+
+                if not neighbours:
+                    break
+
+                best_candidate_result: TrialMetrics | None = None
+                best_candidate_config: tuple[int, int, int, int, int] | None = None
+                for config in neighbours:
+                    result = evaluate(config)
+                    if best_candidate_result is None or is_better(result, best_candidate_result):
+                        best_candidate_result = result
+                        best_candidate_config = config
+
+                if best_candidate_result is None or best_candidate_config is None:
+                    break
+                if not is_better(best_candidate_result, current_result):
+                    break
+
+                current_config = best_candidate_config
+                current_result = best_candidate_result
+
+            if best_overall is None or is_better(current_result, best_overall):
+                best_overall = current_result
+
+        best = best_overall or choose_best(results)
+        if best is None:
+            log("No valid trials were completed.")
+            return
+
+        log("\n=== Best configuration ===")
+        weights = best.weights
+        log(
+            f"draws={best.draws}/{best.hands_played} ({best.draw_rate * 100:.2f}%) | "
+            f"wins={best.wins} (tsumo={best.tsumo_wins}, ron={best.ron_wins}) | "
+            f"seed={best.seed}"
         )
-        current_config = start_config
-        current_result = evaluate(current_config)
+        log(
+            "HeuristicWeights("
+            f"structure_weight={weights.structure_weight / best.weight_scale if best.weight_scale else weights.structure_weight:.2f}, "
+            f"bad_shape_weight={weights.bad_shape_weight / best.weight_scale if best.weight_scale else weights.bad_shape_weight:.2f}, "
+            f"isolated_weight={((weights.isolated_weight / best.weight_scale) if best.weight_scale else weights.isolated_weight):.2f}, "
+            f"isolated_cap={weights.isolated_cap}, "
+            f"availability_weight={weights.availability_weight / best.weight_scale if best.weight_scale else weights.availability_weight:.2f})"
+        )
 
-        for _ in range(max_steps):
-            neighbours: list[tuple[int, int, int, int]] = []
-            for idx, domain in enumerate(domains):
-                for neighbour_value in domain.neighbours(current_config[idx]):
-                    candidate = list(current_config)
-                    candidate[idx] = neighbour_value
-                    neighbours.append(tuple(candidate))
-
-            if not neighbours:
-                break
-
-            best_candidate_result: TrialMetrics | None = None
-            best_candidate_config: tuple[int, int, int, int] | None = None
-            for config in neighbours:
-                result = evaluate(config)
-                if best_candidate_result is None or is_better(result, best_candidate_result):
-                    best_candidate_result = result
-                    best_candidate_config = config
-
-            if best_candidate_result is None or best_candidate_config is None:
-                break
-            if not is_better(best_candidate_result, current_result):
-                break
-
-            current_config = best_candidate_config
-            current_result = best_candidate_result
-
-        if best_overall is None or is_better(current_result, best_overall):
-            best_overall = current_result
-
-    best = best_overall or choose_best(results)
-    if best is None:
-        print("No valid trials were completed.")
-        return
-
-    print("\n=== Best configuration ===")
-    weights = best.weights
-    print(
-        f"draws={best.draws}/{best.hands_played} ({best.draw_rate * 100:.2f}%) | "
-        f"wins={best.wins} (tsumo={best.tsumo_wins}, ron={best.ron_wins}) | "
-        f"seed={best.seed}"
-    )
-    print(
-        "HeuristicWeights("
-        f"structure_weight={weights.structure_weight / best.weight_scale if best.weight_scale else weights.structure_weight:.2f}, "
-        f"bad_shape_weight={weights.bad_shape_weight / best.weight_scale if best.weight_scale else weights.bad_shape_weight:.2f}, "
-        f"isolated_weight={((weights.isolated_weight / best.weight_scale) if best.weight_scale else weights.isolated_weight):.2f}, "
-        f"isolated_cap={weights.isolated_cap})"
-    )
-
-    json_out: Path | None = getattr(args, "json_out", None)
-    if json_out:
-        payload = [asdict(result) for result in results]
-        json_out.parent.mkdir(parents=True, exist_ok=True)
-        json_out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"Trial metrics written to {json_out}")
+        json_out: Path | None = getattr(args, "json_out", None)
+        if json_out:
+            payload = [asdict(result) for result in results]
+            json_out.parent.mkdir(parents=True, exist_ok=True)
+            json_out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            log(f"Trial metrics written to {json_out}")
+    finally:
+        if progress_cm is not None:
+            progress_cm.__exit__(None, None, None)
 
 
 if __name__ == "__main__":
