@@ -67,6 +67,7 @@ _DEFAULT_WEIGHTS = HeuristicWeights()
 
 _MELD_TARGET = 5
 _MAX_SHANTEN = _MELD_TARGET * 2
+_STRUCTURE_ONLY_WEIGHTS_KEY: Tuple[int, int, int, int, int] = (100, 0, 0, 0, 0)
 
 
 def _weights_cache_key(weights: HeuristicWeights) -> Tuple[int, int, int, int, int]:
@@ -134,26 +135,27 @@ def _compute_availability(
     structure_distance: int,
     live_counts: Sequence[int],
     fixed_melds: int,
-    weights_key: Tuple[int, int, int, int, int],
 ) -> int:
     if structure_distance <= -1:
         return 0
 
     total = 0
-    improving = _improving_tiles(counts_key, fixed_melds, weights_key)
-    for tile in improving:
-        if 0 <= tile < len(live_counts):
+    for tile in _improving_tiles(counts_key, fixed_melds):
+        if 0 <= tile < len(live_counts) and live_counts[tile] > 0:
             total += int(live_counts[tile])
     return total
 
 
-@lru_cache(maxsize=60000)
+@lru_cache(maxsize=65536)
 def _improving_tiles(
     counts_key: Tuple[int, ...],
     fixed_melds: int,
-    weights_key: Tuple[int, int, int, int, int],
 ) -> Tuple[int, ...]:
-    base_snapshot = _score_concealed_counts_cached(counts_key, fixed_melds, weights_key)
+    base_snapshot = _score_concealed_counts_cached(
+        counts_key,
+        fixed_melds,
+        _STRUCTURE_ONLY_WEIGHTS_KEY,
+    )
     base_distance = base_snapshot.structure_distance
     if base_distance <= -1:
         return tuple()
@@ -180,7 +182,7 @@ def _improving_tiles(
         snapshot = _score_concealed_counts_cached(
             tuple(counts_list),
             fixed_melds,
-            weights_key,
+            _STRUCTURE_ONLY_WEIGHTS_KEY,
         )
         counts_list[tile] -= 1
         if snapshot.structure_distance < base_distance:
@@ -450,8 +452,7 @@ def _score_shape_state(
 
     available_pairs = max(0, state.pairs - use_eye)
     taatsu_total = good_used + bad_used
-    unused_pairs = available_pairs
-    has_head = bool(use_eye or unused_pairs)
+    has_head = bool(use_eye or available_pairs)
 
     # structure_distance applies a 16-tile shanten-style approximation: the minimum
     # draws to reach tenpai using ``10 - 2m - t - p`` with ``p`` in {0, 1}, plus
@@ -468,7 +469,7 @@ def _score_shape_state(
         shanten += 1
 
     structure_distance = max(shanten, -1)
-    bad_shapes = state.bad_partials + max(0, state.pairs - use_eye)
+    bad_shapes = state.bad_partials
     isolated = state.singles
 
     cost = weights.evaluate(structure_distance, bad_shapes, isolated, 0)
@@ -549,7 +550,6 @@ def _heuristic(
         best_snapshot.structure_distance,
         live,
         fixed_melds,
-        weights_key,
     )
     cost = weights.evaluate(
         best_snapshot.structure_distance,
@@ -680,7 +680,7 @@ class GreedyBotStrategy:
         def entry_key(entry: dict) -> Tuple[int, ...]:
             ensure_availability(entry)
             snapshot = entry["snapshot"]
-            return _snapshot_order(snapshot) + (snapshot.cost, entry["priority"])
+            return _snapshot_order(snapshot) + (entry["priority"],)
 
         baseline_hand = list(obs.get("hand") or [])
         baseline_melds = obs.get("melds")
@@ -751,7 +751,7 @@ class GreedyBotStrategy:
         def entry_key(entry: dict) -> Tuple[int, ...]:
             ensure_availability(entry)
             snapshot = entry["snapshot"]
-            return _snapshot_order(snapshot) + (snapshot.cost, entry["tie_break"])
+            return _snapshot_order(snapshot) + (entry["tie_break"],)
 
         best_entry: Optional[dict] = None
 
