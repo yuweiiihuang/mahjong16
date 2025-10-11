@@ -7,6 +7,7 @@
 - Treat `scripts/` (e.g., `scripts/bench_sim.py`) and config assets under `configs/` as read-only inputs; mirror any new runtime behavior with tests in `tests/`.
 
 ## Build, Test, and Development Commands
+- Always activate the project venv before running commands: `source .venv/bin/activate`.
 - `pip install -r requirements.txt` installs runtime dependencies and pytest extras.
 - `python main.py` launches the interactive CLI table for manual rule smoke-checks.
 - `python -m core.env` runs the environment module directly to validate import safety.
