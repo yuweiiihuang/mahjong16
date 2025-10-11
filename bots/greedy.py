@@ -149,19 +149,26 @@ def _compute_availability(
 
 
 def _live_counts_from_obs(obs: dict) -> Tuple[int, ...]:
-    counts = _initial_live_counts()
+    live_public = obs.get("live_public")
+    if live_public is not None:
+        counts = [0] * N_TILES
+        for idx, value in enumerate(live_public):
+            if 0 <= idx < N_TILES:
+                counts[idx] = max(0, int(value))
+    else:
+        counts = _initial_live_counts()
+        for melds in obs.get("melds_all") or []:
+            for meld in melds or []:
+                _consume_live_tiles(counts, _iter_meld_tiles(meld))
+
+        for river in obs.get("rivers") or []:
+            _consume_live_tiles(counts, river or [])
+
     _consume_live_tiles(counts, obs.get("hand") or [])
 
     drawn = obs.get("drawn")
     if drawn is not None:
         _consume_live_tiles(counts, [drawn])
-
-    for melds in obs.get("melds_all") or []:
-        for meld in melds or []:
-            _consume_live_tiles(counts, _iter_meld_tiles(meld))
-
-    for river in obs.get("rivers") or []:
-        _consume_live_tiles(counts, river or [])
 
     return tuple(counts)
 

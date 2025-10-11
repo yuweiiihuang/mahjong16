@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from bots.greedy import GreedyBotStrategy, HeuristicWeights, _heuristic
+from bots.greedy import (
+    GreedyBotStrategy,
+    HeuristicWeights,
+    _heuristic,
+    _live_counts_from_obs,
+)
 from core.tiles import Tile
 
 
@@ -136,3 +141,17 @@ def test_discards_prefer_more_availability_when_structure_equal():
     action = strategy.choose(obs)
     assert action.get("type") == "DISCARD"
     assert action.get("tile") == Tile.B1
+
+
+def test_live_counts_use_public_snapshot_when_available():
+    base = [4] * 34
+    base[Tile.W1] = 2
+    base[Tile.D2] = 1
+    obs = {
+        "hand": [Tile.W1],
+        "drawn": Tile.D2,
+        "live_public": base,
+    }
+    counts = _live_counts_from_obs(obs)
+    assert counts[Tile.W1] == 1
+    assert counts[Tile.D2] == 0

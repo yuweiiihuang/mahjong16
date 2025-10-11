@@ -1,6 +1,6 @@
 from core import Mahjong16Env
 from core.ruleset import Ruleset
-from core.tiles import flower_ids
+from core.tiles import N_TILES, flower_ids
 
 def test_reset_and_deal():
     env = Mahjong16Env(Ruleset(), seed=123)
@@ -14,6 +14,9 @@ def test_reset_and_deal():
             assert p.drawn is None, "閒家開局不應有 drawn"
     # 當前行動必為莊家
     assert obs["player"] == env.dealer_pid
+    assert "live_public" in obs
+    assert len(obs["live_public"]) == N_TILES
+    assert all(value == 4 for value in obs["live_public"])
     # 合法動作應包含丟 drawn
     assert any(
         action["type"] == "DISCARD" and action.get("from") == "drawn"
@@ -30,6 +33,9 @@ def test_discard_then_reaction_window_and_pass_all():
     obs2, rew, done, info = env.step(a0)
     assert obs2["phase"] == "REACTION"
     assert obs2["player"] == 1, "丟牌後應由下家先回應"
+    before_live = obs["live_public"][a0["tile"]]
+    after_live = obs2["live_public"][a0["tile"]]
+    assert after_live == max(0, before_live - 1)
     # 三家都 PASS -> 輪到 P1 摸到 drawn，phase 回到 TURN
     obs3, _, _, _ = env.step({"type": "PASS"})
     obs4, _, _, _ = env.step({"type": "PASS"})

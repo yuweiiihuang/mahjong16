@@ -1,9 +1,10 @@
 # file: core/env.py
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Iterable, List, Dict, Any, Optional, Tuple
 import random
 
 from .tiles import (
+    N_TILES,
     chi_options,
     full_wall,
     hand_to_str,
@@ -18,6 +19,23 @@ from .flowers import FlowerManager, FlowerOutcome
 
 # 反應優先權：胡 > 槓 > 碰 > 吃
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
+
+
+def _iter_public_meld_tiles(meld: Dict[str, Any] | Iterable[int]) -> Iterable[int]:
+    """Yield tile ids that are visible from a meld structure."""
+
+    tiles: Iterable[int]
+    if isinstance(meld, dict):
+        tiles = meld.get("tiles") or []
+    else:
+        tiles = meld
+
+    for tile in tiles:
+        if tile is None:
+            continue
+        value = int(tile)
+        if 0 <= value < N_TILES:
+            yield value
 
 class Mahjong16Env:
     """Taiwan 16‑tile Mahjong single‑table environment.
@@ -655,9 +673,27 @@ class Mahjong16Env:
             # 公開資訊：所有玩家的副露與棄牌河
             "melds_all": [[m if isinstance(m, dict) else list(m) for m in p.melds] for p in self.players],
             "rivers": [list(p.river) for p in self.players],
+            "live_public": self._public_live_counts(),
             "n_remaining": len(self.wall),
             "last_discard": dict(self.last_discard) if self.last_discard else None,
             "legal_actions": ([] if is_done else
                           self.legal_actions(pid=None if self.phase == "TURN" else pid)),
         }
         return obs
+
+    def _public_live_counts(self) -> List[int]:
+        """Return counts of live tiles after removing all publicly visible tiles."""
+
+        counts = [4] * N_TILES
+        for player in self.players:
+            for tile in player.river:
+                if tile is None:
+                    continue
+                value = int(tile)
+                if 0 <= value < N_TILES and counts[value] > 0:
+                    counts[value] -= 1
+            for meld in player.melds:
+                for value in _iter_public_meld_tiles(meld):
+                    if counts[value] > 0:
+                        counts[value] -= 1
+        return counts
