@@ -1,6 +1,6 @@
 from core import Mahjong16Env
 from core.ruleset import Ruleset
-from core.tiles import N_TILES, flower_ids
+from core.tiles import N_TILES, Tile, flower_ids
 
 def test_reset_and_deal():
     env = Mahjong16Env(Ruleset(), seed=123)
@@ -44,6 +44,95 @@ def test_discard_then_reaction_window_and_pass_all():
     assert obs5["player"] == 1
     assert env.players[1].drawn is not None
     assert len(env.players[1].hand) == env.rules.initial_hand
+
+
+def test_public_live_updates_when_claiming_open_meld():
+    env = Mahjong16Env(Ruleset(), seed=1)
+    env.reset()
+
+    tile = Tile.W1
+    filler = [
+        Tile.W2,
+        Tile.W3,
+        Tile.W4,
+        Tile.W5,
+        Tile.W6,
+        Tile.W7,
+        Tile.W8,
+        Tile.W9,
+        Tile.D1,
+        Tile.D2,
+        Tile.D3,
+        Tile.D4,
+        Tile.D5,
+        Tile.D6,
+        Tile.D7,
+        Tile.D8,
+    ]
+
+    env.turn = 0
+    env.phase = "TURN"
+    env.seating_order = list(range(env.rules.n_players))
+    env._seat_index = {pid: idx for idx, pid in enumerate(env.seating_order)}
+    env.dealer_pid = 0
+    env.players[0].hand = list(filler)
+    env.players[0].drawn = tile
+    env.players[0].melds = []
+    env.players[0].river = []
+
+    env.players[1].hand = [tile, tile] + filler[: env.rules.initial_hand - 2]
+    env.players[1].drawn = None
+    env.players[1].melds = []
+    env.players[1].river = []
+
+    obs_reaction, _, _, _ = env.step({"type": "DISCARD", "tile": tile, "from": "drawn"})
+    assert obs_reaction["phase"] == "REACTION"
+    assert obs_reaction["live_public"][tile] == 3
+    assert obs_reaction["player"] == 1
+
+    env.step({"type": "PONG"})
+    env.step({"type": "PASS"})
+    obs_after_pong, _, _, _ = env.step({"type": "PASS"})
+    assert obs_after_pong["phase"] == "TURN"
+    assert obs_after_pong["player"] == 1
+    assert obs_after_pong["live_public"][tile] == 1
+
+
+def test_public_live_updates_on_angang():
+    env = Mahjong16Env(Ruleset(), seed=2)
+    env.reset()
+
+    tile = Tile.B1
+    filler = [
+        Tile.W2,
+        Tile.W3,
+        Tile.W4,
+        Tile.W5,
+        Tile.W6,
+        Tile.W7,
+        Tile.W8,
+        Tile.W9,
+        Tile.D1,
+        Tile.D2,
+        Tile.D3,
+        Tile.D4,
+        Tile.D5,
+        Tile.D6,
+        Tile.D7,
+        Tile.D8,
+    ]
+
+    env.turn = 0
+    env.phase = "TURN"
+    env.players[0].hand = [tile, tile, tile, tile] + filler[: env.rules.initial_hand - 4]
+    env.players[0].drawn = None
+    env.players[0].melds = []
+    env.players[0].river = []
+
+    obs_after_kong, _, _, _ = env.step({"type": "ANGANG", "tile": tile})
+    assert obs_after_kong["phase"] == "TURN"
+    assert obs_after_kong["player"] == 0
+    assert obs_after_kong["live_public"][tile] == 0
 
 
 def test_flower_ba_xian_triggers_tsumo_win():
