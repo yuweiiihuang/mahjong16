@@ -1,9 +1,10 @@
 # file: core/env.py
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Iterable, List, Dict, Any, Optional, Tuple
 import random
 
 from .tiles import (
+    N_TILES,
     chi_options,
     full_wall,
     hand_to_str,
@@ -33,6 +34,7 @@ class Mahjong16Env:
         self.rules = rules
         self.rng = random.Random(seed)
         self.reset_rng_seed = seed
+        self._public_live: List[int] = [4] * N_TILES
 
     # ====== 尾牌留置（流局）判斷 ======
     def _dead_wall_reserved(self) -> int:
@@ -82,6 +84,7 @@ class Mahjong16Env:
         self._recent_gang_draw_pid: Optional[int] = None  # 剛補摸者
         self.qiang_gang_mode: bool = False       # 是否進入搶槓反應
         self.pending_kakan: Optional[Dict[str, Any]] = None  # {pid,tile}
+        self._init_public_live_counts()
 
     def _assign_seats_and_dealer(self) -> None:
         """Determine seat winds, seating order, and dealer selection for the round."""
@@ -284,6 +287,7 @@ class Mahjong16Env:
         self.discard_pile.append(tile)
         self.discard_count += 1
         self.last_discard = {"pid": pid, "tile": tile}
+        self._public_live_decrement(tile)
         if a_type == "TING":
             self.players[pid].declared_ting = True
             self.players[pid].ting_declared_at = self.discard_count
@@ -315,6 +319,7 @@ class Mahjong16Env:
             removed += 1
         assert removed == 4
         me.melds.append({"type": "ANGANG", "tiles": [tile, tile, tile, tile], "from_pid": None})
+        self._public_live_decrement(tile, amount=4)
         self.n_gang += 1
         self._draw_to_drawn(pid)
         self._recent_gang_draw_pid = pid
@@ -330,6 +335,7 @@ class Mahjong16Env:
         self.qiang_gang_mode = True
         self.pending_kakan = {"pid": pid, "tile": tile}
         self.last_discard = {"pid": pid, "tile": tile}
+        self._public_live_decrement(tile)
         self.phase = "REACTION"
         self.reaction_queue = [
             self.seating_order[(self._seat_index.get(pid, 0) + i) % self.rules.n_players]
@@ -411,6 +417,7 @@ class Mahjong16Env:
         self.players[claimer].hand.remove(use[0])
         self.players[claimer].hand.remove(use[1])
         self.players[claimer].melds.append({"type": "CHI", "tiles": [use[0], use[1], tile], "from_pid": discarder})
+        self._public_live_consume([use[0], use[1]])
         self.total_open_melds += 1
         self.players[claimer].drawn = None
         self.turn = claimer
@@ -424,6 +431,7 @@ class Mahjong16Env:
         for _ in range(2):
             self.players[claimer].hand.remove(tile)
         self.players[claimer].melds.append({"type": "PONG", "tiles": [tile, tile, tile], "from_pid": discarder})
+        self._public_live_decrement(tile, amount=2)
         self.total_open_melds += 1
         self.players[claimer].drawn = None
         self.turn = claimer
@@ -437,6 +445,7 @@ class Mahjong16Env:
         for _ in range(3):
             self.players[claimer].hand.remove(tile)
         self.players[claimer].melds.append({"type": "GANG", "tiles": [tile, tile, tile, tile], "from_pid": discarder})
+        self._public_live_decrement(tile, amount=3)
         self.total_open_melds += 1
         self.n_gang += 1
         self.players[claimer].drawn = None
@@ -655,9 +664,39 @@ class Mahjong16Env:
             # 公開資訊：所有玩家的副露與棄牌河
             "melds_all": [[m if isinstance(m, dict) else list(m) for m in p.melds] for p in self.players],
             "rivers": [list(p.river) for p in self.players],
+            "live_public": self._public_live_counts(),
             "n_remaining": len(self.wall),
             "last_discard": dict(self.last_discard) if self.last_discard else None,
             "legal_actions": ([] if is_done else
                           self.legal_actions(pid=None if self.phase == "TURN" else pid)),
         }
         return obs
+
+    def _init_public_live_counts(self) -> None:
+        """Reset the public live tile counter to the initial four copies each."""
+
+        self._public_live: List[int] = [4] * N_TILES
+
+    def _public_live_counts(self) -> List[int]:
+        """Return a copy of the current public live tile counts."""
+
+        return list(self._public_live)
+
+    def _public_live_decrement(self, tile: int, amount: int = 1) -> None:
+        """Decrease the public live tile count for a revealed tile."""
+
+        if amount <= 0:
+            return
+        if 0 <= tile < N_TILES:
+            current = self._public_live[tile]
+            if current <= 0:
+                return
+            self._public_live[tile] = max(0, current - amount)
+
+    def _public_live_consume(self, tiles: Iterable[int]) -> None:
+        """Consume multiple public tiles, applying the decrement helper per entry."""
+
+        for tile in tiles:
+            if tile is None:
+                continue
+            self._public_live_decrement(int(tile))
