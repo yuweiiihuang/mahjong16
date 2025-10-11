@@ -668,6 +668,7 @@ class GreedyBotStrategy:
         def ensure_availability(entry: dict) -> None:
             if entry.get("availability_computed"):
                 return
+            entry.pop("cached_key", None)
             entry["snapshot"] = _heuristic(
                 entry["hand"],
                 entry["melds"],
@@ -678,9 +679,14 @@ class GreedyBotStrategy:
             entry["availability_computed"] = True
 
         def entry_key(entry: dict) -> Tuple[int, ...]:
+            cached = entry.get("cached_key")
+            if cached is not None:
+                return cached
             ensure_availability(entry)
             snapshot = entry["snapshot"]
-            return _snapshot_order(snapshot) + (entry["priority"],)
+            key = _snapshot_order(snapshot) + (entry["priority"],)
+            entry["cached_key"] = key
+            return key
 
         baseline_hand = list(obs.get("hand") or [])
         baseline_melds = obs.get("melds")
@@ -739,6 +745,7 @@ class GreedyBotStrategy:
         def ensure_availability(entry: dict) -> None:
             if entry.get("availability_computed"):
                 return
+            entry.pop("cached_key", None)
             entry["snapshot"] = _heuristic(
                 entry["hand"],
                 entry["melds"],
@@ -749,9 +756,14 @@ class GreedyBotStrategy:
             entry["availability_computed"] = True
 
         def entry_key(entry: dict) -> Tuple[int, ...]:
+            cached = entry.get("cached_key")
+            if cached is not None:
+                return cached
             ensure_availability(entry)
             snapshot = entry["snapshot"]
-            return _snapshot_order(snapshot) + (entry["tie_break"],)
+            key = _snapshot_order(snapshot) + (entry["tie_break"],)
+            entry["cached_key"] = key
+            return key
 
         best_entry: Optional[dict] = None
 
