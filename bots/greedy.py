@@ -69,6 +69,16 @@ _MELD_TARGET = 5
 _MAX_SHANTEN = _MELD_TARGET * 2
 
 
+def _weights_cache_key(weights: HeuristicWeights) -> Tuple[int, int, int, int, int]:
+    return (
+        weights.structure_weight,
+        weights.bad_shape_weight,
+        weights.isolated_weight,
+        weights.isolated_cap,
+        weights.availability_weight,
+    )
+
+
 def _counts34(tiles: Iterable[Tile]) -> List[int]:
     """Map tiles into the standard 34-tile histogram."""
 
@@ -120,32 +130,62 @@ def _default_live_counts(
 
 
 def _compute_availability(
-    hand: Sequence[Tile],
-    melds: Optional[Sequence[dict]],
+    counts_key: Tuple[int, ...],
     structure_distance: int,
     live_counts: Sequence[int],
-    weights: HeuristicWeights,
+    fixed_melds: int,
+    weights_key: Tuple[int, int, int, int, int],
 ) -> int:
     if structure_distance <= -1:
         return 0
 
     total = 0
-    for tile, live in enumerate(live_counts):
-        if tile >= N_TILES or live <= 0:
-            continue
-
-        new_hand = list(hand)
-        new_hand.append(tile)
-        snapshot = _heuristic(
-            new_hand,
-            melds,
-            weights,
-            live_counts=live_counts,
-            include_availability=False,
-        )
-        if snapshot.structure_distance < structure_distance:
-            total += int(live)
+    improving = _improving_tiles(counts_key, fixed_melds, weights_key)
+    for tile in improving:
+        if 0 <= tile < len(live_counts):
+            total += int(live_counts[tile])
     return total
+
+
+@lru_cache(maxsize=60000)
+def _improving_tiles(
+    counts_key: Tuple[int, ...],
+    fixed_melds: int,
+    weights_key: Tuple[int, int, int, int, int],
+) -> Tuple[int, ...]:
+    base_snapshot = _score_concealed_counts_cached(counts_key, fixed_melds, weights_key)
+    base_distance = base_snapshot.structure_distance
+    if base_distance <= -1:
+        return tuple()
+
+    counts_list = list(counts_key)
+    improving: list[int] = []
+
+    candidate_tiles: set[int] = set()
+    for tile, count in enumerate(counts_list):
+        if count <= 0:
+            continue
+        candidate_tiles.add(tile)
+        if tile < 27:
+            base = tile // 9
+            for delta in (-2, -1, 1, 2):
+                neighbour = tile + delta
+                if 0 <= neighbour < 27 and neighbour // 9 == base:
+                    candidate_tiles.add(neighbour)
+
+    for tile in candidate_tiles:
+        if tile >= N_TILES or counts_list[tile] >= 4:
+            continue
+        counts_list[tile] += 1
+        snapshot = _score_concealed_counts_cached(
+            tuple(counts_list),
+            fixed_melds,
+            weights_key,
+        )
+        counts_list[tile] -= 1
+        if snapshot.structure_distance < base_distance:
+            improving.append(tile)
+    return tuple(improving)
 
 
 def _live_counts_from_obs(obs: dict) -> Tuple[int, ...]:
@@ -381,15 +421,20 @@ def _combine_shape_states(states_per_block: Sequence[Tuple[ShapeState, ...]]) ->
     return _pareto_prune(combined)
 
 
-def _hand_shape_states(counts: Sequence[int]) -> Tuple[ShapeState, ...]:
+@lru_cache(maxsize=8192)
+def _hand_shape_states_cached(counts_key: Tuple[int, ...]) -> Tuple[ShapeState, ...]:
     """Return possible aggregate partitions of the concealed hand."""
 
-    wan = _analyze_suit(tuple(counts[0:9]))
-    tong = _analyze_suit(tuple(counts[9:18]))
-    tiao = _analyze_suit(tuple(counts[18:27]))
-    honors = _analyze_honors(tuple(counts[27:34]))
+    wan = _analyze_suit(tuple(counts_key[0:9]))
+    tong = _analyze_suit(tuple(counts_key[9:18]))
+    tiao = _analyze_suit(tuple(counts_key[18:27]))
+    honors = _analyze_honors(tuple(counts_key[27:34]))
     combined = _combine_shape_states((wan, tong, tiao))
     return _pareto_prune(state + honors for state in combined)
+
+
+def _hand_shape_states(counts: Sequence[int]) -> Tuple[ShapeState, ...]:
+    return _hand_shape_states_cached(tuple(counts))
 
 
 def _score_shape_state(
@@ -442,6 +487,42 @@ def _score_shape_state(
     )
 
 
+@lru_cache(maxsize=4096)
+def _score_concealed_counts_cached(
+    counts_key: Tuple[int, ...],
+    fixed_melds: int,
+    weights_key: Tuple[int, int, int, int, int],
+) -> HeuristicSnapshot:
+    weights = HeuristicWeights(
+        structure_weight=weights_key[0],
+        bad_shape_weight=weights_key[1],
+        isolated_weight=weights_key[2],
+        isolated_cap=weights_key[3],
+        availability_weight=weights_key[4],
+    )
+    shape_states = _hand_shape_states_cached(counts_key)
+
+    best_snapshot: Optional[HeuristicSnapshot] = None
+    for state in shape_states:
+        for use_eye in (0, 1) if state.pairs > 0 else (0,):
+            snapshot = _score_shape_state(state, fixed_melds, use_eye, weights)
+            if best_snapshot is None or snapshot.cost < best_snapshot.cost:
+                best_snapshot = snapshot
+
+    if best_snapshot is None:
+        best_snapshot = HeuristicSnapshot(
+            cost=0,
+            structure_distance=_MELD_TARGET,
+            melds=fixed_melds,
+            eye_used=False,
+            bad_shapes=0,
+            isolated=0,
+            availability=0,
+        )
+
+    return best_snapshot
+
+
 def _heuristic(
     hand: Sequence[Tile],
     melds: Optional[Sequence[dict]],
@@ -454,39 +535,25 @@ def _heuristic(
 
     fixed_melds = _count_fixed_melds(melds)
     counts = _counts34(hand)
-    shape_states = _hand_shape_states(counts)
+    counts_key = tuple(counts)
+    weights_key = _weights_cache_key(weights)
 
-    best_snapshot: Optional[HeuristicSnapshot] = None
-    for state in shape_states:
-        for use_eye in (0, 1) if state.pairs > 0 else (0,):
-            snapshot = _score_shape_state(state, fixed_melds, use_eye, weights)
-            if best_snapshot is None or snapshot.cost < best_snapshot.cost:
-                best_snapshot = snapshot
-
-    if best_snapshot is None:
-        # Fallback: empty hand (should not occur for valid states)
-        best_snapshot = HeuristicSnapshot(
-            cost=0,
-            structure_distance=_MELD_TARGET,
-            melds=fixed_melds,
-            eye_used=False,
-            bad_shapes=0,
-            isolated=0,
-            availability=0,
-        )
+    best_snapshot = _score_concealed_counts_cached(counts_key, fixed_melds, weights_key)
 
     if not include_availability:
         return best_snapshot
 
-    live = tuple(live_counts) if live_counts is not None else tuple(
-        _default_live_counts(hand, melds)
+    live = (
+        tuple(live_counts)
+        if live_counts is not None
+        else tuple(_default_live_counts(hand, melds))
     )
     availability = _compute_availability(
-        hand,
-        melds,
+        counts_key,
         best_snapshot.structure_distance,
         live,
-        weights,
+        fixed_melds,
+        weights_key,
     )
     cost = weights.evaluate(
         best_snapshot.structure_distance,
@@ -591,14 +658,48 @@ class GreedyBotStrategy:
 
     def _choose_reaction(self, obs: dict, actions: Sequence[dict]) -> dict:
         live_counts = _live_counts_from_obs(obs)
-        baseline = _heuristic(
-            obs.get("hand") or [],
-            obs.get("melds"),
-            self.weights,
-            live_counts=live_counts,
+
+        def make_entry(action: dict, hand: Sequence[Tile], melds: Optional[Sequence[dict]], snapshot: HeuristicSnapshot, priority: int) -> dict:
+            return {
+                "action": action,
+                "hand": hand,
+                "melds": melds,
+                "snapshot": snapshot,
+                "priority": priority,
+                "availability_computed": False,
+            }
+
+        def ensure_availability(entry: dict) -> None:
+            if entry.get("availability_computed"):
+                return
+            entry["snapshot"] = _heuristic(
+                entry["hand"],
+                entry["melds"],
+                self.weights,
+                live_counts=live_counts,
+                include_availability=True,
+            )
+            entry["availability_computed"] = True
+
+        def entry_key(entry: dict) -> Tuple[int, ...]:
+            ensure_availability(entry)
+            snapshot = entry["snapshot"]
+            return _snapshot_order(snapshot) + (snapshot.cost, entry["priority"])
+
+        baseline_hand = list(obs.get("hand") or [])
+        baseline_melds = obs.get("melds")
+        best_entry = make_entry(
+            {"type": "PASS"},
+            baseline_hand,
+            baseline_melds,
+            _heuristic(
+                baseline_hand,
+                baseline_melds,
+                self.weights,
+                include_availability=False,
+            ),
+            1,
         )
-        best_action = {"type": "PASS"}
-        best_key = _snapshot_order(baseline) + (baseline.cost, 1)
 
         for action in actions:
             claim_type = (action.get("type") or "").upper()
@@ -610,15 +711,27 @@ class GreedyBotStrategy:
                 hand,
                 melds,
                 self.weights,
-                live_counts=live_counts,
+                include_availability=False,
             )
-            priority = 0 if claim_type == "GANG" else 1
-            key = _snapshot_order(snapshot) + (snapshot.cost, priority)
-            if key < best_key:
-                best_action = action
-                best_key = key
+            entry = make_entry(
+                action,
+                hand,
+                melds,
+                snapshot,
+                0 if claim_type == "GANG" else 1,
+            )
 
-        return best_action
+            best_snapshot = best_entry["snapshot"]
+            if snapshot.structure_distance < best_snapshot.structure_distance:
+                best_entry = entry
+                continue
+            if snapshot.structure_distance > best_snapshot.structure_distance:
+                continue
+
+            if entry_key(entry) < entry_key(best_entry):
+                best_entry = entry
+
+        return best_entry["action"]
 
     def _choose_turn(self, obs: dict, actions: Sequence[dict]) -> dict:
         tings = [a for a in actions if (a.get("type") or "").upper() == "TING"]
@@ -626,8 +739,25 @@ class GreedyBotStrategy:
             return max(tings, key=lambda action: len(action.get("waits") or []))
 
         live_counts = _live_counts_from_obs(obs)
-        best_action: Optional[dict] = None
-        best_key: Optional[Tuple[int, ...]] = None
+
+        def ensure_availability(entry: dict) -> None:
+            if entry.get("availability_computed"):
+                return
+            entry["snapshot"] = _heuristic(
+                entry["hand"],
+                entry["melds"],
+                self.weights,
+                live_counts=live_counts,
+                include_availability=True,
+            )
+            entry["availability_computed"] = True
+
+        def entry_key(entry: dict) -> Tuple[int, ...]:
+            ensure_availability(entry)
+            snapshot = entry["snapshot"]
+            return _snapshot_order(snapshot) + (snapshot.cost, entry["tie_break"])
+
+        best_entry: Optional[dict] = None
 
         for action in actions:
             if (action.get("type") or "").upper() != "DISCARD":
@@ -638,16 +768,31 @@ class GreedyBotStrategy:
                 hand,
                 melds,
                 self.weights,
-                live_counts=live_counts,
+                include_availability=False,
             )
-            tie_break = 0
             label = tile_to_str(action.get("tile"))
-            if label and len(label) == 1:  # honours: E/S/W/N/C/F/P
-                tie_break = -1
+            tie_break = -1 if label and len(label) == 1 else 0
+            entry = {
+                "action": action,
+                "hand": hand,
+                "melds": melds,
+                "snapshot": snapshot,
+                "tie_break": tie_break,
+                "availability_computed": False,
+            }
 
-            key = _snapshot_order(snapshot) + (snapshot.cost, tie_break)
-            if best_key is None or key < best_key:
-                best_action = action
-                best_key = key
+            if best_entry is None:
+                best_entry = entry
+                continue
 
-        return best_action if best_action is not None else actions[0]
+            best_snapshot = best_entry["snapshot"]
+            if snapshot.structure_distance < best_snapshot.structure_distance:
+                best_entry = entry
+                continue
+            if snapshot.structure_distance > best_snapshot.structure_distance:
+                continue
+
+            if entry_key(entry) < entry_key(best_entry):
+                best_entry = entry
+
+        return best_entry["action"] if best_entry is not None else actions[0]
