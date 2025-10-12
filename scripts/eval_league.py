@@ -43,8 +43,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.table import TableManager
 from domain import Mahjong16Env, Ruleset
 from domain.scoring.engine import compute_payments, score_with_breakdown
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
 
 
 StrategyFactory = Callable[..., Any]

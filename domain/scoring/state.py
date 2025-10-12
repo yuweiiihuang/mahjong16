@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 from ..rules.hands import _counts34, waits_for_hand_16
 from .common import is_honor
-from .types import Meld, PlayerView, ScoringContext
+from .score_types import Meld, PlayerView, ScoringContext
 
 
 @dataclass
@@ -242,4 +242,3 @@ def _is_flower_tile(tile: int) -> bool:
 
 def _is_honor_tile(tile: int) -> bool:
     return is_honor(tile)
-

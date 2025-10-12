@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..tiles import chi_options
 from ..rules.hands import is_win_16
-from .types import Action, Observation
+from .game_types import Action, Observation
 
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 

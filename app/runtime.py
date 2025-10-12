@@ -20,8 +20,8 @@ from rich.progress import (
 
 from domain import Mahjong16Env, Ruleset
 from domain.scoring.engine import compute_payments, score_with_breakdown
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext, ScoringTable
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext, ScoringTable
 from domain.tiles import tile_sort_key
 
 from app.logging import HandLogWriter, write_hand_log

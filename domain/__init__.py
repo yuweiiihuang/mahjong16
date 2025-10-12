@@ -1,7 +1,7 @@
 """Domain-level API for Mahjong16 gameplay primitives."""
 from __future__ import annotations
 
-from .gameplay.env import MahjongEnvironment, Mahjong16Env
+from .gameplay.game_env import MahjongEnvironment, Mahjong16Env
 from .rules.ruleset import Ruleset, load_rule_profile
 from .tiles import (
     Tile,

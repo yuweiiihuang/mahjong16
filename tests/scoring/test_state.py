@@ -2,7 +2,7 @@ import pytest
 
 from domain.rules import Ruleset
 from domain.scoring.state import build_state
-from domain.scoring.types import PlayerView, ScoringContext, ScoringTable
+from domain.scoring.score_types import PlayerView, ScoringContext, ScoringTable
 
 
 def _blank_player(pid: int) -> PlayerView:

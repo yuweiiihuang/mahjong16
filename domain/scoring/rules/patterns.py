@@ -6,7 +6,7 @@ from domain.rules.hands import max_concealed_triplets
 from ..breakdown import ScoreAccumulator
 from ..common import is_honor, tile_label
 from ..state import DerivedScoringState
-from ..types import ScoringContext
+from ..score_types import ScoringContext
 
 
 def _collect_suits(all_tiles: list[int]) -> set[str]:

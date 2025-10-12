@@ -12,7 +12,7 @@ from app.session import (
 from app.table import TableManager
 from bots import build_strategies
 from domain import Mahjong16Env, Ruleset
-from domain.scoring.tables import load_scoring_assets
+from domain.scoring.lookup import load_scoring_assets
 
 
 class RecordingTableView(TableViewPort):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from domain.rules.hands import can_form_only_chows
 from ..breakdown import ScoreAccumulator
 from ..state import DerivedScoringState
-from ..types import ScoringContext
+from ..score_types import ScoringContext
 
 
 def _is_two_sided_ping_hu_wait(state: DerivedScoringState) -> bool:

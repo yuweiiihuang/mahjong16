@@ -4,8 +4,8 @@ from domain import Mahjong16Env
 from domain.rules import Ruleset
 from domain.tiles import Tile
 from tests.helpers.tile_pool import TilePool, move_tile_to_tail
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
 from domain.scoring.engine import score_with_breakdown
 
 

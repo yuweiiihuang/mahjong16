@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..tiles import is_flower
 from ..rules.hands import is_win_16, waits_after_discard_17
-from .types import Action, Observation
+from .game_types import Action, Observation
 
 if TYPE_CHECKING:
     from .flowers import FlowerOutcome

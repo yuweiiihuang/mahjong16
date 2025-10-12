@@ -2,7 +2,7 @@
 
 from .engine import compute_payments, score_with_breakdown
 from .state import DerivedScoringState, HandState, WinState, build_state
-from .types import Meld, PlayerView, ScoringContext, ScoringTable
+from .score_types import Meld, PlayerView, ScoringContext, ScoringTable
 
 __all__ = [
     "compute_payments",
@@ -16,4 +16,3 @@ __all__ = [
     "ScoringContext",
     "ScoringTable",
 ]
-

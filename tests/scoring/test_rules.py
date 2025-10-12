@@ -12,7 +12,7 @@ from domain.scoring.rules.patterns import apply_patterns_rules
 from domain.scoring.rules.timings import apply_timings_rules
 from domain.scoring.rules.waits import apply_waits_rules
 from domain.scoring.state import DerivedScoringState, HandState, WinState
-from domain.scoring.types import Meld, PlayerView, ScoringContext, ScoringTable
+from domain.scoring.score_types import Meld, PlayerView, ScoringContext, ScoringTable
 from domain.tiles import tile_to_str
 
 

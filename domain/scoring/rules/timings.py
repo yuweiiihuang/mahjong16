@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..breakdown import ScoreAccumulator
 from ..state import DerivedScoringState
-from ..types import ScoringContext
+from ..score_types import ScoringContext
 
 
 def apply_timings_rules(

@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ..tiles import N_TILES
 from ..rules.ruleset import Ruleset
-from .types import Action, Observation
-from ..table.setup import TableSetupMixin
+from .game_types import Action, Observation
+from ..table.deal import TableSetupMixin
 from .reactions import ReactionMixin
 from .turns import TurnLoopMixin
 

@@ -29,8 +29,8 @@ from bots.random_bot import RandomBot
 from bots.rulebot import RuleBot
 from domain import Mahjong16Env, Ruleset
 from domain.scoring.engine import compute_payments, score_with_breakdown
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
 
 
 @dataclass

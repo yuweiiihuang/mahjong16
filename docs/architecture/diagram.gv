@@ -12,21 +12,21 @@ digraph Mahjong16 {
         domain_tiles      [label="tiles/__init__.py\nTile ids & helpers"];
         domain_ruleset    [label="rules/ruleset.py\nRuleset config"];
         domain_rules_hands[label="rules/hands.py\nWin & waits logic"];
-        domain_game_types [label="gameplay/types.py\nAction/Observation"];
+        domain_game_types [label="gameplay/game_types.py\nAction/Observation"];
         domain_player     [label="gameplay/player_state.py\nPlayerState"];
         domain_flowers    [label="gameplay/flowers.py\nFlowerManager"];
         domain_turns      [label="gameplay/turns.py\nDraw/discard mixin"];
         domain_reactions  [label="gameplay/reactions.py\nReaction mixin"];
-        domain_env        [label="gameplay/env.py\nMahjongEnvironment"];
-        domain_table      [label="table/setup.py\nSeat & round init"];
+        domain_env        [label="gameplay/game_env.py\nMahjongEnvironment"];
+        domain_table      [label="table/deal.py\nSeat & round init"];
 
         subgraph cluster_domain_scoring {
             label = "scoring/";
             color = "#ced4da";
             style = "rounded";
 
-            domain_sc_tables    [label="tables.py\nLoad scoring JSON"];
-            domain_sc_types     [label="types.py\nScoringContext"];
+            domain_sc_tables    [label="lookup.py\nLoad scoring JSON"];
+            domain_sc_types     [label="score_types.py\nScoringContext"];
             domain_sc_state     [label="state.py\nDerivedScoringState"];
             domain_sc_engine    [label="engine.py\nScore engine"];
             domain_sc_breakdown [label="breakdown.py\nScoreAccumulator"];

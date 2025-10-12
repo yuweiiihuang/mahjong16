@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Place core rules and scoring logic in `domain/`; keep modules pure and deterministic (`domain/gameplay/env.py`, `domain/scoring/engine.py`).
+- Place core rules and scoring logic in `domain/`; keep modules pure and deterministic (`domain/gameplay/game_env.py`, `domain/scoring/engine.py`).
 - Wire strategies and CLI demos through `app/`, and reuse console helpers from `ui/console.py` instead of duplicating render logic.
 - Host autonomous players in `bots/` and reinforcement-learning tools in `rl/`, importing shared utilities from `domain/` or `ui/`.
 - Treat `scripts/` (e.g., `scripts/bench_sim.py`) and config assets under `configs/` as read-only inputs; mirror any new runtime behavior with tests in `tests/`.
@@ -10,7 +10,7 @@
 - Always activate the project venv before running commands: `source .venv/bin/activate`.
 - `pip install -r requirements.txt` installs runtime dependencies and pytest extras.
 - `python main.py` launches the interactive CLI table for manual rule smoke-checks.
-- `python -m domain.gameplay.env` runs the environment module directly to validate import safety.
+- `python -m domain.gameplay.game_env` runs the environment module directly to validate import safety.
 - `pytest -q` executes the regression suite; confirm a clean run before publishing changes.
 - `python scripts/bench_sim.py -n 10000` benchmarks the engine; use when tuning performance-sensitive code.
 
@@ -27,9 +27,9 @@
 ## Commit & Pull Request Guidelines
 - Use Conventional Commits (e.g., `feat: add four-concealed-meld fan`) with concise English summaries.
 - Scope commits narrowly; mention any follow-up commands or data migrations when behavior shifts.
-- Pull requests should summarize intent, list touched modules (e.g., `domain/gameplay/env.py`, `ui/console.py`), link relevant issues, and attach CLI screenshots or pytest output for UX or scoring changes.
+- Pull requests should summarize intent, list touched modules (e.g., `domain/gameplay/game_env.py`, `ui/console.py`), link relevant issues, and attach CLI screenshots or pytest output for UX or scoring changes.
 
 ## Configuration & Safety Notes
 - Extend `domain/rules/ruleset.py` for new table options rather than scattering toggles.
-- Preserve keys consumed by `domain/scoring/tables.py` when reading from `configs/`; never overwrite historical assets.
+- Preserve keys consumed by `domain/scoring/lookup.py` when reading from `configs/`; never overwrite historical assets.
 - Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.
