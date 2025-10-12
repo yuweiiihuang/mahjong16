@@ -25,9 +25,8 @@ from domain.scoring.types import ScoringTable
 from app.logging import HandLogWriter, write_hand_log
 from app.strategies import Strategy, build_strategies
 from app.table import TableManager
-from application.session_service import SessionService
-from interfaces.console.ui_adapter import ConsoleUIAdapter
-from interfaces.headless.log_adapter import HeadlessLogAdapter
+from app.session import SessionService
+from app.session.adapters import ConsoleUIAdapter, HeadlessLogAdapter
 from ui.console import render_winners_summary
 
 

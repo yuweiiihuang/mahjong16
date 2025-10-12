@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from application.session_service import (
+from app.session import (
     HandSummaryPort,
     ScoreState,
     SessionService,

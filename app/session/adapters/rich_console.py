@@ -6,12 +6,7 @@ from domain import Mahjong16Env
 from domain.tiles import tile_to_str
 
 from app.logging import HandLogWriter, write_hand_log
-from application.session_service import (
-    HandSummaryPort,
-    ScoreState,
-    StepEvent,
-    TableViewPort,
-)
+from app.session import HandSummaryPort, ScoreState, StepEvent, TableViewPort
 from ui.console import render_public_view, render_reveal, render_winners_summary
 
 

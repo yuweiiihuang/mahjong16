@@ -13,7 +13,7 @@ from rich.progress import (
 )
 
 from app.logging import HandLogWriter, write_hand_log
-from application.session_service import HandSummaryPort, ProgressPort
+from app.session import HandSummaryPort, ProgressPort
 
 
 class HeadlessLogAdapter(ProgressPort, HandSummaryPort):

@@ -3,9 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Dict, List
 
-from application.session_service import ScoreState, StepEvent
-from interfaces.console.ui_adapter import ConsoleUIAdapter
-from interfaces.headless.log_adapter import HeadlessLogAdapter
+from app.session import ScoreState, StepEvent
+from app.session.adapters import ConsoleUIAdapter, HeadlessLogAdapter
 
 
 def _make_fake_env() -> SimpleNamespace:
