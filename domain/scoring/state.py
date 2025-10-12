@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from ..hand import _counts34, waits_for_hand_16
+from ..rules.hands import _counts34, waits_for_hand_16
 from .common import is_honor
 from .types import Meld, PlayerView, ScoringContext
 

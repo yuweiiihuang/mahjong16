@@ -1,0 +1,172 @@
+"""Tile definitions and helpers for Mahjong16.
+
+Defines numeric ids for tiles and flowers, conversions to string labels, and
+utilities to generate a shuffled wall.
+"""
+
+from __future__ import annotations
+from enum import IntEnum
+import random
+from typing import List, Tuple, Optional
+
+# 0..33: 34 tiles (萬/筒/條 1..9, 字 E/S/W/N/C/F/P)
+# 34..41: 8 flowers (四季 + 四君子)
+N_TILES = 34
+N_FLOWERS = 8
+
+
+class Tile(IntEnum):
+    """Tile ids (0..33) as an IntEnum for readability in tests and code."""
+
+    W1, W2, W3, W4, W5, W6, W7, W8, W9, \
+    D1, D2, D3, D4, D5, D6, D7, D8, D9, \
+    B1, B2, B3, B4, B5, B6, B7, B8, B9, \
+    E, S, W, N, C, F, P = range(N_TILES)
+
+
+def is_flower(x: int) -> bool:
+    """Return True if id is a flower (>= N_TILES)."""
+    return x >= N_TILES and x < N_TILES + N_FLOWERS
+
+
+def flower_ids() -> List[int]:
+    """Return the list of flower tile ids (length N_FLOWERS)."""
+    return list(range(N_TILES, N_TILES + N_FLOWERS))
+
+
+def full_wall(include_flowers: bool = True, rng: random.Random | None = None) -> List[int]:
+    """Build a shuffled wall of tiles (4 copies of each, plus optional flowers).
+
+    Args:
+      include_flowers: Whether to include flowers in the wall.
+      rng: Optional random.Random to use.
+
+    Returns:
+      Shuffled list of tile ids representing the wall.
+    """
+    r = rng if rng else random
+    wall: List[int] = []
+    for t in range(N_TILES):
+        wall += [t] * 4
+    if include_flowers:
+        wall += flower_ids()  # 四季四君子各1
+    r.shuffle(wall)
+    return wall
+
+
+def tile_to_str(t: int) -> str:
+    """Convert a tile id to a short label (e.g., '1W', 'E', 'F')."""
+    if is_flower(t):
+        return f"F{t - N_TILES + 1}"
+    names = [
+        *[f"{i+1}W" for i in range(9)],
+        *[f"{i+1}D" for i in range(9)],
+        *[f"{i+1}B" for i in range(9)],
+        "E", "S", "W", "N", "C", "F", "P",
+    ]
+    return names[int(t)]
+
+
+def hand_to_str(hand: List[int]) -> str:
+    """Convert a sequence of tiles into a space-separated, sorted label string."""
+    return " ".join(sorted([tile_to_str(t) for t in hand]))
+
+
+# Sorting helpers (pure, display-agnostic)
+
+
+def is_suited(t: int) -> bool:
+    """Return True if a tile id is one of the suited tiles (萬/筒/條)."""
+    return 0 <= t <= 26
+
+
+def suit_of(t: int) -> int:
+    """Return suit index of a tile id: 0=萬, 1=筒, 2=條, 3=字."""
+    if 0 <= t <= 8:
+        return 0
+    if 9 <= t <= 17:
+        return 1
+    if 18 <= t <= 26:
+        return 2
+    return 3
+
+
+def rank_of(t: int) -> Optional[int]:
+    """Return the rank (1..9) for suited tiles; None for honors/flowers."""
+    if not is_suited(t):
+        return None
+    if 0 <= t <= 8:
+        return t - 0 + 1
+    if 9 <= t <= 17:
+        return t - 9 + 1
+    if 18 <= t <= 26:
+        return t - 18 + 1
+    return None
+
+
+def chi_options(discard_tile: int, hand: List[int]) -> List[Tuple[int, int]]:
+    """Return all 2-tile combinations from ``hand`` that can chi ``discard_tile``.
+
+    Only suited tiles form chis. The function considers the three possible
+    sequences that include the discard: (r-2, r-1), (r-1, r+1), and (r+1, r+2),
+    where ``r`` is the discard's rank. Each candidate is returned as the
+    concrete tile ids found in the player's hand.
+    """
+
+    if not is_suited(discard_tile):
+        return []
+
+    rank = rank_of(discard_tile)
+    suit = suit_of(discard_tile)
+    if rank is None:
+        return []
+
+    base = 0 if suit == 0 else 9 if suit == 1 else 18
+    candidates: List[Tuple[int, int]] = []
+    for dx, dy in [(-2, -1), (-1, 1), (1, 2)]:
+        r1, r2 = rank + dx, rank + dy
+        if not (1 <= r1 <= 9 and 1 <= r2 <= 9):
+            continue
+        a, b = base + (r1 - 1), base + (r2 - 1)
+        if hand.count(a) >= 1 and hand.count(b) >= 1:
+            candidates.append((a, b))
+    return candidates
+
+
+def _suit_of_id(t: int) -> int:
+    """Return suit index: 0=萬, 1=筒, 2=條, 3=字."""
+    if 0 <= t <= 8:
+        return 0
+    if 9 <= t <= 17:
+        return 1
+    if 18 <= t <= 26:
+        return 2
+    return 3
+
+
+def _rank_of_id(t: int) -> int:
+    """Return 1..9 for suited tiles; 0 for honors/flowers."""
+    if 0 <= t <= 8:
+        return t - 0 + 1
+    if 9 <= t <= 17:
+        return t - 9 + 1
+    if 18 <= t <= 26:
+        return t - 18 + 1
+    return 0
+
+
+def _honor_index_of_id(t: int) -> int:
+    """Honor order as E,S,W,N,C,F,P mapped to 0..6; others 99."""
+    # E..P are contiguous after B1..B9
+    return (t - 27) if 27 <= t <= 33 else 99
+
+
+def tile_sort_key(t: int) -> Tuple[int, int, str]:
+    """Sort key for tiles: suit → rank/honor → label.
+
+    Keeps a stable order within the same tile using `tile_to_str` as tiebreaker.
+    """
+    s = _suit_of_id(t)
+    if s < 3:
+        return (s, _rank_of_id(t), tile_to_str(t))
+    return (s, _honor_index_of_id(t), tile_to_str(t))

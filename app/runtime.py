@@ -17,11 +17,11 @@ from rich.progress import (
     TextColumn,
 )
 
-from core import Mahjong16Env, Ruleset
-from core.tiles import tile_to_str, tile_sort_key
-from core.scoring.tables import load_scoring_assets
-from core.scoring.types import ScoringContext
-from core.scoring.engine import score_with_breakdown, compute_payments
+from domain import Mahjong16Env, Ruleset
+from domain.tiles import tile_to_str, tile_sort_key
+from domain.scoring.tables import load_scoring_assets
+from domain.scoring.types import ScoringContext
+from domain.scoring.engine import score_with_breakdown, compute_payments
 from ui.console import render_public_view, render_reveal, render_winners_summary
 from .table import TableManager
 from .strategies import build_strategies

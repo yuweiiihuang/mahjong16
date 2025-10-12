@@ -5,7 +5,7 @@ concise for logs or prompts. Functions here avoid any rendering side effects.
 """
 
 from __future__ import annotations
-from core.tiles import tile_to_str
+from domain.tiles import tile_to_str
 
 ANSI_RESET = "\033[0m"
 ANSI_RED   = "\033[31m"  # characters for 萬
