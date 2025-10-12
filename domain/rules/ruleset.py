@@ -31,7 +31,7 @@ class Ruleset:
       include_flowers: Whether to include flowers in the wall and auto-replace.
       n_players: Number of players (default 4).
       initial_hand: Initial concealed tiles per player (16 for Taiwan variant).
-      max_rounds: Max number of rounds (not enforced by core env yet).
+      max_rounds: Max number of rounds (not enforced by the environment yet).
       allow_chi/pong/gang/hu/zimo/ting: Action toggles.
       dead_wall_mode: 'fixed' or 'gang_plus_one' (one extra reserved per gang).
       dead_wall_base: Base reserved tiles for the dead wall (commonly 16).

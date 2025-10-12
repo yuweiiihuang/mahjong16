@@ -49,7 +49,7 @@ digraph Mahjong16 {
         }
     }
 
-    core_analysis [label="core/analysis.py\nObservation helpers", fillcolor="#f1f3f5"];
+    domain_analysis [label="domain/analysis.py\nObservation helpers", fillcolor="#f1f3f5"];
 
     subgraph cluster_app {
         label = "app/";
@@ -125,7 +125,7 @@ digraph Mahjong16 {
     domain_reactions -> domain_env;
     domain_table -> domain_env;
 
-    core_analysis -> ui_console;
+    domain_analysis -> ui_console;
 
     domain_env -> app_table;
     domain_env -> app_runtime;

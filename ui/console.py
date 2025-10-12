@@ -9,13 +9,13 @@ from rich.table import Table
 from rich.text import Text
 from rich.box import ROUNDED
 
-from domain.gameplay import Action, Observation, DiscardPublic
-from domain.rules import Ruleset
-from core.analysis import (
+from domain.analysis import (
     simulate_after_discard,
     visible_count_after,
     visible_count_global,
 )
+from domain.gameplay import Action, Observation, DiscardPublic
+from domain.rules import Ruleset
 from domain.rules.hands import waits_after_discard_17, waits_for_hand_16
 from domain.tiles import tile_sort_key, tile_to_str
 from ui.rich_helpers import format_amount, join_tiles, render_melds, text_for_tile
