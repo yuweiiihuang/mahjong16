@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from domain.rules import Ruleset
+from sdk import Ruleset
 from domain.scoring.breakdown import ScoreAccumulator
 from domain.scoring.common import is_honor
 from domain.scoring.rules.base import apply_base_rules
@@ -13,7 +13,7 @@ from domain.scoring.rules.timings import apply_timings_rules
 from domain.scoring.rules.waits import apply_waits_rules
 from domain.scoring.state import DerivedScoringState, HandState, WinState
 from domain.scoring.types import Meld, PlayerView, ScoringContext, ScoringTable
-from domain.tiles import tile_to_str
+from sdk import tile_to_str
 
 
 SCORING_VALUES = {

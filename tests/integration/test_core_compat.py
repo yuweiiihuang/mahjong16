@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import core
 from core.tiles import tile_to_str
-from domain import Mahjong16Env as DomainEnv
-from domain.rules import Ruleset
+from sdk import Mahjong16Env as SdkEnv, Ruleset
 
 
 def test_core_env_alias_matches_domain() -> None:
-    assert core.Mahjong16Env is DomainEnv
+    assert core.Mahjong16Env is SdkEnv
     rules = Ruleset(randomize_seating_and_dealer=False, include_flowers=False)
     env = core.Mahjong16Env(rules, seed=0)
     obs = env.reset()

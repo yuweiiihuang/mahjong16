@@ -4,14 +4,18 @@ from __future__ import annotations
 import warnings
 
 warnings.warn(
-    "The 'core' package is deprecated; import from 'domain' instead.",
+    "The 'core' package is deprecated; import from 'sdk' instead.",
     DeprecationWarning,
     stacklevel=2,
 )
 
-from domain import (  # noqa: F401
+from sdk import (  # noqa: F401
+    Action,
+    DiscardPublic,
     Mahjong16Env,
     MahjongEnvironment,
+    MeldPublic,
+    Observation,
     Ruleset,
     Tile,
     chi_options,
@@ -19,18 +23,15 @@ from domain import (  # noqa: F401
     full_wall,
     hand_to_str,
     is_flower,
+    is_win_16,
     load_rule_profile,
     tile_sort_key,
     tile_to_str,
+    waits_after_discard_17,
+    waits_for_hand_16,
     N_FLOWERS,
     N_TILES,
 )
-from domain.rules import (  # noqa: F401
-    is_win_16,
-    waits_after_discard_17,
-    waits_for_hand_16,
-)
-from domain.gameplay.types import Action, DiscardPublic, Observation, MeldPublic  # noqa: F401
 
 __all__ = [
     "Mahjong16Env",

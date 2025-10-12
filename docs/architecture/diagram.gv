@@ -1,165 +1,111 @@
-// Graphviz diagram of Mahjong16 modules and dependencies
+// Layered architecture for Mahjong16 with SDK facade
 digraph Mahjong16 {
-    graph [rankdir=LR, fontsize=10, fontname="Helvetica", labelloc="t", label="Mahjong16 Architecture"];
+    graph [rankdir=LR, fontsize=10, fontname="Helvetica", labelloc="t", label="Mahjong16 Layered Architecture"];
     node [shape=box, fontsize=10, fontname="Helvetica", style="filled", fillcolor="#f8f9fa", color="#343a40"];
     edge [color="#6c757d", arrowsize=0.6];
+
+    subgraph cluster_interfaces_cli {
+        label = "interfaces/cli/";
+        color = "#adb5bd";
+        style = "rounded";
+        iface_cli_entry [label="mahjong16/interfaces/cli/entrypoint.py\nCLI facade"];
+    }
+
+    subgraph cluster_interfaces_ui {
+        label = "interfaces/ui/";
+        color = "#adb5bd";
+        style = "rounded";
+        ui_console [label="ui/console.py\nRich console UI"];
+        ui_helpers [label="ui/rich_helpers.py\nRich components"];
+    }
+
+    subgraph cluster_interfaces_bots {
+        label = "interfaces/bots/";
+        color = "#adb5bd";
+        style = "rounded";
+        bot_greedy [label="bots/greedy.py\nGreedyBotStrategy"];
+        bot_rule [label="bots/rulebot.py\nRuleBot"];
+        bot_random [label="bots/random_bot.py\nRandomBot"];
+    }
+
+    subgraph cluster_interfaces_rl {
+        label = "interfaces/rl/";
+        color = "#adb5bd";
+        style = "rounded";
+        rl_selfplay [label="rl/selfplay.py\nself_play"];
+        rl_buffer [label="rl/buffer.py\nReplayBuffer"];
+        rl_net [label="rl/net.py\nPolicyValueNet"];
+    }
+
+    subgraph cluster_sdk {
+        label = "sdk/";
+        color = "#74c0fc";
+        style = "rounded";
+        sdk_entry [label="__init__.py\nPublic API facade", fillcolor="#e7f5ff"];
+    }
+
+    subgraph cluster_app {
+        label = "application (app/)";
+        color = "#adb5bd";
+        style = "rounded";
+        app_runtime  [label="runtime.py\nSession factories"];
+        app_session  [label="session/service.py\nSessionService & ports"];
+        app_table    [label="table.py\nTableManager"];
+        app_strat    [label="strategies.py\nStrategy builders"];
+        app_logging  [label="logging.py\nHandLogWriter"];
+    }
 
     subgraph cluster_domain {
         label = "domain/";
         color = "#adb5bd";
         style = "rounded";
-
-        domain_tiles      [label="tiles/__init__.py\nTile ids & helpers"];
-        domain_ruleset    [label="rules/ruleset.py\nRuleset config"];
-        domain_rules_hands[label="rules/hands.py\nWin & waits logic"];
-        domain_game_types [label="gameplay/types.py\nAction/Observation"];
-        domain_player     [label="gameplay/player_state.py\nPlayerState"];
-        domain_flowers    [label="gameplay/flowers.py\nFlowerManager"];
-        domain_turns      [label="gameplay/turns.py\nDraw/discard mixin"];
-        domain_reactions  [label="gameplay/reactions.py\nReaction mixin"];
-        domain_env        [label="gameplay/env.py\nMahjongEnvironment"];
-        domain_table      [label="table/setup.py\nSeat & round init"];
-
-        subgraph cluster_domain_scoring {
-            label = "scoring/";
-            color = "#ced4da";
-            style = "rounded";
-
-            domain_sc_tables    [label="tables.py\nLoad scoring JSON"];
-            domain_sc_types     [label="types.py\nScoringContext"];
-            domain_sc_state     [label="state.py\nDerivedScoringState"];
-            domain_sc_engine    [label="engine.py\nScore engine"];
-            domain_sc_breakdown [label="breakdown.py\nScoreAccumulator"];
-            domain_sc_common    [label="common.py\nTile helpers"];
-            domain_sc_utils     [label="utils.py\nPattern search"];
-
-            subgraph cluster_domain_scoring_rules {
-                label = "rules/";
-                color = "#dee2e6";
-                style = "rounded";
-
-                domain_sc_rules_pipeline [label="__init__.py\nRULE_PIPELINE"];
-                domain_sc_rules_flowers  [label="flowers.py\nFlower scoring"];
-                domain_sc_rules_base     [label="base.py\nBase wins"];
-                domain_sc_rules_waits    [label="waits.py\nWait bonuses"];
-                domain_sc_rules_patterns [label="patterns.py\nPattern combos"];
-                domain_sc_rules_honors   [label="honors.py\nWind & dragon"];
-                domain_sc_rules_timings  [label="timings.py\nTempo bonuses"];
-            }
-        }
+        domain_ruleset [label="rules/ruleset.py\nRuleset"];
+        domain_env     [label="gameplay/env.py\nMahjongEnvironment"];
+        domain_tiles   [label="tiles/__init__.py\nTile helpers"];
+        domain_scoring [label="scoring/engine.py\nScoring engine"];
     }
 
-    core_analysis [label="core/analysis.py\nObservation helpers", fillcolor="#f1f3f5"];
+    main_cli [label="main.py\nLegacy entrypoint", shape=tab, fillcolor="#e9ecef"];
 
-    subgraph cluster_app {
-        label = "app/";
-        color = "#adb5bd";
-        style = "rounded";
-        app_table    [label="table.py\nTableManager"];
-        app_strat    [label="strategies.py\nAuto/Human dispatch"];
-        app_runtime  [label="runtime.py\nrun_demo & UI glue"];
-        app_logging  [label="logging.py\nSession CSV"];
-        app_format   [label="formatting.py\nANSI helpers"];
-    }
-
-    subgraph cluster_ui {
-        label = "ui/";
-        color = "#adb5bd";
-        style = "rounded";
-        ui_console [label="console.py\nrender & prompts"];
-        ui_helpers [label="rich_helpers.py\nRich components"];
-    }
-
-    subgraph cluster_bots {
-        label = "bots/";
-        color = "#adb5bd";
-        style = "rounded";
-        bot_rule   [label="rulebot.py\nRuleBot"];
-        bot_random [label="random_bot.py\nRandomBot"];
-        bot_greedy [label="greedy.py\nGreedyBotStrategy"];
-    }
-
-    subgraph cluster_rl {
-        label = "rl/";
-        color = "#adb5bd";
-        style = "rounded";
-        rl_selfplay [label="selfplay.py\nself_play"];
-        rl_buffer   [label="buffer.py\nReplayBuffer"];
-        rl_net      [label="net.py\nPolicyValueNet"];
-        rl_train    [label="train.py\nTrain loop stub"];
-    }
-
-    main_cli [label="main.py\nCLI entrypoint", shape=tab, fillcolor="#e9ecef"];
-
-    // Domain dependencies
-    domain_tiles -> domain_rules_hands;
-    domain_tiles -> domain_flowers;
-    domain_tiles -> domain_turns;
-    domain_tiles -> domain_reactions;
-    domain_tiles -> domain_sc_common;
-    domain_tiles -> domain_sc_rules_flowers;
-    domain_tiles -> ui_console;
-    domain_tiles -> app_logging;
-    domain_tiles -> app_format;
-    domain_tiles -> bot_greedy;
-
-    domain_ruleset -> domain_env;
-    domain_ruleset -> domain_sc_types;
-    domain_ruleset -> app_table;
-    domain_ruleset -> app_runtime;
-
-    domain_game_types -> domain_env;
-    domain_game_types -> ui_console;
-    domain_game_types -> app_strat;
-
-    domain_player -> domain_flowers;
-    domain_player -> domain_env;
-
-    domain_rules_hands -> domain_env;
-    domain_rules_hands -> domain_sc_state;
-    domain_rules_hands -> ui_console;
-
-    domain_flowers -> domain_env;
-
-    domain_turns -> domain_env;
-    domain_reactions -> domain_env;
-    domain_table -> domain_env;
-
-    core_analysis -> ui_console;
-
-    domain_env -> app_table;
-    domain_env -> app_runtime;
-
-    domain_sc_tables -> app_runtime;
-    domain_sc_types -> domain_sc_state;
-    domain_sc_common -> domain_sc_rules_patterns;
-    domain_sc_common -> domain_sc_rules_honors;
-    domain_sc_utils -> domain_sc_rules_patterns;
-    domain_sc_utils -> domain_sc_rules_waits;
-    domain_sc_state -> domain_sc_engine;
-    domain_sc_rules_flowers -> domain_sc_rules_pipeline;
-    domain_sc_rules_base -> domain_sc_rules_pipeline;
-    domain_sc_rules_waits -> domain_sc_rules_pipeline;
-    domain_sc_rules_patterns -> domain_sc_rules_pipeline;
-    domain_sc_rules_honors -> domain_sc_rules_pipeline;
-    domain_sc_rules_timings -> domain_sc_rules_pipeline;
-    domain_sc_rules_pipeline -> domain_sc_engine;
-    domain_sc_engine -> app_runtime;
-    domain_sc_breakdown -> domain_sc_engine;
-
+    // Interface dependencies -> sdk
+    main_cli -> iface_cli_entry;
+    iface_cli_entry -> sdk_entry;
+    ui_console -> sdk_entry;
     ui_helpers -> ui_console;
+    ui_helpers -> sdk_entry;
+    bot_greedy -> sdk_entry;
+    bot_rule -> sdk_entry;
+    bot_random -> sdk_entry;
+    rl_selfplay -> sdk_entry;
+    rl_buffer -> rl_selfplay;
+    rl_net -> rl_selfplay;
 
-    app_table -> app_runtime;
-    app_strat -> app_runtime;
-    app_logging -> app_runtime;
-    ui_console -> app_strat;
+    // SDK depends on application services and domain primitives
+    sdk_entry -> app_runtime;
+    sdk_entry -> app_session;
+    sdk_entry -> app_table;
+    sdk_entry -> app_strat;
+    sdk_entry -> app_logging;
+    sdk_entry -> domain_ruleset;
+    sdk_entry -> domain_env;
+    sdk_entry -> domain_tiles;
+    sdk_entry -> domain_scoring;
 
-    bot_rule -> app_strat;
-    bot_random -> app_strat;
-    bot_greedy -> app_strat;
+    // Application layer depends on domain
+    app_runtime -> app_session;
+    app_runtime -> app_table;
+    app_runtime -> app_strat;
+    app_runtime -> app_logging;
+    app_session -> domain_env;
+    app_session -> domain_scoring;
+    app_table -> domain_ruleset;
+    app_table -> domain_env;
+    app_strat -> domain_env;
+    app_logging -> domain_tiles;
 
-    rl_selfplay -> rl_buffer;
-    rl_selfplay -> rl_net;
-
-    app_runtime -> main_cli;
+    // Domain internal dependencies
+    domain_env -> domain_ruleset;
+    domain_env -> domain_tiles;
+    domain_scoring -> domain_ruleset;
+    domain_scoring -> domain_tiles;
 }

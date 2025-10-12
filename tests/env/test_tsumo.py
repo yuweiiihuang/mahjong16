@@ -1,6 +1,4 @@
-from domain import Mahjong16Env
-from domain.rules import Ruleset
-from domain.tiles import Tile
+from sdk import Mahjong16Env, Ruleset, Tile
 
 
 def _make_tsumo_hand() -> tuple[list[int], int]:

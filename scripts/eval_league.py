@@ -41,10 +41,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.table import TableManager
-from domain import Mahjong16Env, Ruleset
-from domain.scoring.engine import compute_payments, score_with_breakdown
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext
+from sdk import (
+    Mahjong16Env,
+    Ruleset,
+    ScoringContext,
+    compute_payments,
+    load_scoring_assets,
+    score_with_breakdown,
+)
 
 
 StrategyFactory = Callable[..., Any]

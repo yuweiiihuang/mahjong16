@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from domain import Mahjong16Env
-from domain.rules import Ruleset
-from domain.tiles import Tile
+from sdk import Mahjong16Env, Ruleset, Tile, score_with_breakdown
 from tests.helpers.tile_pool import TilePool, move_tile_to_tail
 from domain.scoring.tables import load_scoring_assets
 from domain.scoring.types import ScoringContext
-from domain.scoring.engine import score_with_breakdown
 
 
 def force_reset_env(include_flowers: bool = False) -> Mahjong16Env:

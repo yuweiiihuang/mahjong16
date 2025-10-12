@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable, List
 
-from domain.tiles import N_TILES, Tile, flower_ids
+from sdk import N_TILES, Tile, flower_ids
 
 
 class TilePool:

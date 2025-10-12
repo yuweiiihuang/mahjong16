@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from domain.rules import Ruleset, load_rule_profile
+from sdk import Ruleset, load_rule_profile
 
 
 def test_ruleset_loads_common_profile_defaults() -> None:

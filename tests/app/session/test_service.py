@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.session import (
+from sdk import (
     HandSummaryPort,
+    Mahjong16Env,
+    Ruleset,
     ScoreState,
     SessionService,
     StepEvent,
+    TableManager,
     TableViewPort,
+    build_strategies,
+    load_scoring_assets,
 )
-from app.table import TableManager
-from app.strategies import build_strategies
-from domain import Mahjong16Env, Ruleset
-from domain.scoring.tables import load_scoring_assets
 
 
 class RecordingTableView(TableViewPort):

@@ -1,6 +1,6 @@
 """Tests for tile helper utilities."""
 
-from domain.tiles import Tile, chi_options
+from sdk import Tile, chi_options
 
 
 def test_chi_options_returns_empty_for_honors() -> None:

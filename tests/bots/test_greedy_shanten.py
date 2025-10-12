@@ -6,7 +6,7 @@ from bots.greedy import (
     _heuristic,
     _live_counts_from_obs,
 )
-from domain.tiles import Tile
+from sdk import Tile
 
 
 def _snapshot(*tiles: Tile):

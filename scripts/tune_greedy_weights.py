@@ -46,9 +46,8 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from app.table import TableManager
 from bots.greedy import GreedyBotStrategy, HeuristicWeights
-from domain import Mahjong16Env, Ruleset
+from sdk import Mahjong16Env, Ruleset, TableManager
 
 
 @dataclass(frozen=True)

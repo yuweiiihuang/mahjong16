@@ -1,7 +1,6 @@
 """Tests focused on seat assignment and dealer selection logic during reset."""
 
-from domain import Mahjong16Env
-from domain.rules import Ruleset
+from sdk import Mahjong16Env, Ruleset
 
 
 def test_randomized_seating_changes_over_resets():

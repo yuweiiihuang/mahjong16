@@ -1,6 +1,4 @@
-from domain import Mahjong16Env
-from domain.rules import Ruleset
-from domain.tiles import Tile
+from sdk import Mahjong16Env, Ruleset, Tile
 from tests.helpers.tile_pool import TilePool
 
 def test_deadwall_fixed_flow():

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable, List, MutableSequence, Optional, Sequence, Tuple
 
-from domain.tiles import N_TILES, tile_to_str
+from sdk import N_TILES, tile_to_str
 
 
 # ---------------------------------------------------------------------------

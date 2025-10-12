@@ -27,10 +27,14 @@ from app.strategies import AutoStrategy
 from bots.greedy import GreedyBotStrategy
 from bots.random_bot import RandomBot
 from bots.rulebot import RuleBot
-from domain import Mahjong16Env, Ruleset
-from domain.scoring.engine import compute_payments, score_with_breakdown
-from domain.scoring.tables import load_scoring_assets
-from domain.scoring.types import ScoringContext
+from sdk import (
+    Mahjong16Env,
+    Ruleset,
+    ScoringContext,
+    compute_payments,
+    load_scoring_assets,
+    score_with_breakdown,
+)
 
 
 @dataclass
