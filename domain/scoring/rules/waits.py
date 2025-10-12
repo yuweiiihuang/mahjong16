@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from domain.rules.hands import can_form_only_chows
 from ..breakdown import ScoreAccumulator
-from ..utils import _dfs_only_chows
 from ..state import DerivedScoringState
 from ..types import ScoringContext
 
@@ -72,7 +72,7 @@ def apply_waits_rules(
             if not state.has_flowers_total and not state.has_honor_total:
                 counts34 = tuple(hand.counts34)
                 if sum(hand.counts34) == len(concealed_for_patterns):
-                    if _dfs_only_chows(counts34, hand.need, False):
+                    if can_form_only_chows(counts34, hand.need, False):
                         acc.add("ping_hu")
 
     return True
