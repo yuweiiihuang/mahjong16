@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.table import TableManager
-from app.strategies import AutoStrategy
+from bots import AutoStrategy
 from bots.greedy import GreedyBotStrategy
 from bots.random_bot import RandomBot
 from bots.rulebot import RuleBot

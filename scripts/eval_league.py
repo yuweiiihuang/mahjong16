@@ -149,7 +149,7 @@ _BUILTIN_FACTORIES: Mapping[str, StrategyFactory] | None = None
 def builtin_factories() -> Mapping[str, StrategyFactory]:
     global _BUILTIN_FACTORIES
     if _BUILTIN_FACTORIES is None:
-        from app.strategies import AutoStrategy
+        from bots import AutoStrategy
         from bots.greedy import GreedyBotStrategy
         from bots.random_bot import RandomBot
         from bots.rulebot import RuleBot

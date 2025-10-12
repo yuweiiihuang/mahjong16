@@ -10,7 +10,7 @@ from app.session import (
     TableViewPort,
 )
 from app.table import TableManager
-from app.strategies import build_strategies
+from bots import build_strategies
 from domain import Mahjong16Env, Ruleset
 from domain.scoring.tables import load_scoring_assets
 
