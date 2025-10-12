@@ -8,7 +8,7 @@ from functools import lru_cache
 def _is_suited_idx(i: int) -> bool:
     """Return ``True`` if ``i`` represents a suited tile index (0-26 inclusive).
 
-    Tile indices in ``core.tiles`` follow the standard Mahjong ordering where the
+    Tile indices in ``domain.tiles`` follow the standard Mahjong ordering where the
     first 27 indices correspond to the suited tiles (characters, dots, bamboos).
     """
 

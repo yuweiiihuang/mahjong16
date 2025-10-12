@@ -48,7 +48,7 @@ from rich.progress import (
 )
 from app.table import TableManager
 from bots.greedy import GreedyBotStrategy, HeuristicWeights
-from core import Mahjong16Env, Ruleset
+from domain import Mahjong16Env, Ruleset
 
 
 @dataclass(frozen=True)

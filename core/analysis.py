@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
-from .types import Observation
+from domain.gameplay.types import Observation
 
 
 def simulate_after_discard(

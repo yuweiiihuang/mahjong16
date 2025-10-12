@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from core import Mahjong16Env
-from core.ruleset import Ruleset
-from core.tiles import Tile
+from domain import Mahjong16Env
+from domain.rules import Ruleset
+from domain.tiles import Tile
 from tests.helpers.tile_pool import TilePool
 
 

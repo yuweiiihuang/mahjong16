@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from core.ruleset import Ruleset
-from core.scoring.breakdown import ScoreAccumulator
-from core.scoring.common import is_honor
-from core.scoring.rules.base import apply_base_rules
-from core.scoring.rules.flowers import apply_flowers_rules
-from core.scoring.rules.honors import apply_honors_rules
-from core.scoring.rules.patterns import apply_patterns_rules
-from core.scoring.rules.timings import apply_timings_rules
-from core.scoring.rules.waits import apply_waits_rules
-from core.scoring.state import DerivedScoringState, HandState, WinState
-from core.scoring.types import Meld, PlayerView, ScoringContext, ScoringTable
-from core.tiles import tile_to_str
+from domain.rules import Ruleset
+from domain.scoring.breakdown import ScoreAccumulator
+from domain.scoring.common import is_honor
+from domain.scoring.rules.base import apply_base_rules
+from domain.scoring.rules.flowers import apply_flowers_rules
+from domain.scoring.rules.honors import apply_honors_rules
+from domain.scoring.rules.patterns import apply_patterns_rules
+from domain.scoring.rules.timings import apply_timings_rules
+from domain.scoring.rules.waits import apply_waits_rules
+from domain.scoring.state import DerivedScoringState, HandState, WinState
+from domain.scoring.types import Meld, PlayerView, ScoringContext, ScoringTable
+from domain.tiles import tile_to_str
 
 
 SCORING_VALUES = {
@@ -322,7 +322,7 @@ def test_apply_flowers_rules_counts_regular_flowers(monkeypatch):
     acc = _acc(ctx)
 
     monkeypatch.setattr(
-        "core.scoring.rules.flowers._flower_no",
+        "domain.scoring.rules.flowers._flower_no",
         lambda tile: tile - 33,
     )
 

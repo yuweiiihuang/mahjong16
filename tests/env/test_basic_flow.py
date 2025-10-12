@@ -1,6 +1,6 @@
-from core import Mahjong16Env
-from core.ruleset import Ruleset
-from core.tiles import N_TILES, Tile, flower_ids
+from domain import Mahjong16Env
+from domain.rules import Ruleset
+from domain.tiles import N_TILES, Tile, flower_ids
 
 def test_reset_and_deal():
     env = Mahjong16Env(Ruleset(), seed=123)

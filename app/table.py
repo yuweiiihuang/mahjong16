@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
-from core import Mahjong16Env, Ruleset
+from domain import Mahjong16Env, Ruleset
 
 
 WINDS = ["E", "S", "W", "N"]

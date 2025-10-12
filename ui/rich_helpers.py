@@ -7,7 +7,7 @@ from typing import Iterable, List, Optional
 from rich.console import RenderableType
 from rich.text import Text
 
-from core.tiles import is_flower, tile_to_str
+from domain.tiles import is_flower, tile_to_str
 
 
 def style_for_tile(tile: int) -> str:

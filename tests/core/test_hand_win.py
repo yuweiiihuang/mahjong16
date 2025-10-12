@@ -1,6 +1,6 @@
-from core.ruleset import Ruleset
-from core.hand import is_win_16
-from core.tiles import Tile
+from domain.rules import Ruleset
+from domain.rules.hands import is_win_16
+from domain.tiles import Tile
 
 def test_is_win_simple_all_chows():
     # W123 W456 W789 D123 D456 + 將(E,E) = 5面子+眼睛 → 胡

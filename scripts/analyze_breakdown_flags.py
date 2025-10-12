@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.scoring.tables import load_scoring_assets
+from domain.scoring.tables import load_scoring_assets
 
 DEFAULT_SCORING_JSON = (
     Path(__file__).resolve().parent.parent / "configs" / "scoring" / "profiles" / "taiwan_base.json"

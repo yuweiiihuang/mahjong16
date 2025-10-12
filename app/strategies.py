@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple, Protocol
 from bots import GreedyBotStrategy
 from ui.console import prompt_turn_action, prompt_reaction_action
-from core import Action, Observation
+from domain.gameplay import Action, Observation
 
 # Reaction priority: HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}

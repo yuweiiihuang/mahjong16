@@ -10,7 +10,7 @@
 - Always activate the project venv before running commands: `source .venv/bin/activate`.
 - `pip install -r requirements.txt` installs runtime dependencies and pytest extras.
 - `python main.py` launches the interactive CLI table for manual rule smoke-checks.
-- `python -m core.env` runs the environment module directly to validate import safety.
+- `python -m domain.gameplay.env` runs the environment module directly to validate import safety (legacy `python -m core.env` remains as a shim).
 - `pytest -q` executes the regression suite; confirm a clean run before publishing changes.
 - `python scripts/bench_sim.py -n 10000` benchmarks the engine; use when tuning performance-sensitive code.
 

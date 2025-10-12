@@ -1,9 +1,9 @@
-"""Deprecated shim for :mod:`domain.tiles`."""
+"""Domain-level API for Mahjong16 gameplay primitives."""
 from __future__ import annotations
 
-import warnings
-
-from domain.tiles import (
+from .gameplay.env import MahjongEnvironment, Mahjong16Env
+from .rules.ruleset import Ruleset, load_rule_profile
+from .tiles import (
     Tile,
     chi_options,
     flower_ids,
@@ -16,13 +16,11 @@ from domain.tiles import (
     N_TILES,
 )
 
-warnings.warn(
-    "Importing from 'core.tiles' is deprecated; use 'domain.tiles' instead.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 __all__ = [
+    "MahjongEnvironment",
+    "Mahjong16Env",
+    "Ruleset",
+    "load_rule_profile",
     "Tile",
     "chi_options",
     "flower_ids",
