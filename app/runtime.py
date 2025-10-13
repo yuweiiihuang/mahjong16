@@ -504,39 +504,6 @@ def run_demo_headless_collect(
     return session.run()
 
 
-def run_demo(
-    seed=None,
-    human_pid: Optional[int] = 0,
-    bot: str = "auto",
-    hands: int = 1,
-    jangs: int = 0,
-    start_points: int = 1000,
-    log_dir: Optional[str] = None,
-    enable_ui: bool = True,
-):
-    """Backward-compatible wrapper for existing callers."""
-
-    if enable_ui:
-        return run_demo_ui(
-            seed=seed,
-            human_pid=human_pid,
-            bot=bot,
-            hands=hands,
-            jangs=jangs,
-            start_points=start_points,
-            log_dir=log_dir,
-        )
-    return run_demo_headless(
-        seed=seed,
-        human_pid=None,
-        bot=bot,
-        hands=hands,
-        jangs=jangs,
-        start_points=start_points,
-        log_dir=log_dir,
-    )
-
-
 def run_demo_headless_batch(
     *,
     sessions: int,
