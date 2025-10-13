@@ -109,80 +109,117 @@ class SessionService:
         self._notify_session_start()
         hand_idx = 0
         try:
-            while True:
-                if self.max_hands is not None and hand_idx >= self.max_hands:
-                    break
-
+            while self._has_more_hands(hand_idx):
                 hand_idx += 1
-                obs = self.table_manager.start_hand(self.env)
-                self.hand_delta = [0 for _ in range(self.n_players)]
-                self.score_state["deltas"] = self.hand_delta
-
-                if getattr(self.env, "done", False):
-                    if self._process_hand_end(hand_idx):
-                        break
-                    continue
-
-                if self.table_view_port is not None:
-                    jang_index = getattr(self.table_manager.state, "jang_count", 0) + 1
-                    self.table_view_port.on_hand_start(
-                        hand_index=hand_idx,
-                        jang_index=jang_index,
-                        env=self.env,
-                        score_state=self.score_state,
-                    )
-
-                while True:
-                    acts_current = obs.get("legal_actions") or []
-                    if not acts_current:
-                        recalculated = self.env.legal_actions()
-                        if recalculated:
-                            obs = dict(obs)
-                            obs["legal_actions"] = recalculated
-                            acts_current = recalculated
-                        elif getattr(self.env, "done", False):
-                            if self._process_hand_end(hand_idx):
-                                return self.hand_summaries
-                            break
-                        else:
-                            raise AssertionError(
-                                f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}"
-                            )
-
-                    strategy = self.strategies[obs.get("player")]
-                    act = strategy.choose(obs)
-                    action_type = (act.get("type") or "").upper()
-                    acting_pid = obs.get("player")
-                    discarded_tile = act.get("tile") if action_type == "DISCARD" else None
-
-                    obs, _reward, done, info = self.env.step(act)
-
-                    if self.table_view_port is not None:
-                        event = StepEvent(
-                            observation=obs,
-                            info=info,
-                            action=act,
-                            acting_pid=acting_pid,
-                            action_type=action_type,
-                            discarded_tile=discarded_tile,
-                        )
-                        self.table_view_port.on_step(
-                            event=event,
-                            env=self.env,
-                            score_state=self.score_state,
-                        )
-
-                    if done:
-                        if self._process_hand_end(hand_idx):
-                            return self.hand_summaries
-                        break
-
-                if self.play_until_negative and any(pt < 0 for pt in self.totals):
+                session_complete = self._play_single_hand(hand_idx)
+                if session_complete or self._should_stop_after_hand():
                     break
 
             return self.hand_summaries
         finally:
             self._notify_session_end()
+
+    def _has_more_hands(self, hand_idx: int) -> bool:
+        return self.max_hands is None or hand_idx < self.max_hands
+
+    def _play_single_hand(self, hand_idx: int) -> bool:
+        obs = self._prepare_hand_state()
+        if getattr(self.env, "done", False):
+            return self._process_hand_end(hand_idx)
+
+        self._emit_hand_start(hand_idx)
+        return self._play_hand_loop(hand_idx, obs)
+
+    def _prepare_hand_state(self) -> Dict[str, Any]:
+        obs = self.table_manager.start_hand(self.env)
+        self.hand_delta = [0 for _ in range(self.n_players)]
+        self.score_state["deltas"] = self.hand_delta
+        return obs
+
+    def _emit_hand_start(self, hand_idx: int) -> None:
+        if self.table_view_port is None:
+            return
+        jang_index = getattr(self.table_manager.state, "jang_count", 0) + 1
+        self.table_view_port.on_hand_start(
+            hand_index=hand_idx,
+            jang_index=jang_index,
+            env=self.env,
+            score_state=self.score_state,
+        )
+
+    def _play_hand_loop(self, hand_idx: int, obs: Dict[str, Any]) -> bool:
+        while True:
+            obs, session_complete = self._resolve_actions(obs, hand_idx)
+            if obs is None:
+                return session_complete
+
+            strategy = self.strategies[obs.get("player")]
+            act = strategy.choose(obs)
+            action_type = (act.get("type") or "").upper()
+            acting_pid = obs.get("player")
+            discarded_tile = act.get("tile") if action_type == "DISCARD" else None
+
+            obs, done = self._step_environment(
+                act,
+                action_type=action_type,
+                acting_pid=acting_pid,
+                discarded_tile=discarded_tile,
+            )
+
+            if done:
+                return self._process_hand_end(hand_idx)
+
+    def _resolve_actions(
+        self,
+        obs: Dict[str, Any],
+        hand_idx: int,
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        acts_current = obs.get("legal_actions") or []
+        if acts_current:
+            return obs, False
+
+        recalculated = self.env.legal_actions()
+        if recalculated:
+            refreshed = dict(obs)
+            refreshed["legal_actions"] = recalculated
+            return refreshed, False
+
+        if getattr(self.env, "done", False):
+            return None, self._process_hand_end(hand_idx)
+
+        raise AssertionError(
+            f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}"
+        )
+
+    def _step_environment(
+        self,
+        act: Dict[str, Any],
+        *,
+        action_type: str,
+        acting_pid: Optional[int],
+        discarded_tile: Optional[int],
+    ) -> Tuple[Dict[str, Any], bool]:
+        obs, _reward, done, info = self.env.step(act)
+
+        if self.table_view_port is not None:
+            event = StepEvent(
+                observation=obs,
+                info=info,
+                action=act,
+                acting_pid=acting_pid,
+                action_type=action_type,
+                discarded_tile=discarded_tile,
+            )
+            self.table_view_port.on_step(
+                event=event,
+                env=self.env,
+                score_state=self.score_state,
+            )
+
+        return obs, done
+
+    def _should_stop_after_hand(self) -> bool:
+        return self.play_until_negative and any(pt < 0 for pt in self.totals)
 
     def _process_hand_end(self, hand_idx: int) -> bool:
         ctx = ScoringContext.from_env(self.env, self.scoring_assets)
