@@ -709,7 +709,6 @@ def run_demo_headless_batch(
                 hand_cb = _make_hand_cb(idx)
                 summaries = run_demo_headless_collect(
                     seed=session_seed,
-                    human_pid=None,
                     bot=bot,
                     hands=hands,
                     jangs=jangs,
@@ -842,7 +841,6 @@ def _run_headless_batch_session(
 
     summaries = run_demo_headless_collect(
         seed=session_seed,
-        human_pid=None,
         bot=bot,
         hands=hands,
         jangs=jangs,
