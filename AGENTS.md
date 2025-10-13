@@ -1,35 +1,35 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Place core rules and scoring logic in `domain/`; keep modules pure and deterministic (`domain/gameplay/game_env.py`, `domain/scoring/engine.py`).
-- Wire strategies and CLI demos through `app/`, and reuse console helpers from `ui/console.py` instead of duplicating render logic.
-- Host autonomous players in `bots/` and reinforcement-learning tools in `rl/`, importing shared utilities from `domain/` or `ui/`.
-- Treat `scripts/` (e.g., `scripts/bench_sim.py`) and config assets under `configs/` as read-only inputs; mirror any new runtime behavior with tests in `tests/`.
+- Keep deterministic rules, scoring, and utilities under `domain/` (e.g., `domain/gameplay/game_env.py`, `domain/scoring/engine.py`).
+- Route CLI flows and demos through `app/`, reusing `ui/console.py` for rendering instead of duplicating output helpers.
+- Place autonomous agents in `bots/` and any reinforcement-learning tooling in `rl/`, importing shared logic from `domain/` or `ui/` as needed.
+- Treat `configs/` and `scripts/` as read-only inputs; introduce new runtime behaviour alongside pytest coverage in `tests/`.
 
 ## Build, Test, and Development Commands
-- Always activate the project venv before running commands: `source .venv/bin/activate`.
-- `pip install -r requirements.txt` installs runtime dependencies and pytest extras.
-- `python main.py` launches the interactive CLI table for manual rule smoke-checks.
-- `python -m domain.gameplay.game_env` runs the environment module directly to validate import safety.
-- `pytest -q` executes the regression suite; confirm a clean run before publishing changes.
-- `python scripts/bench_sim.py -n 10000` benchmarks the engine; use when tuning performance-sensitive code.
+- `source .venv/bin/activate` — activate the project environment before installing or running tools.
+- `pip install -r requirements.txt` — sync runtime and test dependencies.
+- `python main.py` — launch the interactive table view for smoke-checking rules.
+- `python -m domain.gameplay.game_env` — validate module imports without invoking the CLI.
+- `pytest -q` — execute the regression suite; ensure a clean run before publishing.
+- `python scripts/bench_sim.py -n 10000` — benchmark engine performance when tuning heuristics.
 
 ## Coding Style & Naming Conventions
-- Follow PEP 8 with 4-space indentation and keep lines ≤ 100 characters.
-- Use snake_case for variables/functions, PascalCase for classes, and UPPER_SNAKE for constants like `PRIORITY`.
-- Annotate public APIs with type hints and docstrings that clarify rule decisions; prefer composition over globals by passing `Ruleset` instances or explicit context objects.
+- Follow PEP 8 with 4-space indentation and keep lines at or below 100 characters.
+- Use snake_case for functions and variables, PascalCase for classes, and UPPER_SNAKE for constants like `PRIORITY`.
+- Annotate public APIs with type hints and docstrings that clarify rule decisions; prefer composition over globals by passing explicit context objects.
 
 ## Testing Guidelines
-- Add pytest suites named `test_*.py` alongside the modules they cover (see `tests/test_env_basic.py`).
-- Cover success and failure paths, including dead-wall and reaction priority scenarios; seed runs via `Mahjong16Env(seed=...)` or `Ruleset.random_seed` for determinism.
-- Update or extend regression cases whenever scoring tables or rule toggles change.
+- Add `test_*.py` modules next to the code under test, mirroring new gameplay or scoring scenarios.
+- Use pytest fixtures and deterministic seeds (`Mahjong16Env(seed=...)`, `Ruleset.random_seed`) to cover success, failure, and dead-wall edge cases.
+- Update regression cases whenever scoring tables or rule toggles change.
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commits (e.g., `feat: add four-concealed-meld fan`) with concise English summaries.
-- Scope commits narrowly; mention any follow-up commands or data migrations when behavior shifts.
-- Pull requests should summarize intent, list touched modules (e.g., `domain/gameplay/game_env.py`, `ui/console.py`), link relevant issues, and attach CLI screenshots or pytest output for UX or scoring changes.
+- Follow Conventional Commits (`feat: add four-concealed-meld fan`, `fix: adjust ron priority ordering`).
+- Scope commits narrowly and call out follow-up commands or data migrations if behaviour shifts.
+- Summarise PR intent, list touched modules (e.g., `domain/gameplay/game_env.py`, `ui/console.py`), link issues, and attach CLI screenshots or `pytest` output for UX or scoring updates.
 
-## Configuration & Safety Notes
-- Extend `domain/rules/ruleset.py` for new table options rather than scattering toggles.
-- Preserve keys consumed by `domain/scoring/lookup.py` when reading from `configs/`; never overwrite historical assets.
-- Provide deterministic seeds when introducing bots or training loops, and avoid writing to shared state outside the workspace.
+## Security & Configuration Tips
+- Extend `domain/rules/ruleset.py` for new table options; avoid scattering toggles.
+- Do not overwrite historical assets under `configs/`; preserve keys consumed by `domain/scoring/lookup.py`.
+- Seed bots and training loops deterministically and avoid writing outside the workspace.
