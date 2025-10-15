@@ -592,25 +592,73 @@ class MahjongPygameUI(TableViewPort, HandSummaryPort, HumanInputProvider):
             self._draw_tile_sequence(assets["flowers"], (rect.x + 12, y + 6), tiles_per_row=3, small=True)
 
     def _player_assets(self, pid: int) -> Dict[str, Any]:
-        player = self.env.players[pid] if self.env is not None else {}
+        empty = {
+            "hand": [],
+            "drawn": None,
+            "melds": [],
+            "flowers": [],
+            "river": [],
+            "declared_ting": False,
+        }
+        if self.env is None:
+            return dict(empty)
+        players = getattr(self.env, "players", None)
+        if players is None or isinstance(players, (str, bytes)):
+            return dict(empty)
+        try:
+            player = players[pid]
+        except (TypeError, IndexError, KeyError):
+            return dict(empty)
+        if player is None:
+            return dict(empty)
+
         if isinstance(player, dict):
-            get = player.get
+            getter = player.get
         else:
-            get = lambda key, default=None: getattr(player, key, default)
-        hand = list(get("hand") or [])
-        melds = list(get("melds") or [])
-        flowers = list(get("flowers") or [])
-        river = list(get("river") or [])
+            getter = lambda key, default=None: getattr(player, key, default)
+
+        def _iterable(value: Any) -> Iterable[Any]:
+            if value is None:
+                return []
+            if isinstance(value, (list, tuple)):
+                return value
+            if isinstance(value, set):
+                return list(value)
+            if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                return list(value)
+            return []
+
+        def _tile_list(value: Any) -> List[int]:
+            tiles: List[int] = []
+            for item in _iterable(value):
+                if item is None:
+                    continue
+                try:
+                    tiles.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            return tiles
+
+        hand = _tile_list(getter("hand"))
         hand.sort(key=tile_sort_key)
+        melds_raw = getter("melds") or []
+        melds = list(_iterable(melds_raw))
+        flowers = _tile_list(getter("flowers"))
         flowers.sort(key=tile_sort_key)
-        river = [int(t) for t in river]
+        river = _tile_list(getter("river"))
+        drawn = getter("drawn")
+        try:
+            drawn = int(drawn) if drawn is not None else None
+        except (TypeError, ValueError):
+            drawn = None
+
         return {
             "hand": hand,
-            "drawn": get("drawn"),
+            "drawn": drawn,
             "melds": melds,
             "flowers": flowers,
             "river": river,
-            "declared_ting": bool(get("declared_ting", False)),
+            "declared_ting": bool(getter("declared_ting", False)),
         }
 
     def _player_header_text(self, pid: int) -> str:
