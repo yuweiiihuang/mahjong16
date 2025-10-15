@@ -9,6 +9,51 @@
     <div id="app">
       <main id="table">
         <div id="table-surface">
+          <div class="table-rail rail-top"></div>
+          <div class="table-rail rail-bottom"></div>
+          <div class="table-rail rail-left"></div>
+          <div class="table-rail rail-right"></div>
+          <div id="table-hud">
+            <div class="hud-top">
+              <div class="status-pill rate-pill">
+                <span class="pill-label">Rate</span>
+                <span class="pill-value" id="status-rate">—</span>
+              </div>
+              <div class="hud-round">
+                <div class="round-label" id="status-round">—</div>
+                <div class="round-countdown">
+                  <span class="round-wind" id="status-turn-wind">—</span>
+                  <span class="round-timer" id="status-countdown">--</span>
+                </div>
+                <div class="round-phase" id="status-phase">等待更新…</div>
+              </div>
+              <div class="status-pill wall-pill">
+                <span class="pill-label">剩餘牌山</span>
+                <span class="pill-value" id="status-remaining">—</span>
+                <span class="pill-sub" id="status-dead-wall">王牌 —</span>
+              </div>
+            </div>
+            <div class="hud-left">
+              <div class="wind-track">
+                <div class="wind-slot" data-wind-slot="south">
+                  <span class="wind-letter">東</span>
+                  <span class="wind-ascii">E</span>
+                </div>
+                <div class="wind-slot" data-wind-slot="west">
+                  <span class="wind-letter">南</span>
+                  <span class="wind-ascii">S</span>
+                </div>
+                <div class="wind-slot" data-wind-slot="north">
+                  <span class="wind-letter">西</span>
+                  <span class="wind-ascii">W</span>
+                </div>
+                <div class="wind-slot" data-wind-slot="east">
+                  <span class="wind-letter">北</span>
+                  <span class="wind-ascii">N</span>
+                </div>
+              </div>
+            </div>
+          </div>
           <div id="center-stage">
             <div id="center-table">
               <div id="center-seat-north" class="center-seat center-north">—</div>
