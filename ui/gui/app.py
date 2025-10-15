@@ -1005,7 +1005,6 @@ class MahjongGuiAdapter(TableViewPort, HandSummaryPort, HumanInterface):
 
     def _wait_for_action(self) -> Action:
         while self.pending_selection is None:
-            self._handle_events(allow_selection=True)
             self._render()
             self.clock.tick(self.FPS)
         return dict(self.pending_selection)
@@ -1087,6 +1086,10 @@ class MahjongGuiAdapter(TableViewPort, HandSummaryPort, HumanInterface):
         self._needs_full_redraw = True
 
     def _render(self, show_final_summary: bool = False) -> None:
+        allow_selection = (
+            self.pending_selection is None and self.prompt_mode in {"TURN", "REACTION"}
+        )
+        self._handle_events(allow_selection=allow_selection)
         if self.screen is None:
             return
         self._render_background()
