@@ -9,22 +9,7 @@ from app.logging import HandLogWriter, write_hand_log
 from app.session import HandSummaryPort, ScoreState, StepEvent, TableViewPort
 from ui.console import render_public_view, render_reveal, render_winners_summary
 
-
-def _summarize_resolved_claim(info: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-    if not info or "resolved_claim" not in info:
-        return None
-    resolved = info["resolved_claim"]
-    claim_type = (resolved.get("type") or "").upper()
-    pid = resolved.get("pid")
-    tile = resolved.get("tile")
-    detail = ""
-    if claim_type == "CHI":
-        use = resolved.get("use", [])
-        if isinstance(use, list) and len(use) == 2:
-            detail = f"{tile_to_str(use[0])}-{tile_to_str(use[1])} + {tile_to_str(tile)}"
-    elif claim_type in {"PONG", "GANG", "HU"}:
-        detail = tile_to_str(tile) or ""
-    return {"who": f"P{pid}", "type": claim_type, "detail": detail}
+from .common import summarize_resolved_claim
 
 
 def _update_ui(
@@ -106,7 +91,7 @@ class ConsoleUIAdapter(TableViewPort, HandSummaryPort):
         if not self.emit_logs:
             return
 
-        claim_event = _summarize_resolved_claim(event.info)
+        claim_event = summarize_resolved_claim(event.info)
         if claim_event:
             _update_ui(
                 env,

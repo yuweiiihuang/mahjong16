@@ -14,6 +14,7 @@
 - 台數計算採分層管線：`domain/scoring/state.py` 整理衍生狀態，`domain/scoring/rules/*`
   套用番種，`domain/scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
 - `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
+- `ui/web/` 提供 FastAPI + WebSocket 的桌面視覺化介面，支援滑鼠操作吃碰槓胡與桌面同步。
 - `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
 - `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
 
@@ -29,6 +30,7 @@ pip install -r requirements.txt
 python main.py --help
 python main.py --seed 42 --human 0 --bot greedy --hands 8
 python main.py --no-ui --hands 50 --log-dir logs/demo   # headless + CSV 摘要
+python main.py --web --human 0 --bot auto                # 啟動 Web 介面
 pytest -q
 ```
 
@@ -81,6 +83,10 @@ mahjong16/
 - `--no-ui`：禁用互動 Rich 介面並改以 headless 流程執行，會自動關閉真人座位。
 - `--sessions <int>`：獨立桌次數量，>1 時改用批次 headless；預設 1。
 - `--cores <int>`：批次 headless 最大工作程序數；省略時根據 CPU 自動判定。
+- `--web`：啟動 FastAPI 網頁介面，會在指定主機/埠提供互動 GUI。
+- `--web-host <str>`：Web 介面綁定主機，預設 `0.0.0.0`。
+- `--web-port <int>`：Web 介面綁定埠號，預設 `8000`。
+- `--web-log-level <str>`：Uvicorn 日誌層級，預設 `info`。
 
 Headless 模式改以進度列呈現；若 `--sessions` > 1 或 `--cores` > 1 亦會自動切至
 `run_demo_headless_batch`，此時 `--no-ui` 旗標可省略。批次模式會禁用真人座位並在

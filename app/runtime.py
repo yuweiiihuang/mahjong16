@@ -4,6 +4,7 @@ import logging
 import multiprocessing as mp
 import os
 import random
+import time
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from queue import Empty
@@ -28,6 +29,7 @@ from domain.tiles import tile_sort_key
 from app.logging import HandLogWriter, write_hand_log
 from app.table import TableManager
 from app.session.adapters import ConsoleUIAdapter, HeadlessLogAdapter
+from app.session.adapters.web_frontend import WebFrontendAdapter
 from app.session.ports import (
     HandSummaryPort,
     ProgressPort,
@@ -37,6 +39,9 @@ from app.session.ports import (
 )
 from bots import Strategy, build_strategies
 from ui.console import render_winners_summary
+from ui.web.bridge import WebSessionBridge
+from ui.web.server import run_web_app
+from ui.web.strategy import WebHumanStrategy
 
 
 logger = logging.getLogger(__name__)
@@ -135,6 +140,9 @@ def _build_session_dependencies(
     seed: Optional[int],
     human_pid: Optional[int],
     bot: str,
+    *,
+    bot_delay: float = 2.0,
+    human_strategy_factory: Optional[Callable[[], Strategy]] = None,
 ) -> Tuple[Mahjong16Env, TableManager, List[Strategy], ScoringTable]:
     rules = Ruleset(
         scoring_profile="taiwan_base",
@@ -142,7 +150,13 @@ def _build_session_dependencies(
     )
     env = Mahjong16Env(rules, seed=seed)
     table_manager = TableManager(rules, seed=seed)
-    strategies = build_strategies(env.rules.n_players, human_pid, bot)
+    strategies = build_strategies(
+        env.rules.n_players,
+        human_pid,
+        bot,
+        bot_delay=bot_delay,
+        human_factory=human_strategy_factory,
+    )
     scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
     return env, table_manager, strategies, scoring_table
 
@@ -254,6 +268,10 @@ class SessionService:
             acting_pid = obs.get("player")
             discarded_tile = act.get("tile") if action_type == "DISCARD" else None
 
+            delay = self._strategy_delay(strategy, act, obs, action_type)
+            if delay > 0:
+                time.sleep(delay)
+
             obs, done = self._step_environment(
                 act,
                 action_type=action_type,
@@ -312,6 +330,29 @@ class SessionService:
             )
 
         return obs, done
+
+    def _strategy_delay(
+        self,
+        strategy: Strategy,
+        action: Dict[str, Any],
+        obs: Dict[str, Any],
+        action_type: str,
+    ) -> float:
+        delay_fn = getattr(strategy, "delay_for", None)
+        if callable(delay_fn):
+            try:
+                value = float(delay_fn(action, obs))
+            except (TypeError, ValueError):
+                return 0.0
+            return value if value > 0 else 0.0
+        if action_type != "DISCARD":
+            return 0.0
+        delay_attr = getattr(strategy, "discard_delay", 0.0)
+        try:
+            delay = float(delay_attr)
+        except (TypeError, ValueError):
+            return 0.0
+        return delay if delay > 0 else 0.0
 
     def _should_stop_after_hand(self) -> bool:
         return self.play_until_negative and any(pt < 0 for pt in self.totals)
@@ -498,6 +539,43 @@ def build_ui_session(
     )
 
 
+def build_web_session(
+    *,
+    seed: Optional[int] = None,
+    human_pid: Optional[int] = 0,
+    bot: str = "auto",
+    hands: int = 1,
+    jangs: int = 0,
+    start_points: int = 1000,
+) -> Tuple[SessionService, WebSessionBridge]:
+    """Assemble a session service configured for the web frontend."""
+
+    bridge = WebSessionBridge()
+    env, table_manager, strategies, scoring_table = _build_session_dependencies(
+        seed,
+        human_pid,
+        bot,
+        human_strategy_factory=lambda: WebHumanStrategy(bridge),
+    )
+    adapter = WebFrontendAdapter(
+        bridge=bridge,
+        human_pid=human_pid,
+        n_players=env.rules.n_players,
+    )
+    session = SessionService(
+        env=env,
+        table_manager=table_manager,
+        strategies=strategies,
+        scoring_assets=scoring_table,
+        hands=hands,
+        jangs=jangs,
+        start_points=start_points,
+        table_view_port=adapter,
+        hand_summary_port=adapter,
+    )
+    return session, bridge
+
+
 def build_headless_session(
     *,
     seed: Optional[int] = None,
@@ -511,7 +589,12 @@ def build_headless_session(
 ) -> SessionService:
     """Assemble a headless session service with logging/progress adapters."""
 
-    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, None, bot)
+    env, table_manager, strategies, scoring_table = _build_session_dependencies(
+        seed,
+        None,
+        bot,
+        bot_delay=0.0,
+    )
     adapter = HeadlessLogAdapter(
         n_players=env.rules.n_players,
         log_dir=log_dir,
@@ -552,6 +635,31 @@ def run_demo_ui(
         log_dir=log_dir,
     )
     session.run()
+
+
+def run_demo_web(
+    seed=None,
+    human_pid: Optional[int] = 0,
+    bot: str = "auto",
+    hands: int = 1,
+    jangs: int = 0,
+    start_points: int = 1000,
+    *,
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    log_level: str = "info",
+) -> None:
+    """Run the Mahjong16 demo with the interactive web UI enabled."""
+
+    session, bridge = build_web_session(
+        seed=seed,
+        human_pid=human_pid,
+        bot=bot,
+        hands=hands,
+        jangs=jangs,
+        start_points=start_points,
+    )
+    run_web_app(session=session, bridge=bridge, host=host, port=port, log_level=log_level)
 
 
 def run_demo_headless(

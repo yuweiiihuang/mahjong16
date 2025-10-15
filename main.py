@@ -5,12 +5,14 @@ Delegates to `app.runtime.run_demo_ui` or `app.runtime.run_demo_headless`.
 """
 
 from __future__ import annotations
-from app.runtime import run_demo_headless, run_demo_headless_batch, run_demo_ui
+
+import argparse
+
+from app.runtime import run_demo_headless, run_demo_headless_batch, run_demo_ui, run_demo_web
 
 
-if __name__ == "__main__":
-    import argparse
-
+def main() -> None:
+    """Parse CLI arguments and launch the requested demo mode."""
     parser = argparse.ArgumentParser(description="mahjong16 demo CLI")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed (int). Omit for random.")
     parser.add_argument(
@@ -67,6 +69,29 @@ if __name__ == "__main__":
         default=None,
         help="Maximum worker processes for headless batches. Default: auto",
     )
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Launch the FastAPI web interface instead of the console UI.",
+    )
+    parser.add_argument(
+        "--web-host",
+        type=str,
+        default="0.0.0.0",
+        help="Bind host for the web interface. Default: 0.0.0.0",
+    )
+    parser.add_argument(
+        "--web-port",
+        type=int,
+        default=8000,
+        help="Bind port for the web interface. Default: 8000",
+    )
+    parser.add_argument(
+        "--web-log-level",
+        type=str,
+        default="info",
+        help="Uvicorn log level for the web interface. Default: info",
+    )
     args = parser.parse_args()
 
     human_str = (args.human or "").strip().lower()
@@ -102,6 +127,24 @@ if __name__ == "__main__":
 
     sessions = args.sessions
     cores = args.cores
+    if args.web:
+        if args.no_ui:
+            raise SystemExit("Cannot combine --web with --no-ui.")
+        if sessions > 1 or (cores is not None and cores > 1):
+            raise SystemExit("--web does not support multi-session or multi-core execution.")
+        run_demo_web(
+            seed=args.seed,
+            human_pid=human_pid,
+            bot=args.bot,
+            hands=args.hands,
+            jangs=args.jangs,
+            start_points=start_points,
+            host=args.web_host,
+            port=args.web_port,
+            log_level=args.web_log_level,
+        )
+        return
+
     enable_ui = not args.no_ui
     if sessions > 1 or (cores is not None and cores > 1):
         enable_ui = False
@@ -133,3 +176,7 @@ if __name__ == "__main__":
             start_points=start_points,
             log_dir=log_dir,
         )
+
+
+if __name__ == "__main__":
+    main()

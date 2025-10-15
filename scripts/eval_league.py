@@ -155,7 +155,7 @@ def builtin_factories() -> Mapping[str, StrategyFactory]:
         from bots.rulebot import RuleBot
 
         _BUILTIN_FACTORIES = {
-            "auto": lambda seed=None: AutoStrategy(),
+            "auto": lambda seed=None: AutoStrategy(discard_delay=0.0),
             "greedy": lambda seed=None: GreedyBotStrategy(),
             "greedybot": lambda seed=None: GreedyBotStrategy(),
             "random": lambda seed=None: RandomBot(seed=seed),
