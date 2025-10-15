@@ -1,4 +1,12 @@
-const statusEl = document.getElementById('status');
+const hudRoundEl = document.getElementById('hud-round');
+const hudTurnEl = document.getElementById('hud-turn');
+const hudRemainingEl = document.getElementById('hud-remaining');
+const hudScoresEl = document.getElementById('hud-scores');
+const hudDeltasEl = document.getElementById('hud-deltas');
+const centerWindEl = document.getElementById('center-wind');
+const centerRoundEl = document.getElementById('center-round');
+const centerPhaseEl = document.getElementById('center-phase');
+const centerRemainingEl = document.getElementById('center-remaining');
 const lastActionEl = document.getElementById('last-action');
 const actionMetaEl = document.getElementById('action-meta');
 const actionButtonsEl = document.getElementById('action-buttons');
@@ -18,6 +26,8 @@ const seatToSlot = { E: 'south', S: 'west', W: 'north', N: 'east' };
 let currentSerial = null;
 let revealDismissed = false;
 let latestState = null;
+const discardActionLookup = new Map();
+let autoPassSerial = null;
 
 const quanLabel = (code) => {
   if (!code) return '?';
@@ -67,32 +77,40 @@ function renderStatus(status = {}) {
     .join(' · ');
   const last = status.last_action;
 
-  statusEl.innerHTML = `
-    <div class="status-block">
-      <span class="status-label">圈風 / 莊家</span>
-      <span class="status-value">${quanLabel(status.quan_feng)} · P${
-        status.dealer_pid ?? '?'
-      }</span>
-    </div>
-    <div class="status-block">
-      <span class="status-label">輪到 / 階段</span>
-      <span class="status-value">P${status.turn ?? '?'} · ${status.phase ?? ''}</span>
-    </div>
-    <div class="status-block">
-      <span class="status-label">剩餘牌 / 死牌區</span>
-      <span class="status-value">${status.remaining ?? '?'} · Dead ${
-        status.dead_wall ?? '?'
-      }</span>
-    </div>
-    <div class="status-block">
-      <span class="status-label">總分</span>
-      <span class="status-value">${totals || '—'}</span>
-    </div>
-    <div class="status-block">
-      <span class="status-label">本局增減</span>
-      <span class="status-value">${deltas || '—'}</span>
-    </div>
+  const quan = quanLabel(status.quan_feng);
+  const dealer = status.dealer_pid ?? '?';
+  const turn = status.turn != null ? `P${status.turn}` : '—';
+  const phase = status.phase ?? '—';
+  const remaining = status.remaining ?? '—';
+  const dead = status.dead_wall ?? '—';
+
+  hudRoundEl.innerHTML = `
+    <span class="label">圈風 / 莊家</span>
+    <span class="value">${quan} · P${dealer}</span>
   `;
+  hudTurnEl.innerHTML = `
+    <span class="label">輪到</span>
+    <span class="value">${turn}</span>
+    <span class="sub">${phase}</span>
+  `;
+  hudRemainingEl.innerHTML = `
+    <span class="label">剩餘牌 / 死牌區</span>
+    <span class="value">${remaining}</span>
+    <span class="sub">Dead ${dead}</span>
+  `;
+  hudScoresEl.innerHTML = `
+    <span class="label">總分</span>
+    <span class="value">${totals || '—'}</span>
+  `;
+  hudDeltasEl.innerHTML = `
+    <span class="label">本局增減</span>
+    <span class="value">${deltas || '—'}</span>
+  `;
+
+  centerWindEl.textContent = `${quan} ${turn}`;
+  centerRoundEl.textContent = remaining;
+  centerPhaseEl.textContent = phase;
+  centerRemainingEl.textContent = `Dead ${dead} · 莊 P${dealer}`;
 
   if (last) {
     lastActionEl.innerHTML = `<strong>${last.who ?? ''}</strong> ${
@@ -105,138 +123,155 @@ function renderStatus(status = {}) {
 
 function renderPlayer(slot, player) {
   slot.innerHTML = '';
-  const header = document.createElement('div');
-  header.className = 'player-header';
+  slot.dataset.pid = player.pid;
+  slot.classList.toggle('self-player', Boolean(player.is_self));
+
+  const card = document.createElement('div');
+  card.className = 'player-card';
+  slot.appendChild(card);
+
+  const banner = document.createElement('div');
+  banner.className = 'player-banner';
   const name = document.createElement('div');
   name.className = 'player-name';
   name.textContent = `P${player.pid}`;
+  banner.appendChild(name);
+
+  const seatLabel = document.createElement('div');
+  seatLabel.className = 'player-seat-label';
+  seatLabel.textContent = player.seat ?? '?';
+  banner.appendChild(seatLabel);
+  card.appendChild(banner);
+
   const tags = document.createElement('div');
-  tags.className = 'tags';
+  tags.className = 'player-tags';
+  const addTag = (label, { highlight = false } = {}) => {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    if (highlight) {
+      tag.classList.add('highlight');
+    }
+    tag.textContent = label;
+    tags.appendChild(tag);
+  };
   if (player.is_self) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = 'YOU';
-    tags.appendChild(tag);
+    addTag('YOU', { highlight: true });
+    addTag(`${player.hand.length + (player.drawn ? 1 : 0)} 張`, {
+      highlight: false,
+    });
+  } else {
+    addTag(`${player.hand_count ?? 0} 張`);
   }
-  if (player.seat) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = player.seat;
-    tags.appendChild(tag);
+  if (player.is_dealer) addTag('莊', { highlight: true });
+  if (player.declared_ting) addTag('聽牌', { highlight: true });
+  const totals = latestState?.status?.totals;
+  if (Array.isArray(totals) && totals[player.pid] != null) {
+    addTag(`${totals[player.pid]} 分`);
   }
-  if (player.is_dealer) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = '莊';
-    tags.appendChild(tag);
+  if (tags.childElementCount > 0) {
+    card.appendChild(tags);
   }
-  if (player.declared_ting) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = '聽牌';
-    tags.appendChild(tag);
-  }
-  header.appendChild(name);
-  header.appendChild(tags);
-  slot.appendChild(header);
 
-  const sections = [
-    {
-      label: '手牌',
-      render: () => {
-        if (player.is_self) {
-          const wrap = document.createElement('div');
-          wrap.className = 'tiles hand';
-          player.hand.forEach((tile) => {
-            wrap.appendChild(makeTile(tile));
-          });
-          return wrap;
-        }
-        const text = document.createElement('div');
-        text.textContent = `(${player.hand_count} 張)`;
-        text.className = 'text-dim';
-        return text;
-      },
-    },
-    {
-      label: '摸牌',
-      render: () => {
-        const wrap = document.createElement('div');
-        wrap.className = 'tiles';
-        if (player.is_self && player.drawn) {
-          wrap.appendChild(makeTile(player.drawn));
-        } else {
-          wrap.textContent = player.is_self ? '無' : '隱藏';
-        }
-        return wrap;
-      },
-    },
-    {
-      label: '副露',
-      render: () => {
-        const wrap = document.createElement('div');
-        wrap.className = 'tiles';
-        if (!player.melds || player.melds.length === 0) {
-          wrap.textContent = '—';
-          return wrap;
-        }
-        player.melds.forEach((meld) => {
-          const meldWrap = document.createElement('div');
-          meldWrap.className = 'tiles';
-          meld.tiles.forEach((tile) => {
-            const el = makeTile(tile);
-            if (tile === '##') {
-              el.classList.add('concealed');
-            }
-            meldWrap.appendChild(el);
-          });
-          wrap.appendChild(meldWrap);
-        });
-        return wrap;
-      },
-    },
-    {
-      label: '河牌',
-      render: () => {
-        const wrap = document.createElement('div');
-        wrap.className = 'tiles';
-        if (!player.river || player.river.length === 0) {
-          wrap.textContent = '—';
-          return wrap;
-        }
-        player.river.forEach((tile, idx) => {
-          wrap.appendChild(
-            makeTile(tile, { highlight: idx === player.river_highlight })
-          );
-        });
-        return wrap;
-      },
-    },
-    {
-      label: '花牌',
-      render: () => {
-        const wrap = document.createElement('div');
-        wrap.className = 'tiles';
-        if (!player.flowers || player.flowers.length === 0) {
-          wrap.textContent = '—';
-          return wrap;
-        }
-        player.flowers.forEach((tile) => wrap.appendChild(makeTile(tile)));
-        return wrap;
-      },
-    },
-  ];
+  const board = document.createElement('div');
+  board.className = 'player-board';
+  card.appendChild(board);
 
-  sections.forEach((section) => {
-    const container = document.createElement('div');
-    container.className = 'player-section';
-    const label = document.createElement('div');
-    label.className = 'section-label';
-    label.textContent = section.label;
-    container.appendChild(label);
-    container.appendChild(section.render());
-    slot.appendChild(container);
+  const buildZone = (label, builder, { includeEmpty = true } = {}) => {
+    const zone = document.createElement('div');
+    zone.className = 'player-zone';
+    const zoneLabel = document.createElement('div');
+    zoneLabel.className = 'player-zone-label';
+    zoneLabel.textContent = label;
+    zone.appendChild(zoneLabel);
+    const content = builder();
+    if (content) {
+      zone.appendChild(content);
+    } else if (includeEmpty) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'hidden-count';
+      placeholder.textContent = '—';
+      zone.appendChild(placeholder);
+    }
+    return zone;
+  };
+
+  const meldZone = buildZone('副露', () => {
+    if (!player.melds || player.melds.length === 0) {
+      return null;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'meld-area';
+    player.melds.forEach((meld) => {
+      const stack = document.createElement('div');
+      stack.className = 'meld-stack';
+      meld.tiles.forEach((tile) => {
+        stack.appendChild(makeTile(tile));
+      });
+      wrap.appendChild(stack);
+    });
+    return wrap;
   });
+  board.appendChild(meldZone);
+
+  if (!player.is_self) {
+    const handZone = buildZone('手牌', () => {
+      const wrap = document.createElement('div');
+      wrap.className = 'hidden-count';
+      wrap.textContent = `${player.hand_count ?? 0} 張`;
+      return wrap;
+    });
+    board.appendChild(handZone);
+  }
+
+  const riverZone = buildZone('河牌', () => {
+    if (!player.river || player.river.length === 0) {
+      return null;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'river-area';
+    player.river.forEach((tile, idx) => {
+      wrap.appendChild(
+        makeTile(tile, { highlight: idx === player.river_highlight })
+      );
+    });
+    return wrap;
+  });
+  board.appendChild(riverZone);
+
+  const includeFlowers =
+    player.is_self || (player.flowers && player.flowers.length > 0);
+  if (includeFlowers) {
+    const flowersZone = buildZone('花牌', () => {
+      if (!player.flowers || player.flowers.length === 0) {
+        return null;
+      }
+      const wrap = document.createElement('div');
+      wrap.className = 'flower-area';
+      player.flowers.forEach((tile) => wrap.appendChild(makeTile(tile)));
+      return wrap;
+    });
+    board.appendChild(flowersZone);
+  }
+
+  if (player.is_self) {
+    const strip = document.createElement('div');
+    strip.className = 'self-hand-strip';
+    const row = document.createElement('div');
+    row.className = 'tiles-row self-hand-row';
+    player.hand.forEach((tile) => {
+      const tileEl = makeTile(tile);
+      tileEl.dataset.source = 'hand';
+      row.appendChild(tileEl);
+    });
+    if (player.drawn) {
+      const drawnTile = makeTile(player.drawn);
+      drawnTile.classList.add('drawn');
+      drawnTile.dataset.source = 'drawn';
+      row.appendChild(drawnTile);
+    }
+    strip.appendChild(row);
+    slot.appendChild(strip);
+  }
 }
 
 function renderPlayers(players = []) {
@@ -259,15 +294,52 @@ function renderPlayers(players = []) {
 
 function renderActions(pending) {
   actionButtonsEl.innerHTML = '';
+  discardActionLookup.clear();
   if (!pending) {
     currentSerial = null;
+    autoPassSerial = null;
     actionMetaEl.textContent = '等待其他玩家…';
+    bindSelfHandInteractions();
     return;
+  }
+  if (autoPassSerial !== null && autoPassSerial !== pending.serial) {
+    autoPassSerial = null;
   }
   currentSerial = pending.serial;
   actionMetaEl.textContent = `玩家 P${pending.player} · ${pending.phase} · 牌牆剩餘 ${pending.n_remaining}`;
 
+  const actionable = [];
+  let hasDiscards = false;
+
   pending.actions.forEach((action) => {
+    const type = (action.type || '').toUpperCase();
+    if (type === 'DISCARD') {
+      const source = action.source || 'hand';
+      const tile = action.tile;
+      if (tile) {
+        discardActionLookup.set(`${tile}:${source}`, action.id);
+      }
+      hasDiscards = true;
+      return;
+    }
+    actionable.push({ ...action, type });
+  });
+
+  const nonPassActions = actionable.filter((action) => action.type !== 'PASS');
+  if (
+    actionable.length > 0 &&
+    nonPassActions.length === 0 &&
+    autoPassSerial !== currentSerial
+  ) {
+    const passAction = actionable.find((action) => action.type === 'PASS');
+    if (passAction) {
+      autoPassSerial = currentSerial;
+      handleActionSelection(passAction, null, { auto: true });
+      return;
+    }
+  }
+
+  actionable.forEach((action) => {
     const btn = document.createElement('button');
     if (['PASS', 'HU'].includes(action.type)) {
       btn.classList.add('secondary');
@@ -285,15 +357,26 @@ function renderActions(pending) {
       waits.textContent = `聽牌: ${text}`;
       btn.appendChild(waits);
     }
-    btn.addEventListener('click', () => submitAction(action.id, btn));
+    btn.addEventListener('click', () => handleActionSelection(action, btn));
     actionButtonsEl.appendChild(btn);
   });
+
+  if (hasDiscards) {
+    actionMetaEl.textContent += ' · 點選手牌以打出';
+  }
+
+  bindSelfHandInteractions();
 }
 
 async function submitAction(actionId, button) {
   if (currentSerial == null) return;
   if (button) {
-    button.disabled = true;
+    if ('disabled' in button) {
+      button.disabled = true;
+    }
+    if (button.classList) {
+      button.classList.add('pending');
+    }
   }
   try {
     const response = await fetch('/action', {
@@ -414,6 +497,44 @@ function renderState(state) {
   renderActions(state.pending_request);
   renderSummaries(state.hand_summaries || []);
   renderReveal(state.reveal);
+}
+
+function bindSelfHandInteractions() {
+  const slot = document.querySelector('.player-slot.self-player');
+  if (!slot) return;
+  const tiles = slot.querySelectorAll('.self-hand-strip .tile');
+  tiles.forEach((tile) => {
+    tile.classList.remove('interactive', 'pending');
+    tile.onclick = null;
+    const label = tile.dataset.label;
+    if (!label || discardActionLookup.size === 0 || currentSerial == null) {
+      return;
+    }
+    const source = tile.dataset.source || 'hand';
+    let actionId =
+      discardActionLookup.get(`${label}:${source}`) ||
+      discardActionLookup.get(`${label}:hand`);
+    if (!actionId && source === 'hand') {
+      actionId = discardActionLookup.get(`${label}:drawn`);
+    }
+    if (!actionId) {
+      return;
+    }
+    tile.classList.add('interactive');
+    tile.onclick = () => submitAction(actionId, tile);
+  });
+}
+
+function handleActionSelection(action, control, options = {}) {
+  if (action.type === 'PASS') {
+    actionButtonsEl.innerHTML = '';
+    actionMetaEl.textContent = options.auto
+      ? '自動 PASS，等待其他玩家…'
+      : '已選擇 PASS，等待其他玩家…';
+    discardActionLookup.clear();
+    bindSelfHandInteractions();
+  }
+  submitAction(action.id, control);
 }
 
 function connectWebSocket() {

@@ -4,6 +4,7 @@ import logging
 import multiprocessing as mp
 import os
 import random
+import time
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from queue import Empty
@@ -140,6 +141,7 @@ def _build_session_dependencies(
     human_pid: Optional[int],
     bot: str,
     *,
+    bot_delay: float = 2.0,
     human_strategy_factory: Optional[Callable[[], Strategy]] = None,
 ) -> Tuple[Mahjong16Env, TableManager, List[Strategy], ScoringTable]:
     rules = Ruleset(
@@ -152,6 +154,7 @@ def _build_session_dependencies(
         env.rules.n_players,
         human_pid,
         bot,
+        bot_delay=bot_delay,
         human_factory=human_strategy_factory,
     )
     scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
@@ -265,6 +268,10 @@ class SessionService:
             acting_pid = obs.get("player")
             discarded_tile = act.get("tile") if action_type == "DISCARD" else None
 
+            delay = self._strategy_delay(strategy, act, obs, action_type)
+            if delay > 0:
+                time.sleep(delay)
+
             obs, done = self._step_environment(
                 act,
                 action_type=action_type,
@@ -323,6 +330,29 @@ class SessionService:
             )
 
         return obs, done
+
+    def _strategy_delay(
+        self,
+        strategy: Strategy,
+        action: Dict[str, Any],
+        obs: Dict[str, Any],
+        action_type: str,
+    ) -> float:
+        delay_fn = getattr(strategy, "delay_for", None)
+        if callable(delay_fn):
+            try:
+                value = float(delay_fn(action, obs))
+            except (TypeError, ValueError):
+                return 0.0
+            return value if value > 0 else 0.0
+        if action_type != "DISCARD":
+            return 0.0
+        delay_attr = getattr(strategy, "discard_delay", 0.0)
+        try:
+            delay = float(delay_attr)
+        except (TypeError, ValueError):
+            return 0.0
+        return delay if delay > 0 else 0.0
 
     def _should_stop_after_hand(self) -> bool:
         return self.play_until_negative and any(pt < 0 for pt in self.totals)
@@ -559,7 +589,12 @@ def build_headless_session(
 ) -> SessionService:
     """Assemble a headless session service with logging/progress adapters."""
 
-    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, None, bot)
+    env, table_manager, strategies, scoring_table = _build_session_dependencies(
+        seed,
+        None,
+        bot,
+        bot_delay=0.0,
+    )
     adapter = HeadlessLogAdapter(
         n_players=env.rules.n_players,
         log_dir=log_dir,

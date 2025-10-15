@@ -53,7 +53,7 @@ def build_strategy(alias: str, seat_index: int, base_seed: int | None) -> Strate
     alias_norm = alias.lower()
     seed = base_seed + seat_index if base_seed is not None else None
     if alias_norm in {"auto"}:
-        impl = AutoStrategy()
+        impl = AutoStrategy(discard_delay=0.0)
     elif alias_norm in {"greedy", "greedybot"}:
         impl = GreedyBotStrategy()
     elif alias_norm in {"random", "randombot"}:

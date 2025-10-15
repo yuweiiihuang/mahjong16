@@ -84,7 +84,12 @@ def test_session_service_emits_events_and_scores() -> None:
     env = Mahjong16Env(rules, seed=42)
     table_manager = TableManager(rules, seed=42)
     scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
-    strategies = build_strategies(env.rules.n_players, human_pid=None, bot="auto")
+    strategies = build_strategies(
+        env.rules.n_players,
+        human_pid=None,
+        bot="auto",
+        bot_delay=0.0,
+    )
 
     view = RecordingTableView()
     summary_port = RecordingHandSummary()

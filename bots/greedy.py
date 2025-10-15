@@ -630,8 +630,14 @@ def _after_claim(obs: dict, action: dict) -> Tuple[List[Tile], List[dict]]:
 class GreedyBotStrategy:
     """Heuristic-driven bot that focuses on shape instead of points."""
 
-    def __init__(self, weights: Optional[HeuristicWeights] = None) -> None:
+    def __init__(
+        self,
+        weights: Optional[HeuristicWeights] = None,
+        *,
+        discard_delay: float = 2.0,
+    ) -> None:
         self.weights = weights or HeuristicWeights()
+        self.discard_delay = max(0.0, float(discard_delay))
 
     def choose(self, obs: dict) -> dict:
         """Choose an action using the greedy heuristic; HU if available."""
@@ -804,3 +810,8 @@ class GreedyBotStrategy:
                 best_entry = entry
 
         return best_entry["action"] if best_entry is not None else actions[0]
+
+    def delay_for(self, action: dict, _obs: dict) -> float:
+        if (action.get("type") or "").upper() == "DISCARD":
+            return self.discard_delay
+        return 0.0

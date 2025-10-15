@@ -19,6 +19,9 @@ class Strategy(Protocol):
 class AutoStrategy:
     """Simple auto strategy: HU if available; otherwise discard policy."""
 
+    def __init__(self, discard_delay: float = 2.0) -> None:
+        self.discard_delay = max(0.0, float(discard_delay))
+
     def choose(self, obs: Observation) -> Action:
         acts: List[Action] = obs.get("legal_actions", []) or []
         phase = obs.get("phase")
@@ -61,9 +64,17 @@ class AutoStrategy:
 
         return acts[0]
 
+    def delay_for(self, action: Action, _obs: Observation) -> float:
+        if (action.get("type") or "").upper() == "DISCARD":
+            return self.discard_delay
+        return 0.0
+
 
 class HumanStrategy:
     """Interactive console strategy that renders waits and prompts for input."""
+
+    def __init__(self) -> None:
+        self.discard_delay = 0.0
 
     def choose(self, obs: Observation) -> Action:
         acts: List[Action] = obs.get("legal_actions", []) or []
@@ -74,6 +85,9 @@ class HumanStrategy:
             return prompt_turn_action(obs)
         return prompt_reaction_action(obs)
 
+    def delay_for(self, action: Action, _obs: Observation) -> float:
+        return 0.0
+
 
 def build_strategies(
     n_players: int,
@@ -81,6 +95,7 @@ def build_strategies(
     bot: str,
     *,
     human_factory: Optional[Callable[[], Strategy]] = None,
+    bot_delay: float = 2.0,
 ) -> List[Strategy]:
     """
     Build a list of strategies for each player.
@@ -113,11 +128,11 @@ def build_strategies(
             strategies.append(make_human())
         else:
             if bot == "greedy":
-                strategies.append(GreedyBotStrategy())
+                strategies.append(GreedyBotStrategy(discard_delay=bot_delay))
             elif bot == "human":
                 strategies.append(make_human())
             else:  # bot == "auto"
-                strategies.append(AutoStrategy())
+                strategies.append(AutoStrategy(discard_delay=bot_delay))
     return strategies
 
 
