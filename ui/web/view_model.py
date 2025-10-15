@@ -22,6 +22,30 @@ def _tiles_sequence(values: Iterable[int]) -> List[str]:
     return [tile_to_str(v) for v in sorted(list(values), key=tile_sort_key)]
 
 
+def _format_tile(tile: Optional[int]) -> str:
+    label = _tile_label(tile)
+    if label is None:
+        return "??"
+    return label
+
+
+def _players_for_env(env) -> Tuple[List[Any], int]:
+    players = getattr(env, "players", None)
+    if isinstance(players, list):
+        return players, len(players)
+    rules = getattr(env, "rules", None)
+    max_slots = getattr(rules, "n_players", 0)
+    return [], int(max_slots)
+
+
+def _player_field(player: Any, field: str, default: Any = None) -> Any:
+    if player is None:
+        return default
+    if isinstance(player, dict):
+        return player.get(field, default)
+    return getattr(player, field, default)
+
+
 def _order_player_ids(env) -> List[int]:
     seat_winds = getattr(env, "seat_winds", None)
     order: List[int] = []
@@ -79,13 +103,13 @@ def build_table_state(
 
     players_payload: List[Dict[str, Any]] = []
     last_discard = getattr(env, "last_discard", None)
+    players, _ = _players_for_env(env)
     for pid in _order_player_ids(env):
-        player = env.players[pid]
-        get = player.get if isinstance(player, dict) else lambda key, default=None: getattr(player, key, default)
+        player = players[pid] if 0 <= pid < len(players) else None
         is_self = pid == pov_pid
-        hand = sorted(list(get("hand") or []), key=tile_sort_key)
-        drawn = get("drawn")
-        river = list(get("river") or [])
+        hand = sorted(list(_player_field(player, "hand", [])), key=tile_sort_key)
+        drawn = _player_field(player, "drawn")
+        river = list(_player_field(player, "river", []))
         highlight_idx = None
         if (
             last_discard
@@ -94,7 +118,7 @@ def build_table_state(
             and river[-1] == last_discard.get("tile")
         ):
             highlight_idx = len(river) - 1
-        melds_raw = list(get("melds") or [])
+        melds_raw = list(_player_field(player, "melds", []))
         payload_melds = [
             _meld_payload(meld, mask_concealed=not is_self)
             for meld in melds_raw
@@ -105,12 +129,12 @@ def build_table_state(
                 "seat": _seat_for_pid(env, pid) or "?",
                 "is_dealer": pid == getattr(env, "dealer_pid", None),
                 "is_self": is_self,
-                "declared_ting": bool(get("declared_ting", False)),
+                "declared_ting": bool(_player_field(player, "declared_ting", False)),
                 "hand": _tiles_sequence(hand) if is_self else [],
                 "hand_count": len(hand),
                 "drawn": _tile_label(drawn) if is_self else None,
                 "melds": payload_melds,
-                "flowers": _tiles_sequence(get("flowers") or []),
+                "flowers": _tiles_sequence(_player_field(player, "flowers", [])),
                 "river": [tile_to_str(t) for t in river],
                 "river_highlight": highlight_idx,
             }
@@ -152,25 +176,25 @@ def build_reveal_payload(
 ) -> Dict[str, Any]:
     """Produce a reveal payload mirroring the Rich console output."""
 
-    players: List[Dict[str, Any]] = []
     winner = getattr(env, "winner", None)
     win_src = getattr(env, "win_source", None)
     win_tile = getattr(env, "win_tile", None)
     turn_at_win = getattr(env, "turn_at_win", None)
+    env_players, _ = _players_for_env(env)
+    reveal_players: List[Dict[str, Any]] = []
     for pid in _order_player_ids(env):
-        player = env.players[pid]
-        get = player.get if isinstance(player, dict) else lambda key, default=None: getattr(player, key, default)
+        player = env_players[pid] if 0 <= pid < len(env_players) else None
         entry: Dict[str, Any] = {
             "pid": pid,
             "seat": _seat_for_pid(env, pid) or "?",
             "is_dealer": pid == getattr(env, "dealer_pid", None),
-            "hand": _tiles_sequence(get("hand") or []),
+            "hand": _tiles_sequence(_player_field(player, "hand", [])),
             "melds": [
                 _meld_payload(meld, mask_concealed=False)
-                for meld in (get("melds") or [])
+                for meld in (_player_field(player, "melds", []))
             ],
-            "flowers": _tiles_sequence(get("flowers") or []),
-            "river": [tile_to_str(t) for t in (get("river") or [])],
+            "flowers": _tiles_sequence(_player_field(player, "flowers", [])),
+            "river": [tile_to_str(t) for t in (_player_field(player, "river", []))],
         }
         if pid == winner:
             entry["win_source"] = (win_src or "").upper()
@@ -179,10 +203,10 @@ def build_reveal_payload(
                 entry["ron_from"] = turn_at_win
             if breakdown and pid in breakdown:
                 entry["breakdown"] = [dict(item) for item in breakdown.get(pid) or []]
-        players.append(entry)
+        reveal_players.append(entry)
 
     return {
-        "players": players,
+        "players": reveal_players,
         "payments": list(payments or []),
         "totals": list(totals or []),
         "base_points": getattr(env.rules, "base_points", None),
@@ -204,6 +228,9 @@ def build_action_prompt(obs) -> Tuple[Dict[str, any], Dict[str, Dict[str, any]]]
     drawn = obs.get("drawn")
     melds = obs.get("melds") or []
 
+    last_discard = obs.get("last_discard")
+    discard_tile = last_discard.get("tile") if isinstance(last_discard, dict) else None
+
     for idx, action in enumerate(actions):
         action_type = (action.get("type") or "").upper()
         option_id = f"a{idx}"
@@ -212,8 +239,12 @@ def build_action_prompt(obs) -> Tuple[Dict[str, any], Dict[str, Dict[str, any]]]
             "type": action_type,
         }
         tile = action.get("tile")
-        if tile is not None:
-            option["tile"] = tile_to_str(tile)
+        if tile is None and discard_tile is not None and action_type in {"CHI", "PONG", "GANG", "HU"}:
+            tile = discard_tile
+        tile_label = _tile_label(tile)
+        tile_display = _format_tile(tile)
+        if tile_label is not None:
+            option["tile"] = tile_label
         if action_type == "DISCARD":
             src = action.get("from", "hand")
             waits = waits_after_discard_17(
@@ -227,7 +258,7 @@ def build_action_prompt(obs) -> Tuple[Dict[str, any], Dict[str, Dict[str, any]]]
             )
             hand_after = simulate_after_discard(hand, drawn, tile, src)
             option["source"] = src
-            option["label"] = f"Discard {tile_to_str(tile)} ({src})"
+            option["label"] = f"Discard {tile_display} ({src})"
             if waits:
                 option["waits"] = [tile_to_str(w) for w in waits]
                 remaining = []
@@ -245,13 +276,17 @@ def build_action_prompt(obs) -> Tuple[Dict[str, any], Dict[str, Dict[str, any]]]
         elif action_type in {"HU", "PASS"}:
             option["label"] = action_type.title()
         elif action_type in {"ANGANG", "KAKAN"}:
-            option["label"] = f"{action_type.title()} {tile_to_str(tile)}"
+            option["label"] = f"{action_type.title()} {tile_display}"
         elif action_type == "CHI":
-            use_tiles = [tile_to_str(t) for t in (action.get("use") or [])]
-            option["tiles"] = use_tiles + [tile_to_str(tile)]
-            option["label"] = f"Chi {'-'.join(use_tiles + [tile_to_str(tile)])}"
+            use_tiles = [_format_tile(t) for t in (action.get("use") or [])]
+            chi_tiles = use_tiles + [tile_display]
+            if chi_tiles:
+                option["tiles"] = chi_tiles
+                option["label"] = f"Chi {'-'.join(chi_tiles)}"
+            else:
+                option["label"] = "Chi"
         elif action_type in {"PONG", "GANG"}:
-            option["label"] = f"{action_type.title()} {tile_to_str(tile)}"
+            option["label"] = f"{action_type.title()} {tile_display}"
         else:
             option["label"] = action_type.title()
         options.append(option)
@@ -266,7 +301,6 @@ def build_action_prompt(obs) -> Tuple[Dict[str, any], Dict[str, Dict[str, any]]]
         "actions": options,
         "n_remaining": obs.get("n_remaining"),
     }
-    last_discard = obs.get("last_discard")
     if isinstance(last_discard, dict):
         prompt["last_discard"] = {
             "pid": last_discard.get("pid"),

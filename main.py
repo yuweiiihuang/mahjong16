@@ -5,12 +5,14 @@ Delegates to `app.runtime.run_demo_ui` or `app.runtime.run_demo_headless`.
 """
 
 from __future__ import annotations
+
+import argparse
+
 from app.runtime import run_demo_headless, run_demo_headless_batch, run_demo_ui, run_demo_web
 
 
-if __name__ == "__main__":
-    import argparse
-
+def main() -> None:
+    """Parse CLI arguments and launch the requested demo mode."""
     parser = argparse.ArgumentParser(description="mahjong16 demo CLI")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed (int). Omit for random.")
     parser.add_argument(
@@ -174,3 +176,7 @@ if __name__ == "__main__":
             start_points=start_points,
             log_dir=log_dir,
         )
+
+
+if __name__ == "__main__":
+    main()

@@ -75,7 +75,7 @@ function renderStatus(status = {}) {
       }</span>
     </div>
     <div class="status-block">
-      <span class="status-label">輪到 / 阶段</span>
+      <span class="status-label">輪到 / 階段</span>
       <span class="status-value">P${status.turn ?? '?'} · ${status.phase ?? ''}</span>
     </div>
     <div class="status-block">
