@@ -51,9 +51,16 @@ if __name__ == "__main__":
         help="Optional directory for per-hand summary logs (timestamped CSV). Default: disabled",
     )
     parser.add_argument(
+        "--ui",
+        type=str,
+        default="console",
+        choices=["console", "gui"],
+        help="UI mode: 'console' for Rich terminal UI, 'gui' for graphical table. Default: console",
+    )
+    parser.add_argument(
         "--no-ui",
         action="store_true",
-        help="Run headless (disable interactive console UI). Implies logging unless overridden.",
+        help="Run headless (disable interactive UI). Implies logging unless overridden.",
     )
     parser.add_argument(
         "--sessions",
@@ -105,11 +112,13 @@ if __name__ == "__main__":
     enable_ui = not args.no_ui
     if sessions > 1 or (cores is not None and cores > 1):
         enable_ui = False
+    ui_mode = args.ui
     log_dir = args.log_dir
     if not enable_ui and not log_dir:
         log_dir = "logs"
     if not enable_ui:
         human_pid = None
+        ui_mode = "console"
 
     if sessions > 1 or (cores is not None and cores > 1):
         run_demo_headless_batch(
@@ -124,7 +133,7 @@ if __name__ == "__main__":
         )
     else:
         runner = run_demo_ui if enable_ui else run_demo_headless
-        runner(
+        run_kwargs = dict(
             seed=args.seed,
             human_pid=human_pid,
             bot=args.bot,
@@ -133,3 +142,6 @@ if __name__ == "__main__":
             start_points=start_points,
             log_dir=log_dir,
         )
+        if enable_ui:
+            run_kwargs["ui_mode"] = ui_mode
+        runner(**run_kwargs)

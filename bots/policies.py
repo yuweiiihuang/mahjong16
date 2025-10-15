@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional, Protocol
 
 from domain.gameplay import Action, Observation
-from ui.console import prompt_reaction_action, prompt_turn_action
+from ui.interface import get_active_provider
 
 # Reaction priority: HU > GANG > PONG > CHI
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
@@ -70,9 +70,10 @@ class HumanStrategy:
         phase = obs.get("phase")
         if not acts:
             return {"type": "PASS"}
+        provider = get_active_provider()
         if phase == "TURN":
-            return prompt_turn_action(obs)
-        return prompt_reaction_action(obs)
+            return provider.choose_turn_action(obs)
+        return provider.choose_reaction_action(obs)
 
 
 def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List[Strategy]:

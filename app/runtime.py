@@ -37,6 +37,7 @@ from app.session.ports import (
 )
 from bots import Strategy, build_strategies
 from ui.console import render_winners_summary
+from ui.interface import set_active_provider
 
 
 logger = logging.getLogger(__name__)
@@ -475,16 +476,29 @@ def build_ui_session(
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     emit_logs: bool = True,
+    ui_mode: str = "console",
 ) -> SessionService:
-    """Assemble a UI session service with the rich console adapter."""
+    """Assemble a UI session service with the requested interactive adapter."""
 
     env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, human_pid, bot)
-    adapter = ConsoleUIAdapter(
-        human_pid=human_pid,
-        n_players=env.rules.n_players,
-        log_dir=log_dir,
-        emit_logs=emit_logs,
-    )
+    if ui_mode == "gui":
+        from ui.gui import MahjongPygameUI
+
+        adapter = MahjongPygameUI(
+            human_pid=human_pid,
+            n_players=env.rules.n_players,
+            log_dir=log_dir,
+            emit_logs=emit_logs,
+        )
+        set_active_provider(adapter)
+    else:
+        adapter = ConsoleUIAdapter(
+            human_pid=human_pid,
+            n_players=env.rules.n_players,
+            log_dir=log_dir,
+            emit_logs=emit_logs,
+        )
+        set_active_provider(None)
     return SessionService(
         env=env,
         table_manager=table_manager,
@@ -512,6 +526,7 @@ def build_headless_session(
     """Assemble a headless session service with logging/progress adapters."""
 
     env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, None, bot)
+    set_active_provider(None)
     adapter = HeadlessLogAdapter(
         n_players=env.rules.n_players,
         log_dir=log_dir,
@@ -539,8 +554,9 @@ def run_demo_ui(
     jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
+    ui_mode: str = "console",
 ) -> None:
-    """Run the Mahjong16 demo with the interactive console UI enabled."""
+    """Run the Mahjong16 demo with an interactive UI."""
 
     session = build_ui_session(
         seed=seed,
@@ -550,6 +566,7 @@ def run_demo_ui(
         jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
+        ui_mode=ui_mode,
     )
     session.run()
 

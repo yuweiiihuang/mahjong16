@@ -9,4 +9,5 @@ dependencies = [
     "pandas>=2.3.3",
     "pytest>=8",
     "rich>=14.1.0",
+    "pygame>=2.5.2",
 ]
