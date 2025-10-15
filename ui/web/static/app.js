@@ -1,12 +1,3 @@
-const hudRoundEl = document.getElementById('hud-round');
-const hudTurnEl = document.getElementById('hud-turn');
-const hudRemainingEl = document.getElementById('hud-remaining');
-const hudScoresEl = document.getElementById('hud-scores');
-const hudDeltasEl = document.getElementById('hud-deltas');
-const centerWindEl = document.getElementById('center-wind');
-const centerRoundEl = document.getElementById('center-round');
-const centerPhaseEl = document.getElementById('center-phase');
-const centerRemainingEl = document.getElementById('center-remaining');
 const lastActionEl = document.getElementById('last-action');
 const actionMetaEl = document.getElementById('action-meta');
 const actionButtonsEl = document.getElementById('action-buttons');
@@ -14,6 +5,12 @@ const summaryListEl = document.getElementById('summary-list');
 const revealOverlay = document.getElementById('reveal-overlay');
 const revealContent = document.getElementById('reveal-content');
 const closeRevealBtn = document.getElementById('close-reveal');
+const centerSeatEls = {
+  north: document.getElementById('center-seat-north'),
+  east: document.getElementById('center-seat-east'),
+  south: document.getElementById('center-seat-south'),
+  west: document.getElementById('center-seat-west'),
+};
 
 const slotEls = {
   north: document.getElementById('slot-north'),
@@ -22,19 +19,14 @@ const slotEls = {
   west: document.getElementById('slot-west'),
 };
 
-const seatToSlot = { E: 'south', S: 'west', W: 'north', N: 'east' };
+const defaultSeatToSlot = { E: 'south', S: 'west', W: 'north', N: 'east' };
+const windOrder = ['E', 'S', 'W', 'N'];
+const slotOrder = ['south', 'west', 'north', 'east'];
 let currentSerial = null;
 let revealDismissed = false;
 let latestState = null;
 const discardActionLookup = new Map();
 let autoPassSerial = null;
-
-const quanLabel = (code) => {
-  if (!code) return '?';
-  const key = String(code).toUpperCase();
-  const mapping = { E: '東', S: '南', W: '西', N: '北' };
-  return mapping[key] ?? key;
-};
 
 const tileSuit = (label) => {
   if (!label) return 'z';
@@ -62,6 +54,13 @@ function makeTile(label, { highlight = false } = {}) {
   return span;
 }
 
+function makeTileBack() {
+  const span = document.createElement('span');
+  span.classList.add('tile', 'back');
+  span.dataset.label = '';
+  return span;
+}
+
 function clearSlots() {
   Object.values(slotEls).forEach((slot) => {
     slot.innerHTML = '';
@@ -69,49 +68,7 @@ function clearSlots() {
 }
 
 function renderStatus(status = {}) {
-  const totals = (status.totals || [])
-    .map((value, idx) => `P${idx}:${value}`)
-    .join(' · ');
-  const deltas = (status.deltas || [])
-    .map((value, idx) => `P${idx}:${value >= 0 ? '+' : ''}${value}`)
-    .join(' · ');
   const last = status.last_action;
-
-  const quan = quanLabel(status.quan_feng);
-  const dealer = status.dealer_pid ?? '?';
-  const turn = status.turn != null ? `P${status.turn}` : '—';
-  const phase = status.phase ?? '—';
-  const remaining = status.remaining ?? '—';
-  const dead = status.dead_wall ?? '—';
-
-  hudRoundEl.innerHTML = `
-    <span class="label">圈風 / 莊家</span>
-    <span class="value">${quan} · P${dealer}</span>
-  `;
-  hudTurnEl.innerHTML = `
-    <span class="label">輪到</span>
-    <span class="value">${turn}</span>
-    <span class="sub">${phase}</span>
-  `;
-  hudRemainingEl.innerHTML = `
-    <span class="label">剩餘牌 / 死牌區</span>
-    <span class="value">${remaining}</span>
-    <span class="sub">Dead ${dead}</span>
-  `;
-  hudScoresEl.innerHTML = `
-    <span class="label">總分</span>
-    <span class="value">${totals || '—'}</span>
-  `;
-  hudDeltasEl.innerHTML = `
-    <span class="label">本局增減</span>
-    <span class="value">${deltas || '—'}</span>
-  `;
-
-  centerWindEl.textContent = `${quan} ${turn}`;
-  centerRoundEl.textContent = remaining;
-  centerPhaseEl.textContent = phase;
-  centerRemainingEl.textContent = `Dead ${dead} · 莊 P${dealer}`;
-
   if (last) {
     lastActionEl.innerHTML = `<strong>${last.who ?? ''}</strong> ${
       last.type ?? ''
@@ -121,7 +78,7 @@ function renderStatus(status = {}) {
   }
 }
 
-function renderPlayer(slot, player) {
+function renderPlayer(slot, player, slotName) {
   slot.innerHTML = '';
   slot.dataset.pid = player.pid;
   slot.classList.toggle('self-player', Boolean(player.is_self));
@@ -132,11 +89,6 @@ function renderPlayer(slot, player) {
 
   const banner = document.createElement('div');
   banner.className = 'player-banner';
-  const name = document.createElement('div');
-  name.className = 'player-name';
-  name.textContent = `P${player.pid}`;
-  banner.appendChild(name);
-
   const seatLabel = document.createElement('div');
   seatLabel.className = 'player-seat-label';
   seatLabel.textContent = player.seat ?? '?';
@@ -164,10 +116,6 @@ function renderPlayer(slot, player) {
   }
   if (player.is_dealer) addTag('莊', { highlight: true });
   if (player.declared_ting) addTag('聽牌', { highlight: true });
-  const totals = latestState?.status?.totals;
-  if (Array.isArray(totals) && totals[player.pid] != null) {
-    addTag(`${totals[player.pid]} 分`);
-  }
   if (tags.childElementCount > 0) {
     card.appendChild(tags);
   }
@@ -195,29 +143,17 @@ function renderPlayer(slot, player) {
     return zone;
   };
 
-  const meldZone = buildZone('副露', () => {
-    if (!player.melds || player.melds.length === 0) {
-      return null;
-    }
-    const wrap = document.createElement('div');
-    wrap.className = 'meld-area';
-    player.melds.forEach((meld) => {
-      const stack = document.createElement('div');
-      stack.className = 'meld-stack';
-      meld.tiles.forEach((tile) => {
-        stack.appendChild(makeTile(tile));
-      });
-      wrap.appendChild(stack);
-    });
-    return wrap;
-  });
-  board.appendChild(meldZone);
-
   if (!player.is_self) {
     const handZone = buildZone('手牌', () => {
       const wrap = document.createElement('div');
-      wrap.className = 'hidden-count';
-      wrap.textContent = `${player.hand_count ?? 0} 張`;
+      wrap.className = 'tiles-row hand-backs';
+      if (slotName) {
+        wrap.dataset.seat = slotName;
+      }
+      const total = Math.max(0, player.hand_count ?? 0);
+      for (let idx = 0; idx < total; idx += 1) {
+        wrap.appendChild(makeTileBack());
+      }
       return wrap;
     });
     board.appendChild(handZone);
@@ -272,22 +208,62 @@ function renderPlayer(slot, player) {
     strip.appendChild(row);
     slot.appendChild(strip);
   }
+
+  if (player.melds && player.melds.length > 0) {
+    const anchor = document.createElement('div');
+    anchor.className = 'meld-anchor';
+    const grid = document.createElement('div');
+    grid.className = 'meld-grid';
+    player.melds.forEach((meld) => {
+      const group = document.createElement('div');
+      group.className = 'meld-group';
+      const tiles = meld.tiles || [];
+      tiles.slice(0, 3).forEach((tile) => {
+        group.appendChild(makeTile(tile));
+      });
+      if (tiles.length > 3) {
+        const overlay = makeTile(tiles[3]);
+        overlay.classList.add('stacked');
+        group.appendChild(overlay);
+      }
+      grid.appendChild(group);
+    });
+    anchor.appendChild(grid);
+    card.appendChild(anchor);
+  }
 }
 
 function renderPlayers(players = []) {
   clearSlots();
+  Object.values(centerSeatEls).forEach((el) => {
+    if (!el) return;
+    el.textContent = '—';
+    delete el.dataset.pid;
+    delete el.dataset.seat;
+  });
+  const seatMap = computeSeatMapping(players);
   const used = new Set();
   const fallback = ['south', 'west', 'north', 'east'];
   players.forEach((player) => {
     const seat = player.seat ? String(player.seat).toUpperCase() : null;
-    let slotName = seat && seatToSlot[seat];
+    let slotName = seat && seatMap[seat];
     if (!slotName || used.has(slotName)) {
       slotName = fallback.find((name) => !used.has(name)) || 'south';
     }
     used.add(slotName);
     const slot = slotEls[slotName];
     if (slot) {
-      renderPlayer(slot, player);
+      renderPlayer(slot, player, slotName);
+    }
+    const centerSeat = centerSeatEls[slotName];
+    if (centerSeat) {
+      centerSeat.textContent = `P${player.pid}`;
+      centerSeat.dataset.pid = player.pid;
+      if (seat) {
+        centerSeat.dataset.seat = seat;
+      } else {
+        delete centerSeat.dataset.seat;
+      }
     }
   });
 }
@@ -306,7 +282,7 @@ function renderActions(pending) {
     autoPassSerial = null;
   }
   currentSerial = pending.serial;
-  actionMetaEl.textContent = `玩家 P${pending.player} · ${pending.phase} · 牌牆剩餘 ${pending.n_remaining}`;
+  actionMetaEl.textContent = `玩家 P${pending.player} · ${pending.phase}`;
 
   const actionable = [];
   let hasDiscards = false;
@@ -523,6 +499,25 @@ function bindSelfHandInteractions() {
     tile.classList.add('interactive');
     tile.onclick = () => submitAction(actionId, tile);
   });
+}
+
+function computeSeatMapping(players) {
+  const mapping = { ...defaultSeatToSlot };
+  let selfSeat = null;
+  players.forEach((player) => {
+    if (player.is_self && player.seat) {
+      selfSeat = String(player.seat).toUpperCase();
+    }
+  });
+  if (!selfSeat || !windOrder.includes(selfSeat)) {
+    return mapping;
+  }
+  const start = windOrder.indexOf(selfSeat);
+  for (let idx = 0; idx < windOrder.length; idx += 1) {
+    const seat = windOrder[(start + idx) % windOrder.length];
+    mapping[seat] = slotOrder[idx];
+  }
+  return mapping;
 }
 
 function handleActionSelection(action, control, options = {}) {
