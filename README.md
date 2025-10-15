@@ -14,6 +14,7 @@
 - 台數計算採分層管線：`domain/scoring/state.py` 整理衍生狀態，`domain/scoring/rules/*`
   套用番種，`domain/scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
 - `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
+- `ui/web/server.py` 提供 FastAPI Web 客戶端，支援圖像化牌面與滑鼠操作。
 - `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
 - `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
 
@@ -29,6 +30,7 @@ pip install -r requirements.txt
 python main.py --help
 python main.py --seed 42 --human 0 --bot greedy --hands 8
 python main.py --no-ui --hands 50 --log-dir logs/demo   # headless + CSV 摘要
+uvicorn ui.web.server:app --reload   # 啟動 Web 客戶端 (http://127.0.0.1:8000)
 pytest -q
 ```
 
@@ -52,7 +54,8 @@ mahjong16/
 │  └─ logging.py        # 欄位化手局紀錄（CSV）
 ├─ ui/
 │  ├─ console.py        # Rich 互動介面（提示行動、展示河牌/剩餘張數）
-│  └─ rich_helpers.py   # Rich 組件共用工具
+│  ├─ rich_helpers.py   # Rich 組件共用工具
+│  └─ web/              # FastAPI Web 客戶端（狀態 API、靜態資產）
 ├─ bots/                # 範例策略（RandomBot、RuleBot、Greedy）
 ├─ rl/                  # 自對弈與訓練骨架（buffer/net/selfplay）
 ├─ tests/               # pytest suites（env、scoring、domain helpers）

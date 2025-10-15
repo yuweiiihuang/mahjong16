@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <title>mahjong16 Web Client</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div>
+          <h1>mahjong16 Web Client</h1>
+          <p class="subtitle">互動介面（吃／碰／槓／胡／聽）</p>
+        </div>
+        <div class="header-actions">
+          <button id="start-session" class="primary">開始新桌</button>
+        </div>
+      </header>
+
+      <section id="status" class="panel">
+        <div class="status-line" id="status-summary"></div>
+        <div class="status-line" id="status-turn"></div>
+        <div class="status-line" id="status-score"></div>
+        <div class="status-line" id="status-last-action"></div>
+      </section>
+
+      <section id="table" class="table-grid"></section>
+
+      <section id="prompt" class="panel">
+        <h2>可執行操作</h2>
+        <div id="prompt-content" class="prompt-content">
+          <p class="empty">等待系統更新...</p>
+        </div>
+      </section>
+
+      <section id="history" class="panel">
+        <h2>最近紀錄</h2>
+        <ul id="history-list" class="history-list"></ul>
+      </section>
+    </div>
+
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

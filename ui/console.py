@@ -15,9 +15,12 @@ from domain.analysis import (
     visible_count_global,
 )
 from domain.gameplay import Action, Observation, DiscardPublic
-from domain.rules import Ruleset
-from domain.rules.hands import waits_after_discard_17, waits_for_hand_16
 from domain.tiles import tile_sort_key, tile_to_str
+from ui.human_common import (
+    TurnActionOption,
+    build_reaction_context,
+    build_turn_context,
+)
 from ui.rich_helpers import format_amount, join_tiles, render_melds, text_for_tile
 
 console = Console()
@@ -26,273 +29,220 @@ console = Console()
 
 def prompt_turn_action(obs: Observation) -> Action:
     """以 Rich 在命令列提示自己的回合操作（丟牌/胡/宣告聽）。"""
-    acts: List[Action] = obs.get("legal_actions", []) or []
-    player = obs.get("player")
-    hand: List[int] = list(obs.get("hand") or [])
-    drawn: Optional[int] = obs.get("drawn")
 
-    # 取得可選的行動
-    hu_action = next((a for a in acts if (a.get("type") or "").upper() == "HU"), None)
-    discards_all: List[Action] = [a for a in acts if (a.get("type") or "").upper() == "DISCARD"]
+    context = build_turn_context(obs)
+    acts = context.legal_actions
+    if not acts:
+        return {"type": "PASS"}
 
-    def key_disc(a: Action) -> Tuple:
-        t = a.get("tile")
-        src = a.get("from", "hand")
-        return (0 if src == "hand" else 1, *tile_sort_key(t))
-
-    discards_all.sort(key=key_disc)
-
-    # 計算每個丟法對應的聽牌
-    display_actions: List[Action] = []
-    display_tiles: List[int] = []
-    waits_list: List[List[int]] = []
-    for a in discards_all:
-        t = a.get("tile")
-        ws = waits_after_discard_17(
-            hand,
-            drawn,
-            obs.get("melds") or [],
-            t,
-            a.get("from", "hand"),
-            rules=Ruleset(include_flowers=False),
-            exclude_exhausted=True,
-        )
-        display_actions.append(a)
-        display_tiles.append(t)
-        waits_list.append(ws)
-
-    # 版頭
+    player = context.player
     console.print(f"\n[bold]=== Your Turn | P{player} ===[/bold]")
-    sorted_hand = sorted(hand, key=tile_sort_key)
-    hand_line = Text.assemble(Text("Hand: ", style="bold"), join_tiles(sorted_hand))
+
+    hand_line = Text.assemble(Text("Hand: ", style="bold"), join_tiles(context.hand))
     drawn_line = Text.assemble(
         Text("Drawn: ", style="bold"),
-        text_for_tile(drawn) if drawn is not None else Text("None", style="dim")
+        text_for_tile(context.drawn) if context.drawn is not None else Text("None", style="dim"),
     )
-    melds_line = Text.assemble(Text("Melds: ", style="bold"), render_melds(obs.get("melds") or [], mask_concealed=False))
+    melds_line = Text.assemble(
+        Text("Melds: ", style="bold"),
+        render_melds(context.melds, mask_concealed=False),
+    )
+    flowers_line = Text.assemble(
+        Text("Flowers: ", style="bold"),
+        join_tiles(context.flowers) if context.flowers else Text("(none)", style="dim"),
+    )
     console.print(hand_line)
     console.print(drawn_line)
     console.print(melds_line)
-    # flowers below melds
-    flowers = list(obs.get("flowers") or [])
-    flowers.sort(key=tile_sort_key)
-    flowers_line = Text.assemble(
-        Text("Flowers: ", style="bold"),
-        join_tiles(flowers) if flowers else Text("(none)", style="dim"),
-    )
     console.print(flowers_line)
 
-    # 若已宣告聽，列出目前等待及剩餘數
-    if bool(obs.get("declared_ting", False)):
-        waits_now = waits_for_hand_16(hand, obs.get("melds") or [], Ruleset(include_flowers=False), exclude_exhausted=True)
-        if waits_now:
-            parts: List[Text] = []
-            parts.append(Text("TING: ", style="bold"))
-            for i, w in enumerate(sorted(waits_now, key=tile_sort_key)):
-                vis = visible_count_global(w, obs)
-                rem = max(0, 4 - min(4, vis))
-                parts.append(text_for_tile(w))
-                parts.append(Text(f"({rem})"))
-                if i != len(waits_now) - 1:
-                    parts.append(Text(" "))
-            console.print(Text.assemble(*parts))
+    if context.declared_ting and context.current_waits:
+        parts: List[Text] = [Text("TING: ", style="bold")]
+        for idx, wait in enumerate(context.current_waits):
+            parts.append(text_for_tile(wait.tile))
+            parts.append(Text(f"({wait.remaining})"))
+            if idx != len(context.current_waits) - 1:
+                parts.append(Text(" "))
+        console.print(Text.assemble(*parts))
 
-    # 收集可進入 TING 的丟法
-    ting_candidates: List[Tuple[Action, List[int]]] = [
-        (a, ws) for a, ws in zip(display_actions, waits_list) if ws
-    ]
-
-    # 若未宣告且存在候選，提供宣告 TING 流程
-    if (not bool(obs.get("declared_ting", False))) and ting_candidates:
-        # 嘗試找出可 ANGANG / KAKAN
-        actions_all: List[Action] = obs.get("legal_actions", []) or []
-        angangs = [a for a in actions_all if (a.get("type") or "").upper() == "ANGANG"]
-        kakans = [a for a in actions_all if (a.get("type") or "").upper() == "KAKAN"]
-        extras = []
-        if angangs:
-            extras.append("[A] ANGANG")
-        if kakans:
-            extras.append("[K] KAKAN")
-        actions_hdr = ("[H] HU  " if hu_action is not None else "") + (" ".join(extras) + "  " if extras else "") + "[T] TING  [N] PASS"
-        console.print(Text("ACTIONS → ", style="bold") + Text(actions_hdr))
+    if (not context.declared_ting) and context.ting_candidates:
+        extras: List[Text] = []
+        if context.hu_action is not None:
+            extras.append(Text("[H] HU"))
+        if context.angang_actions:
+            extras.append(Text("[A] ANGANG"))
+        if context.kakan_actions:
+            extras.append(Text("[K] KAKAN"))
+        extras.append(Text("[T] TING"))
+        extras.append(Text("[N] PASS"))
+        console.print(Text("ACTIONS → ", style="bold") + Text.assemble(*[t + Text("  ") for t in extras]))
         while True:
             raw0 = console.input("Declare TING? (T/N): ").strip().upper()
-            if raw0 in ("H", "HU") and hu_action is not None:
-                return dict(hu_action)
-            if raw0 in ("A", "ANGANG") and angangs:
-                if len(angangs) == 1:
-                    return dict(angangs[0])
-                # 多個暗槓候選 → 選其中之一
+            if raw0 in ("H", "HU") and context.hu_action is not None:
+                return dict(context.hu_action)
+            if raw0 in ("A", "ANGANG") and context.angang_actions:
+                if len(context.angang_actions) == 1:
+                    return dict(context.angang_actions[0])
                 console.print(Text("ANGANG options:", style="bold"))
-                for i, a in enumerate(angangs):
-                    console.print(Text.assemble(Text(f"  [{i}] ANGANG "), text_for_tile(a.get("tile"))))
+                for i, action in enumerate(context.angang_actions):
+                    console.print(
+                        Text.assemble(
+                            Text(f"  [{i}] ANGANG "),
+                            text_for_tile(action.get("tile")),
+                        )
+                    )
                 while True:
                     sel = console.input("Pick ANGANG index: ").strip()
                     if sel.isdigit():
-                        k = int(sel)
-                        if 0 <= k < len(angangs):
-                            return dict(angangs[k])
+                        idx = int(sel)
+                        if 0 <= idx < len(context.angang_actions):
+                            return dict(context.angang_actions[idx])
                     console.print(Text("索引超出範圍，請重新輸入。", style="red"))
-            if raw0 in ("K", "KAKAN") and kakans:
-                if len(kakans) == 1:
-                    return dict(kakans[0])
+            if raw0 in ("K", "KAKAN") and context.kakan_actions:
+                if len(context.kakan_actions) == 1:
+                    return dict(context.kakan_actions[0])
                 console.print(Text("KAKAN options:", style="bold"))
-                for i, a in enumerate(kakans):
-                    console.print(Text.assemble(Text(f"  [{i}] KAKAN "), text_for_tile(a.get("tile"))))
+                for i, action in enumerate(context.kakan_actions):
+                    console.print(
+                        Text.assemble(
+                            Text(f"  [{i}] KAKAN "),
+                            text_for_tile(action.get("tile")),
+                        )
+                    )
                 while True:
                     sel = console.input("Pick KAKAN index: ").strip()
                     if sel.isdigit():
-                        k = int(sel)
-                        if 0 <= k < len(kakans):
-                            return dict(kakans[k])
+                        idx = int(sel)
+                        if 0 <= idx < len(context.kakan_actions):
+                            return dict(context.kakan_actions[idx])
                     console.print(Text("索引超出範圍，請重新輸入。", style="red"))
             if raw0 in ("T", "TING", "Y", "YES"):
-                # 列出每個 TING 方案
                 rows: List[Text] = []
-                for i, (a, ws) in enumerate(ting_candidates):
-                    t = a.get("tile")
-                    src = a.get("from", "hand")
-                    hand_after = simulate_after_discard(hand, drawn, t, src)
-                    cells: List[Text] = []
-                    cells.append(Text(f"[{i}] DISCARD "))
-                    cells.append(text_for_tile(t))
-                    if src == "drawn":
-                        cells.append(Text("*", style="dim"))
-                    cells.append(Text(" → TING: "))
-                    for j, w in enumerate(sorted(ws, key=tile_sort_key)):
-                        vis = visible_count_after(w, hand_after, obs)
-                        rem = max(0, 4 - min(4, vis))
-                        cells.append(text_for_tile(w))
-                        cells.append(Text(f"({rem})"))
-                        if j != len(ws) - 1:
-                            cells.append(Text(" "))
-                    rows.append(Text.assemble(*cells))
+                for i, option in enumerate(context.ting_candidates):
+                    rows.append(_ting_option_row(i, option))
                 console.print(Text("TING OPTIONS →", style="bold"))
-                for r in rows:
-                    console.print(Text("  ") + r)
+                for row in rows:
+                    console.print(Text("  ") + row)
                 while True:
                     sel = console.input("Pick TING option index: ").strip()
                     if sel.isdigit():
-                        k = int(sel)
-                        if 0 <= k < len(ting_candidates):
-                            a, _ = ting_candidates[k]
-                            return {"type": "TING", "tile": a.get("tile"), "from": a.get("from", "hand")}
+                        idx = int(sel)
+                        if 0 <= idx < len(context.ting_candidates):
+                            opt = context.ting_candidates[idx]
+                            return {
+                                "type": "TING",
+                                "tile": opt.tile,
+                                "from": opt.source,
+                            }
                     console.print(Text("索引超出範圍，請重新輸入。", style="red"))
             if raw0 in ("N", "NO", "P", "PASS"):
                 break
             console.print(Text("請輸入 T 或 N。", style="yellow"))
 
-    # 丟牌/胡/暗槓/加槓 選單
-    if hu_action is not None:
+    if context.hu_action is not None:
         console.print(Text("ACTIONS → ", style="bold") + Text("[H] HU"))
-    actions_all: List[Action] = obs.get("legal_actions", []) or []
-    angangs = [a for a in actions_all if (a.get("type") or "").upper() == "ANGANG"]
-    kakans = [a for a in actions_all if (a.get("type") or "").upper() == "KAKAN"]
-    if angangs or kakans:
+    if context.angang_actions or context.kakan_actions:
         extra_parts: List[Text] = []
-        if angangs:
+        if context.angang_actions:
             extra_parts.append(Text(" [A] ANGANG"))
-        if kakans:
+        if context.kakan_actions:
             extra_parts.append(Text(" [K] KAKAN"))
         console.print(Text("KONGS → ", style="bold") + Text.assemble(*extra_parts))
+
+    display_tiles = [opt.tile for opt in context.discard_options]
     line_parts: List[Text] = []
-    for i, tid in enumerate(display_tiles):
-        star = (display_actions[i].get("from") == "drawn")
-        cell = Text.assemble(Text(f"[{i}] "), text_for_tile(tid))
-        if star:
+    for i, opt in enumerate(context.discard_options):
+        cell = Text.assemble(Text(f"[{i}] "), text_for_tile(opt.tile))
+        if opt.from_drawn:
             cell.append(Text("*", style="dim"))
         line_parts.append(cell)
-        if i != len(display_tiles) - 1:
+        if i != len(context.discard_options) - 1:
             line_parts.append(Text("  "))
     console.print(Text("DISCARD → ", style="bold") + Text.assemble(*line_parts))
 
     while True:
         raw = console.input("Discard index or tile: ").strip().upper()
-        if hu_action is not None and raw in ("H", "HU"):
-            return dict(hu_action)
-        if raw in ("A", "ANGANG") and angangs:
-            if len(angangs) == 1:
-                return dict(angangs[0])
+        if context.hu_action is not None and raw in ("H", "HU"):
+            return dict(context.hu_action)
+        if raw in ("A", "ANGANG") and context.angang_actions:
+            if len(context.angang_actions) == 1:
+                return dict(context.angang_actions[0])
             console.print(Text("ANGANG options:", style="bold"))
-            for i, a in enumerate(angangs):
-                console.print(Text.assemble(Text(f"  [{i}] ANGANG "), text_for_tile(a.get("tile"))))
+            for i, action in enumerate(context.angang_actions):
+                console.print(
+                    Text.assemble(
+                        Text(f"  [{i}] ANGANG "),
+                        text_for_tile(action.get("tile")),
+                    )
+                )
             sel = console.input("Pick ANGANG index: ").strip()
-            if sel.isdigit() and 0 <= int(sel) < len(angangs):
-                return dict(angangs[int(sel)])
+            if sel.isdigit() and 0 <= int(sel) < len(context.angang_actions):
+                return dict(context.angang_actions[int(sel)])
             console.print(Text("索引超出範圍。", style="red"))
             continue
-        if raw in ("K", "KAKAN") and kakans:
-            if len(kakans) == 1:
-                return dict(kakans[0])
+        if raw in ("K", "KAKAN") and context.kakan_actions:
+            if len(context.kakan_actions) == 1:
+                return dict(context.kakan_actions[0])
             console.print(Text("KAKAN options:", style="bold"))
-            for i, a in enumerate(kakans):
-                console.print(Text.assemble(Text(f"  [{i}] KAKAN "), text_for_tile(a.get("tile"))))
+            for i, action in enumerate(context.kakan_actions):
+                console.print(
+                    Text.assemble(
+                        Text(f"  [{i}] KAKAN "),
+                        text_for_tile(action.get("tile")),
+                    )
+                )
             sel = console.input("Pick KAKAN index: ").strip()
-            if sel.isdigit() and 0 <= int(sel) < len(kakans):
-                return dict(kakans[int(sel)])
+            if sel.isdigit() and 0 <= int(sel) < len(context.kakan_actions):
+                return dict(context.kakan_actions[int(sel)])
             console.print(Text("索引超出範圍。", style="red"))
             continue
         if raw.isdigit():
             idx = int(raw)
-            if 0 <= idx < len(display_actions):
-                return dict(display_actions[idx])
+            if 0 <= idx < len(context.discard_options):
+                return dict(context.discard_options[idx].action)
             console.print(Text("索引超出範圍，請重新輸入。", style="red"))
             continue
         key = raw.rstrip("*")
-        for a, tid in zip(display_actions, display_tiles):
-            if tile_to_str(tid).upper() == key:
-                return dict(a)
+        for option in context.discard_options:
+            if tile_to_str(option.tile).upper() == key:
+                return dict(option.action)
         console.print(Text("無效輸入，請輸入索引或合法牌面（例如 7W）。", style="yellow"))
+
+
+def _ting_option_row(index: int, option: TurnActionOption) -> Text:
+    cells: List[Text] = [Text(f"[{index}] DISCARD ")]
+    cells.append(text_for_tile(option.tile))
+    if option.from_drawn:
+        cells.append(Text("*", style="dim"))
+    cells.append(Text(" → TING: "))
+    waits_sorted = sorted(option.waits, key=lambda w: tile_sort_key(w.tile))
+    for j, wait in enumerate(waits_sorted):
+        cells.append(text_for_tile(wait.tile))
+        cells.append(Text(f"({wait.remaining})"))
+        if j != len(waits_sorted) - 1:
+            cells.append(Text(" "))
+    return Text.assemble(*cells)
 
 
 def prompt_reaction_action(obs: Observation) -> Action:
     """以 Rich 在命令列提示反應（HU/GANG/PONG/CHI/PASS）。"""
-    acts: List[Action] = obs.get("legal_actions", []) or []
-    player = obs.get("player")
-    prio = {"HU": 0, "GANG": 1, "PONG": 2, "CHI": 3, "PASS": 9}
-    ld = obs.get("last_discard") or {}
-    ld_tile = ld.get("tile")
 
-    def key_react(a: Action):
-        t = (a.get("type") or "").upper()
-        if t == "CHI":
-            use = a.get("use", [])
-            s = [tile_to_str(x) for x in (use or [])]
-            return (prio[t], s)
-        return (prio.get(t, 99),)
+    context = build_reaction_context(obs)
+    menu_actions = context.menu
+    if not menu_actions:
+        return {"type": "PASS"}
 
-    pass_action: Action = next((a for a in acts if (a.get("type") or "").upper() == "PASS"), {"type": "PASS"})
-    others_sorted: List[Action] = sorted(
-        [a for a in acts if (a.get("type") or "").upper() != "PASS"],
-        key=key_react,
+    ld_tile = context.last_discard_tile
+    console.print(
+        f"\n[bold]=== Your Reaction | P{context.player} → to [/bold]",
+        text_for_tile(ld_tile) if ld_tile is not None else Text("?"),
     )
-
-    def label_for(a: Action) -> Text:
-        t = (a.get("type") or "").upper()
-        if t == "PASS":
-            return Text("PASS")
-        if t == "CHI":
-            use = a.get("use", [])
-            if isinstance(use, list) and len(use) == 2:
-                txt = Text("CHI ")
-                txt.append(text_for_tile(use[0])); txt.append(Text("-")); txt.append(text_for_tile(use[1]))
-                if ld_tile is not None:
-                    txt.append(Text("  "))
-                    txt.append(text_for_tile(ld_tile))
-                return txt
-            return Text("CHI")
-        if t in ("PONG", "GANG", "HU"):
-            txt = Text(f"{t} ")
-            if ld_tile is not None:
-                txt.append(text_for_tile(ld_tile))
-            return txt
-        return Text("PASS")
-
-    menu_actions: List[Action] = [pass_action] + others_sorted
-    labels: List[Text] = [label_for(a) for a in menu_actions]
-
-    console.print(f"\n[bold]=== Your Reaction | P{player} → to [/bold]", text_for_tile(ld_tile) if ld_tile is not None else Text("?"))
-    menu_line = Text.assemble(*[Text.assemble(Text(f"[{i}] "), labels[i], Text("  ")) for i in range(len(labels))])
+    menu_line = Text.assemble(
+        *[
+            Text.assemble(Text(f"[{i}] "), Text(option.label), Text("  "))
+            for i, option in enumerate(menu_actions)
+        ]
+    )
     console.print(menu_line)
 
     while True:
@@ -300,7 +250,7 @@ def prompt_reaction_action(obs: Observation) -> Action:
         if raw.isdigit():
             idx = int(raw)
             if 0 <= idx < len(menu_actions):
-                return dict(menu_actions[idx])
+                return dict(menu_actions[idx].action)
             console.print(Text("索引超出範圍，請重新輸入。", style="red"))
             continue
         console.print(Text("請輸入數字索引。", style="yellow"))
