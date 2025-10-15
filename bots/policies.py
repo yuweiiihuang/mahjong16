@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Protocol
+from typing import Callable, List, Optional, Protocol
 
 from domain.gameplay import Action, Observation
 from ui.console import prompt_reaction_action, prompt_turn_action
@@ -75,7 +75,13 @@ class HumanStrategy:
         return prompt_reaction_action(obs)
 
 
-def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List[Strategy]:
+def build_strategies(
+    n_players: int,
+    human_pid: Optional[int],
+    bot: str,
+    *,
+    human_factory: Optional[Callable[[], Strategy]] = None,
+) -> List[Strategy]:
     """
     Build a list of strategies for each player.
 
@@ -96,15 +102,20 @@ def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List
     if bot not in valid_bots:
         raise ValueError(f"Invalid bot type '{bot}'. Valid options are: {', '.join(valid_bots)}.")
 
+    def make_human() -> Strategy:
+        if human_factory is not None:
+            return human_factory()
+        return HumanStrategy()
+
     strategies: List[Strategy] = []
     for pid in range(n_players):
         if human_pid is not None and pid == human_pid:
-            strategies.append(HumanStrategy())
+            strategies.append(make_human())
         else:
             if bot == "greedy":
                 strategies.append(GreedyBotStrategy())
             elif bot == "human":
-                strategies.append(HumanStrategy())
+                strategies.append(make_human())
             else:  # bot == "auto"
                 strategies.append(AutoStrategy())
     return strategies

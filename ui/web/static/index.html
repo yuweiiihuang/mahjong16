@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mahjong16 Web Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="status"></header>
+      <main id="table">
+        <section id="slot-north" class="player-slot north"></section>
+        <section id="slot-west" class="player-slot west"></section>
+        <section id="slot-center" class="center">
+          <div id="last-action"></div>
+        </section>
+        <section id="slot-east" class="player-slot east"></section>
+        <section id="slot-south" class="player-slot south"></section>
+      </main>
+      <section id="actions" class="panel">
+        <h2>可操作行動</h2>
+        <div id="action-meta"></div>
+        <div id="action-buttons" class="button-grid"></div>
+      </section>
+      <section id="summaries" class="panel">
+        <h2>牌譜摘要</h2>
+        <div id="summary-list"></div>
+      </section>
+    </div>
+    <div id="reveal-overlay" hidden>
+      <div class="modal">
+        <button id="close-reveal" aria-label="Close">×</button>
+        <h2>手牌揭示</h2>
+        <div id="reveal-content"></div>
+      </div>
+    </div>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

@@ -9,4 +9,6 @@ dependencies = [
     "pandas>=2.3.3",
     "pytest>=8",
     "rich>=14.1.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
 ]
