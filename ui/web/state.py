@@ -47,6 +47,14 @@ def _meld_payload(meld: Any, *, mask_concealed: bool) -> Dict[str, Any]:
     }
 
 
+def _player_field(player: Any, field: str, default: Any = None) -> Any:
+    if isinstance(player, dict):
+        return player.get(field, default)
+    if player is None:
+        return default
+    return getattr(player, field, default)
+
+
 def _player_payload(
     env: Mahjong16Env,
     pid: int,
@@ -54,9 +62,12 @@ def _player_payload(
     *,
     last_discard: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    players = getattr(env, "players", [])
-    player = players[pid]
-    get = player.get if isinstance(player, dict) else lambda key, default=None: getattr(player, key, default)
+    players = getattr(env, "players", None)
+    player: Any = None
+    if isinstance(players, Sequence) and not isinstance(players, (str, bytes)):
+        if 0 <= pid < len(players):
+            player = players[pid]
+    get = lambda key, default=None: _player_field(player, key, default)
     is_self = pid == pov_pid
 
     seat_winds = getattr(env, "seat_winds", None)
