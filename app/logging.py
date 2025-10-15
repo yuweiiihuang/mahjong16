@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from core.tiles import tile_to_str
+from domain.tiles import tile_to_str
 
 TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 DEFAULT_PLAYER_COUNT = 4

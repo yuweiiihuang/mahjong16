@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Dict
 
+from domain.rules.hands import max_concealed_triplets
 from ..breakdown import ScoreAccumulator
 from ..common import is_honor, tile_label
-from ..utils import _max_concealed_triplets
 from ..state import DerivedScoringState
-from ..types import ScoringContext
+from ..score_types import ScoringContext
 
 
 def _collect_suits(all_tiles: list[int]) -> set[str]:
@@ -50,7 +50,7 @@ def apply_patterns_rules(
     concealed_triplets = 0
     if hand.need >= 0 and hand.required_len is not None:
         if len(concealed_for_patterns) == hand.required_len:
-            max_triplets = _max_concealed_triplets(
+            max_triplets = max_concealed_triplets(
                 tuple(hand.counts34), hand.need, False
             )
             ron_tile_idx = state.win.ron_tile_idx

@@ -1,589 +1,534 @@
 from __future__ import annotations
+
+import logging
 import multiprocessing as mp
 import os
 import random
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import nullcontext
 from queue import Empty
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from rich.progress import (
+    BarColumn,
     Progress,
     SpinnerColumn,
-    BarColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
     TaskProgressColumn,
     TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 
-from core import Mahjong16Env, Ruleset
-from core.tiles import tile_to_str, tile_sort_key
-from core.scoring.tables import load_scoring_assets
-from core.scoring.types import ScoringContext
-from core.scoring.engine import score_with_breakdown, compute_payments
-from ui.console import render_public_view, render_reveal, render_winners_summary
-from .table import TableManager
-from .strategies import build_strategies
-from .logging import HandLogWriter, write_hand_log
+from domain import Mahjong16Env, Ruleset
+from domain.scoring.engine import compute_payments, score_with_breakdown
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext, ScoringTable
+from domain.tiles import tile_sort_key
+
+from app.logging import HandLogWriter, write_hand_log
+from app.table import TableManager
+from app.session.adapters import ConsoleUIAdapter, HeadlessLogAdapter
+from app.session.ports import (
+    HandSummaryPort,
+    ProgressPort,
+    ScoreState,
+    StepEvent,
+    TableViewPort,
+)
+from bots import Strategy, build_strategies
+from ui.console import render_winners_summary
 
 
-def summarize_resolved_claim(info: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    """Extract minimal info for a resolved claim to display in the top bar.
-
-    Args:
-      info: The info object returned by ``env.step``.
-
-    Returns:
-      A dict {who, type, detail} for display, or None if not applicable.
-    """
-    if not info or "resolved_claim" not in info:
-        return None
-    rc = info["resolved_claim"]
-    t = (rc.get("type") or "").upper()
-    pid = rc.get("pid")
-    tile = rc.get("tile")
-    detail = ""
-    if t == "CHI":
-        use = rc.get("use", [])
-        if isinstance(use, list) and len(use) == 2:
-            detail = f"{tile_to_str(use[0])}-{tile_to_str(use[1])} + {tile_to_str(tile)}"
-    elif t in ("PONG", "GANG", "HU"):
-        detail = tile_to_str(tile) or ""
-    return {"who": f"P{pid}", "type": t, "detail": detail}
+logger = logging.getLogger(__name__)
 
 
-def update_ui(
-    env: Mahjong16Env,
-    human_pid: Optional[int],
-    discard_id: int,
-    last_action: Optional[Dict[str, Any]] = None,
-    score_state: Optional[Dict[str, Any]] = None,
-) -> None:
-    """Render the public view and optionally annotate the latest action.
-
-    Args:
-      env: Environment to render.
-      human_pid: Point‑of‑view player id (None means 0).
-      discard_id: Incremental discard counter for display.
-      last_action: Optional {who,type,detail} summary to show.
-    """
-    pov = (human_pid if human_pid is not None else 0)
-    render_public_view(
-        env,
-        pov_pid=pov,
-        did=discard_id,
-        last_action=last_action,
-        score_state=score_state,
+def _is_indexable_sequence(collection: Any, index: int) -> bool:
+    return (
+        isinstance(collection, Sequence)
+        and not isinstance(collection, (str, bytes))
+        and isinstance(index, int)
+        and 0 <= index < len(collection)
     )
 
-class _BaseDemoRunner:
-    """Shared orchestration for Mahjong16 demo sessions."""
 
-    provides_ui: bool = False
+def _coerce_sequence(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, set):
+        return list(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return list(value)
+    return []
+
+
+def _resolve_player_field(player: Any, field: str) -> Any:
+    if isinstance(player, dict):
+        return player.get(field)
+    return getattr(player, field, None)
+
+
+def _extract_sorted_tiles(values: Any) -> List[int]:
+    tiles = []
+    for tile in _coerce_sequence(values):
+        try:
+            tiles.append(int(tile))
+        except (TypeError, ValueError):
+            continue
+    return sorted(tiles, key=tile_sort_key)
+
+
+def _normalize_melds(values: Any) -> List[Dict[str, Any]]:
+    melds: List[Dict[str, Any]] = []
+    for meld in _coerce_sequence(values):
+        if isinstance(meld, dict):
+            melds.append(meld)
+            continue
+        to_dict = getattr(meld, "to_dict", None)
+        if callable(to_dict):
+            try:
+                meld_dict = to_dict()
+            except Exception:  # pragma: no cover - defensive path
+                logger.debug("Skipping meld %r because to_dict() raised an exception", meld)
+                meld_dict = {}
+            if isinstance(meld_dict, dict):
+                melds.append(meld_dict)
+                continue
+        attributes = getattr(meld, "__dict__", None)
+        if isinstance(attributes, dict):
+            melds.append(dict(attributes))
+        else:
+            melds.append({})
+    return melds
+
+
+def _extract_winner_assets(env: Mahjong16Env, winner: int) -> Tuple[List[int], List[Dict[str, Any]], List[int]]:
+    players = getattr(env, "players", None)
+    if not _is_indexable_sequence(players, winner):
+        return [], [], []
+    player = players[winner]
+    hand_tiles = _extract_sorted_tiles(_resolve_player_field(player, "hand"))
+    melds = _normalize_melds(_resolve_player_field(player, "melds"))
+    flowers = _extract_sorted_tiles(_resolve_player_field(player, "flowers"))
+    return hand_tiles, melds, flowers
+
+
+def _resolve_winds(
+    seat_winds: Any,
+    dealer_pid: Optional[int],
+    winner: Optional[int],
+) -> Tuple[Optional[Any], Optional[Any]]:
+    dealer_wind = None
+    winner_wind = None
+    if isinstance(seat_winds, Sequence) and not isinstance(seat_winds, (str, bytes)):
+        if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
+            dealer_wind = seat_winds[dealer_pid]
+        if isinstance(winner, int) and 0 <= winner < len(seat_winds):
+            winner_wind = seat_winds[winner]
+    return dealer_wind, winner_wind
+
+
+def _build_session_dependencies(
+    seed: Optional[int],
+    human_pid: Optional[int],
+    bot: str,
+) -> Tuple[Mahjong16Env, TableManager, List[Strategy], ScoringTable]:
+    rules = Ruleset(
+        scoring_profile="taiwan_base",
+        rule_profile="common",
+    )
+    env = Mahjong16Env(rules, seed=seed)
+    table_manager = TableManager(rules, seed=seed)
+    strategies = build_strategies(env.rules.n_players, human_pid, bot)
+    scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
+    return env, table_manager, strategies, scoring_table
+
+
+class SessionService:
+    """High level orchestration for Mahjong16 demo sessions."""
 
     def __init__(
         self,
         *,
-        seed=None,
-        human_pid: Optional[int] = 0,
-        bot: str = "auto",
+        env: Mahjong16Env,
+        table_manager: TableManager,
+        strategies: Sequence[Strategy],
+        scoring_assets: ScoringTable,
         hands: int = 1,
-        jangs: int = 0,
+        jangs: Optional[int] = 0,
         start_points: int = 1000,
-        log_dir: Optional[str] = None,
-        emit_logs: bool = True,
+        table_view_port: Optional[TableViewPort] = None,
+        hand_summary_port: Optional[HandSummaryPort] = None,
+        progress_port: Optional[ProgressPort] = None,
     ) -> None:
-        self.seed = seed
-        self.human_pid = human_pid
-        self.bot = bot
-        self.hands = hands
-        self.jangs = jangs
-        self.log_dir = log_dir
-        self.emit_logs = emit_logs
-
-        self.rules = Ruleset(
-            scoring_profile="taiwan_base",
-            rule_profile="common",
-        )
-        self.env = Mahjong16Env(self.rules, seed=seed)
-        self.table = load_scoring_assets(self.rules.scoring_profile, self.rules.scoring_overrides_path)
-
-        self.tm = TableManager(self.rules, seed=seed)
-        self.tm.initialize(self.env.rules.n_players)
-        self.strategies = build_strategies(self.env.rules.n_players, human_pid, bot)
-
+        self.env = env
+        self.table_manager = table_manager
+        self.strategies = list(strategies)
+        self.scoring_assets = scoring_assets
         self.n_players = self.env.rules.n_players
-        start_points_value = self._normalize_start_points(start_points)
-        self.totals = [start_points_value for _ in range(self.n_players)]
+
+        self.table_manager.initialize(self.n_players)
+
+        normalized_points = self._normalize_start_points(start_points)
+        self.totals = [normalized_points for _ in range(self.n_players)]
         self.hand_delta = [0 for _ in range(self.n_players)]
-        self.score_state = {"totals": self.totals, "deltas": self.hand_delta}
+        self.score_state: ScoreState = {
+            "totals": self.totals,
+            "deltas": self.hand_delta,
+        }
 
         self.target_jangs = self._normalize_jangs(jangs)
-        self.play_until_negative = (hands == -1 and self.target_jangs is None)
-        self.max_hands = None if (self.play_until_negative or self.target_jangs is not None) else hands
-        self.hand_summaries: list = []
-        self._log_writer: Optional[HandLogWriter] = None
-        self._log_writer_path = None
-        self._log_writer_failed = False
+        self.play_until_negative = hands == -1 and self.target_jangs is None
+        if self.play_until_negative or self.target_jangs is not None:
+            self.max_hands: Optional[int] = None
+        else:
+            self.max_hands = hands if hands > 0 else 0
 
-    def run(self) -> None:  # pragma: no cover - overridden by subclasses
-        raise NotImplementedError
+        self.table_view_port = table_view_port
+        self.hand_summary_port = hand_summary_port
+        self.progress_port = progress_port
 
-    def _execute(self) -> list:
+        self.hand_summaries: List[Dict[str, Any]] = []
+
+        self._session_started = False
+        self._session_finalized = False
+
+    def run(self) -> List[Dict[str, Any]]:
+        """Execute a complete demo session and return per-hand summaries."""
+
+        self._notify_session_start()
         hand_idx = 0
+        try:
+            while self._has_more_hands(hand_idx):
+                hand_idx += 1
+                session_complete = self._play_single_hand(hand_idx)
+                if session_complete or self._should_stop_after_hand():
+                    break
+
+            return self.hand_summaries
+        finally:
+            self._notify_session_end()
+
+    def _has_more_hands(self, hand_idx: int) -> bool:
+        return self.max_hands is None or hand_idx < self.max_hands
+
+    def _play_single_hand(self, hand_idx: int) -> bool:
+        obs = self._prepare_hand_state()
+        if getattr(self.env, "done", False):
+            return self._process_hand_end(hand_idx)
+
+        self._emit_hand_start(hand_idx)
+        return self._play_hand_loop(hand_idx, obs)
+
+    def _prepare_hand_state(self) -> Dict[str, Any]:
+        obs = self.table_manager.start_hand(self.env)
+        self.hand_delta = [0 for _ in range(self.n_players)]
+        self.score_state["deltas"] = self.hand_delta
+        return obs
+
+    def _current_jang_index(self) -> int:
+        return getattr(self.table_manager.state, "jang_count", 0) + 1
+
+    def _emit_hand_start(self, hand_idx: int) -> None:
+        if self.table_view_port is None:
+            return
+        self.table_view_port.on_hand_start(
+            hand_index=hand_idx,
+            jang_index=self._current_jang_index(),
+            env=self.env,
+            score_state=self.score_state,
+        )
+
+    def _play_hand_loop(self, hand_idx: int, obs: Dict[str, Any]) -> bool:
         while True:
-            if self.max_hands is not None and hand_idx >= self.max_hands:
-                break
+            obs, session_complete = self._resolve_actions(obs, hand_idx)
+            if obs is None:
+                return session_complete
 
-            hand_idx += 1
-            obs = self.tm.start_hand(self.env)
-            self.hand_delta = [0 for _ in range(self.n_players)]
-            self.score_state["deltas"] = self.hand_delta
-            discard_id = 0
-            last_seen_discard: Optional[tuple] = None
+            strategy = self.strategies[obs.get("player")]
+            act = strategy.choose(obs)
+            action_type = (act.get("type") or "").upper()
+            acting_pid = obs.get("player")
+            discarded_tile = act.get("tile") if action_type == "DISCARD" else None
 
-            if getattr(self.env, "done", False):
-                if self._process_hand_end(hand_idx):
-                    return self._finalize()
-                continue
+            obs, done = self._step_environment(
+                act,
+                action_type=action_type,
+                acting_pid=acting_pid,
+                discarded_tile=discarded_tile,
+            )
 
-            self.on_hand_start(hand_idx)
+            if done:
+                return self._process_hand_end(hand_idx)
 
-            while True:
-                acts_current = obs.get("legal_actions") or []
-                if not acts_current:
-                    recalculated = self.env.legal_actions()
-                    if recalculated:
-                        obs = dict(obs)
-                        obs["legal_actions"] = recalculated
-                        acts_current = recalculated
-                    elif getattr(self.env, "done", False):
-                        if self._process_hand_end(hand_idx):
-                            return self._finalize()
-                        break
-                    else:
-                        raise AssertionError(
-                            f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}."
-                        )
-
-                act = self.strategies[obs.get("player")].choose(obs)
-                atype = (act.get("type") or "").upper()
-                pre_pid = obs.get("player")
-                pre_tile = act.get("tile") if atype == "DISCARD" else None
-
-                obs, _rew, done, info = self.env.step(act)
-                discard_id, last_seen_discard = self.after_step(
-                    obs=obs,
-                    info=info,
-                    discard_id=discard_id,
-                    last_seen_discard=last_seen_discard,
-                    act=act,
-                    action_type=atype,
-                    acting_pid=pre_pid,
-                    discarded_tile=pre_tile,
-                )
-
-                if done:
-                    if self._process_hand_end(hand_idx):
-                        return self._finalize()
-                    break
-
-                if discard_id > 2000:
-                    if self.emit_logs:
-                        print("=== stop (safety break) ===")
-                    break
-
-        return self._finalize()
-
-    def on_session_start(self) -> None:
-        """Hook for subclasses to announce the session."""
-
-    def on_hand_start(self, hand_idx: int) -> None:
-        """Hook invoked at the start of each hand."""
-
-    def after_step(
+    def _resolve_actions(
         self,
-        *,
         obs: Dict[str, Any],
-        info: Optional[Dict[str, Any]],
-        discard_id: int,
-        last_seen_discard: Optional[tuple],
+        hand_idx: int,
+    ) -> Tuple[Optional[Dict[str, Any]], bool]:
+        acts_current = obs.get("legal_actions") or []
+        if acts_current:
+            return obs, False
+
+        recalculated = self.env.legal_actions()
+        if recalculated:
+            refreshed = dict(obs)
+            refreshed["legal_actions"] = recalculated
+            return refreshed, False
+
+        if getattr(self.env, "done", False):
+            return None, self._process_hand_end(hand_idx)
+
+        raise AssertionError(
+            f"No legal actions available for player {obs.get('player')} in phase {obs.get('phase')}"
+        )
+
+    def _step_environment(
+        self,
         act: Dict[str, Any],
+        *,
         action_type: str,
         acting_pid: Optional[int],
-        discarded_tile,
-    ) -> tuple[int, Optional[tuple]]:
-        """Hook invoked after each env.step call."""
-        return discard_id, last_seen_discard
+        discarded_tile: Optional[int],
+    ) -> Tuple[Dict[str, Any], bool]:
+        obs, _reward, done, info = self.env.step(act)
 
-    def on_hand_scored(self, breakdown, payments) -> None:
-        """Hook invoked once scoring is complete for a hand."""
+        if self.table_view_port is not None:
+            event = StepEvent(
+                observation=obs,
+                info=info,
+                action=act,
+                acting_pid=acting_pid,
+                action_type=action_type,
+                discarded_tile=discarded_tile,
+            )
+            self.table_view_port.on_step(
+                event=event,
+                env=self.env,
+                score_state=self.score_state,
+            )
 
-    def on_hand_complete(self, hand_idx: int) -> None:
-        """Hook invoked after TableManager updates for the hand."""
+        return obs, done
+
+    def _should_stop_after_hand(self) -> bool:
+        return self.play_until_negative and any(pt < 0 for pt in self.totals)
 
     def _process_hand_end(self, hand_idx: int) -> bool:
-        ctx = ScoringContext.from_env(self.env, self.table)
-        rewards2, bd = score_with_breakdown(ctx)
+        ctx = ScoringContext.from_env(self.env, self.scoring_assets)
+        rewards, breakdown = score_with_breakdown(ctx)
         payments_raw, _ = compute_payments(
             ctx,
             getattr(self.env.rules, "base_points", 100),
             getattr(self.env.rules, "tai_points", 20),
-            rewards=rewards2,
-            breakdown=bd,
+            rewards=rewards,
+            breakdown=breakdown,
         )
+
         payments = [0 for _ in range(self.n_players)]
         for pid in range(self.n_players):
-            delta = 0
+            raw_delta = payments_raw[pid] if pid < len(payments_raw) else 0
             try:
-                delta = int(payments_raw[pid])
-            except Exception:
+                delta = int(raw_delta)
+            except (TypeError, ValueError):
+                logger.error("Invalid payment value for player %s: %r; defaulting to 0", pid, raw_delta)
                 delta = 0
             payments[pid] = delta
             self.totals[pid] += delta
             self.hand_delta[pid] = delta
 
-        winner = self.env.winner
-        if winner is not None:
-            try:
-                pl = self.env.players[winner]
-                get = pl.get if isinstance(pl, dict) else lambda key, default=None: getattr(pl, key, default)
-                hand_tiles = sorted(list(get("hand") or []), key=tile_sort_key)
-                melds = [m if isinstance(m, dict) else {} for m in (get("melds") or [])]
-                flowers = sorted(list(get("flowers") or []), key=tile_sort_key)
-                win_src = (getattr(self.env, "win_source", None) or "").upper()
-                ron_from = getattr(self.env, "turn_at_win", None) if win_src == "RON" else None
-                win_tile = getattr(self.env, "win_tile", None)
-                qf = getattr(self.env, "quan_feng", None)
-                dealer_pid = getattr(self.env, "dealer_pid", None)
-                seat_winds = getattr(self.env, "seat_winds", None)
-                dealer_wind = None
-                winner_wind = None
-                try:
-                    if isinstance(seat_winds, list):
-                        if isinstance(dealer_pid, int) and 0 <= dealer_pid < len(seat_winds):
-                            dealer_wind = seat_winds[dealer_pid]
-                        if 0 <= winner < len(seat_winds):
-                            winner_wind = seat_winds[winner]
-                except Exception:
-                    dealer_wind = None
-                    winner_wind = None
-                summary = {
-                    "hand_index": hand_idx,
-                    "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
-                    "winner": winner,
-                    "win_source": win_src,
-                    "ron_from": ron_from,
-                    "win_tile": win_tile,
-                    "hand": hand_tiles,
-                    "melds": melds,
-                    "flowers": flowers,
-                    "breakdown": list(bd.get(winner, [])),
-                    "payments": list(payments),
-                    "base_points": getattr(self.env.rules, "base_points", None),
-                    "tai_points": getattr(self.env.rules, "tai_points", None),
-                    "quan_feng": qf,
-                    "dealer_pid": dealer_pid,
-                    "dealer_wind": dealer_wind,
-                    "winner_wind": winner_wind,
-                    "totals_after_hand": list(self.totals),
-                    "remain_tiles": ctx.wall_len,
-                }
-                self._record_hand_summary(summary)
-            except Exception:
-                pass
-        else:
-            try:
-                qf = getattr(self.env, "quan_feng", None)
-                dealer_pid = getattr(self.env, "dealer_pid", None)
-                seat_winds = getattr(self.env, "seat_winds", None)
-                dealer_wind = None
-                try:
-                    if isinstance(dealer_pid, int) and isinstance(seat_winds, list) and 0 <= dealer_pid < len(seat_winds):
-                        dealer_wind = seat_winds[dealer_pid]
-                except Exception:
-                    dealer_wind = None
-                summary = {
-                    "hand_index": hand_idx,
-                    "jang_index": getattr(self.tm.state, "jang_count", 0) + 1,
-                    "winner": None,
-                    "result": "DRAW",
-                    "payments": list(payments),
-                    "base_points": getattr(self.env.rules, "base_points", None),
-                    "tai_points": getattr(self.env.rules, "tai_points", None),
-                    "quan_feng": qf,
-                    "dealer_pid": dealer_pid,
-                    "dealer_wind": dealer_wind,
-                    "totals_after_hand": list(self.totals),
-                    "remain_tiles": ctx.wall_len,
-                }
-                self._record_hand_summary(summary)
-            except Exception:
-                pass
+        if self.table_view_port is not None:
+            self.table_view_port.on_hand_scored(
+                hand_index=hand_idx,
+                breakdown=breakdown,
+                payments=payments,
+                env=self.env,
+                score_state=self.score_state,
+            )
 
-        self.on_hand_scored(bd, payments)
-        self.tm.finish_hand(self.env)
-        self.on_hand_complete(hand_idx)
+        summary = self._build_summary(hand_idx, breakdown, payments, ctx)
+        self.hand_summaries.append(summary)
+        if self.hand_summary_port is not None:
+            self.hand_summary_port.on_hand_summary(summary)
+
+        self.table_manager.finish_hand(self.env)
+
+        if self.progress_port is not None:
+            self.progress_port.on_hand_complete(hand_idx)
 
         if self.target_jangs is not None:
-            jang_count = getattr(self.tm.state, "jang_count", 0)
+            jang_count = getattr(self.table_manager.state, "jang_count", 0)
             if jang_count >= self.target_jangs:
-                if self.emit_logs:
-                    print("=== stop (jang limit reached) ===")
                 return True
 
-        if self.play_until_negative and any(pt < 0 for pt in self.totals):
-            if self.emit_logs:
-                print("=== stop (negative points reached) ===")
-            return True
         return False
 
-    def _normalize_start_points(self, start_points: int) -> int:
+    def _build_summary(
+        self,
+        hand_idx: int,
+        breakdown: Dict[int, List[Dict[str, Any]]],
+        payments: List[int],
+        ctx: ScoringContext,
+    ) -> Dict[str, Any]:
+        winner = getattr(self.env, "winner", None)
+        dealer_pid = getattr(self.env, "dealer_pid", None)
+        seat_winds = getattr(self.env, "seat_winds", None)
+
+        base_summary: Dict[str, Any] = {
+            "hand_index": hand_idx,
+            "jang_index": self._current_jang_index(),
+            "payments": list(payments),
+            "base_points": getattr(self.env.rules, "base_points", None),
+            "tai_points": getattr(self.env.rules, "tai_points", None),
+            "quan_feng": getattr(self.env, "quan_feng", None),
+            "dealer_pid": dealer_pid,
+            "totals_after_hand": list(self.totals),
+            "remain_tiles": ctx.wall_len,
+        }
+
+        if winner is not None:
+            win_source = (getattr(self.env, "win_source", None) or "").upper()
+            ron_from = getattr(self.env, "turn_at_win", None) if win_source == "RON" else None
+            win_tile = getattr(self.env, "win_tile", None)
+            hand_tiles, melds, flowers = _extract_winner_assets(self.env, winner)
+            dealer_wind, winner_wind = _resolve_winds(seat_winds, dealer_pid, winner)
+            summary = {
+                **base_summary,
+                "winner": winner,
+                "win_source": win_source,
+                "ron_from": ron_from,
+                "win_tile": win_tile,
+                "hand": hand_tiles,
+                "melds": melds,
+                "flowers": flowers,
+                "breakdown": list(breakdown.get(winner, [])),
+                "dealer_wind": dealer_wind,
+                "winner_wind": winner_wind,
+            }
+        else:
+            dealer_wind, _ = _resolve_winds(seat_winds, dealer_pid, None)
+            summary = {
+                **base_summary,
+                "winner": None,
+                "result": "DRAW",
+                "dealer_wind": dealer_wind,
+            }
+
+        return summary
+
+    def _notify_session_start(self) -> None:
+        if self._session_started:
+            return
+        self._session_started = True
+        if self.table_view_port is not None:
+            self.table_view_port.on_session_start(env=self.env, score_state=self.score_state)
+        if self.progress_port is not None:
+            self.progress_port.on_session_start(self.max_hands)
+
+    def _notify_session_end(self) -> None:
+        if self._session_finalized:
+            return
+        self._session_finalized = True
+        if self.hand_summary_port is not None:
+            self.hand_summary_port.finalize(self.hand_summaries)
+        if self.table_view_port is not None:
+            self.table_view_port.on_session_end(
+                summaries=self.hand_summaries,
+                env=self.env,
+                score_state=self.score_state,
+            )
+        if self.progress_port is not None:
+            self.progress_port.on_session_end()
+
+    @staticmethod
+    def _normalize_start_points(start_points: int) -> int:
         try:
             value = int(start_points)
-        except Exception:  # pragma: no cover - defensive fallback
+        except Exception:
             value = 1000
         if value <= 0:
             value = 1
         return value
 
-    def _normalize_jangs(self, jangs: Optional[int]) -> Optional[int]:
+    @staticmethod
+    def _normalize_jangs(jangs: Optional[int]) -> Optional[int]:
         if jangs is None:
             return None
         try:
             value = int(jangs)
-        except Exception:  # pragma: no cover - defensive fallback
+        except Exception:
             return None
         if value <= 0:
             return None
         return value
 
-    def _finalize(self) -> list:
-        finalize_log_dir = self.log_dir
-        writer_path = self._log_writer_path
-        if self._log_writer is not None:
-            try:
-                self._log_writer.close()
-            finally:
-                self._log_writer = None
-            finalize_log_dir = None
-        if self._log_writer_failed:
-            finalize_log_dir = self.log_dir
 
-        if self.emit_logs:
-            _finalize_demo(self.hand_summaries, log_dir=finalize_log_dir, enable_ui=self.provides_ui)
-            if writer_path is not None:
-                print(f"[log] appended per-hand summary to {writer_path}")
-        elif finalize_log_dir is not None:
-            write_hand_log(self.hand_summaries, finalize_log_dir)
-        return self.hand_summaries
+def build_ui_session(
+    *,
+    seed: Optional[int] = None,
+    human_pid: Optional[int] = 0,
+    bot: str = "auto",
+    hands: int = 1,
+    jangs: int = 0,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+    emit_logs: bool = True,
+) -> SessionService:
+    """Assemble a UI session service with the rich console adapter."""
 
-    def _record_hand_summary(self, summary: Dict[str, Any]) -> None:
-        self.hand_summaries.append(summary)
-        self._append_log_summary(summary)
-
-    def _append_log_summary(self, summary: Dict[str, Any]) -> None:
-        if not self.log_dir or self._log_writer_failed:
-            return
-        try:
-            if self._log_writer is None:
-                self._log_writer = HandLogWriter(
-                    self.log_dir,
-                    max_players=self.n_players,
-                )
-            self._log_writer.append(summary)
-            if self._log_writer_path is None:
-                self._log_writer_path = self._log_writer.path
-        except Exception as exc:
-            self._log_writer_failed = True
-            self._log_writer = None
-            if self.emit_logs:
-                print(f"[warn] failed to append log in {self.log_dir}: {exc}")
+    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, human_pid, bot)
+    adapter = ConsoleUIAdapter(
+        human_pid=human_pid,
+        n_players=env.rules.n_players,
+        log_dir=log_dir,
+        emit_logs=emit_logs,
+    )
+    return SessionService(
+        env=env,
+        table_manager=table_manager,
+        strategies=strategies,
+        scoring_assets=scoring_table,
+        hands=hands,
+        jangs=jangs,
+        start_points=start_points,
+        table_view_port=adapter,
+        hand_summary_port=adapter,
+    )
 
 
-class _UIDemoRunner(_BaseDemoRunner):
-    provides_ui = True
+def build_headless_session(
+    *,
+    seed: Optional[int] = None,
+    bot: str = "auto",
+    hands: int = 1,
+    jangs: int = 0,
+    start_points: int = 1000,
+    log_dir: Optional[str] = None,
+    emit_logs: bool = True,
+    hand_progress_cb: Optional[Callable[[int], None]] = None,
+) -> SessionService:
+    """Assemble a headless session service with logging/progress adapters."""
 
-    def run(self) -> None:
-        print("=== mahjong16 demo（Rich Console UI） ===")
-        self.on_session_start()
-        return self._execute()
-
-    def on_session_start(self) -> None:
-        # Nothing extra beyond banner for now.
-        return None
-
-    def on_hand_start(self, hand_idx: int) -> None:
-        jang_idx = getattr(self.tm.state, "jang_count", 0) + 1
-        print(
-            f"--- Hand {hand_idx} | Jang={jang_idx} | Quan={getattr(self.env,'quan_feng','?')} | "
-            f"Dealer=P{getattr(self.env,'dealer_pid',0)} | Streak={getattr(self.env,'dealer_streak',0)} ---"
-        )
-
-    def after_step(
-        self,
-        *,
-        obs: Dict[str, Any],
-        info: Optional[Dict[str, Any]],
-        discard_id: int,
-        last_seen_discard: Optional[tuple],
-        act: Dict[str, Any],
-        action_type: str,
-        acting_pid: Optional[int],
-        discarded_tile,
-    ) -> tuple[int, Optional[tuple]]:
-        event = summarize_resolved_claim(info) if isinstance(info, dict) else None
-        if event:
-            update_ui(
-                self.env,
-                self.human_pid,
-                discard_id,
-                last_action=event,
-                score_state=self.score_state,
-            )
-
-        if action_type == "DISCARD" and discarded_tile is not None:
-            discard_id += 1
-            last_seen_discard = (acting_pid, discarded_tile)
-            update_ui(
-                self.env,
-                self.human_pid,
-                discard_id,
-                last_action={"who": f"P{acting_pid}", "type": "DISCARD", "detail": tile_to_str(discarded_tile)},
-                score_state=self.score_state,
-            )
-
-        if (
-            obs.get("phase") == "REACTION"
-            and self.human_pid is not None
-            and obs.get("player") == self.human_pid
-        ):
-            ld = getattr(self.env, "last_discard", None)
-            if isinstance(ld, dict) and ld.get("tile") is not None:
-                key = (ld.get("pid"), ld.get("tile"))
-                if key != last_seen_discard:
-                    discard_id += 1
-                    last_seen_discard = key
-                    update_ui(
-                        self.env,
-                        self.human_pid,
-                        discard_id,
-                        last_action={
-                            "who": f"P{ld.get('pid')}",
-                            "type": "DISCARD",
-                            "detail": tile_to_str(ld.get("tile")),
-                        },
-                        score_state=self.score_state,
-                    )
-
-        return discard_id, last_seen_discard
-
-    def on_hand_scored(self, breakdown, payments) -> None:
-        render_reveal(
-            self.env,
-            breakdown=breakdown,
-            payments=payments,
-            base_points=getattr(self.env.rules, "base_points", None),
-            tai_points=getattr(self.env.rules, "tai_points", None),
-            totals=list(self.totals),
-        )
-
-    def on_hand_complete(self, hand_idx: int) -> None:
-        # No progress bar in UI mode.
-        return None
-
-
-class _HeadlessDemoRunner(_BaseDemoRunner):
-    provides_ui = False
-
-    def __init__(
-        self,
-        *,
-        seed=None,
-        human_pid: Optional[int] = None,
-        bot: str = "auto",
-        hands: int = 1,
-        jangs: int = 0,
-        start_points: int = 1000,
-        log_dir: Optional[str] = None,
-        emit_logs: bool = True,
-        hand_progress_cb: Optional[Callable[[int], None]] = None,
-    ) -> None:
-        super().__init__(
-            seed=seed,
-            human_pid=human_pid,
-            bot=bot,
-            hands=hands,
-            jangs=jangs,
-            start_points=start_points,
-            log_dir=log_dir,
-            emit_logs=emit_logs,
-        )
-        self.progress = None
-        self.progress_task = None
-        self.hand_progress_cb = hand_progress_cb
-
-    def run(self) -> None:
-        manager = self._build_progress_manager() if self.emit_logs else nullcontext()
-        with manager as progress:
-            self.progress = progress
-            if self.emit_logs and progress is not None:
-                total = self.max_hands if (self.max_hands is not None and self.max_hands > 0) else None
-                self.progress_task = progress.add_task("Hands", total=total)
-            if self.emit_logs:
-                print("=== mahjong16 demo（Headless） ===")
-            self.on_session_start()
-            return self._execute()
-
-    def _build_progress_manager(self):
-        if self.max_hands is not None and self.max_hands > 0:
-            return Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-            )
-        return Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            TextColumn("{task.completed} hands"),
-            TimeElapsedColumn(),
-        )
-
-    def on_session_start(self) -> None:
-        # Headless mode does not need additional setup messages.
-        return None
-
-    def on_hand_start(self, hand_idx: int) -> None:
-        # No per-hand banner in headless mode.
-        return None
-
-    def after_step(
-        self,
-        *,
-        obs: Dict[str, Any],
-        info: Optional[Dict[str, Any]],
-        discard_id: int,
-        last_seen_discard: Optional[tuple],
-        act: Dict[str, Any],
-        action_type: str,
-        acting_pid: Optional[int],
-        discarded_tile,
-    ) -> tuple[int, Optional[tuple]]:
-        # Headless mode does not render step-by-step updates.
-        return discard_id, last_seen_discard
-
-    def on_hand_scored(self, breakdown, payments) -> None:
-        # Headless mode skips reveal rendering.
-        return None
-
-    def on_hand_complete(self, hand_idx: int) -> None:
-        if self.emit_logs and self.progress is not None and self.progress_task is not None:
-            self.progress.advance(self.progress_task, 1)
-        if self.hand_progress_cb is not None:
-            self.hand_progress_cb(hand_idx)
+    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, None, bot)
+    adapter = HeadlessLogAdapter(
+        n_players=env.rules.n_players,
+        log_dir=log_dir,
+        emit_logs=emit_logs,
+        hand_progress_cb=hand_progress_cb,
+    )
+    return SessionService(
+        env=env,
+        table_manager=table_manager,
+        strategies=strategies,
+        scoring_assets=scoring_table,
+        hands=hands,
+        jangs=jangs,
+        start_points=start_points,
+        hand_summary_port=adapter,
+        progress_port=adapter,
+    )
 
 
 def run_demo_ui(
@@ -594,9 +539,10 @@ def run_demo_ui(
     jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
-):
+) -> None:
     """Run the Mahjong16 demo with the interactive console UI enabled."""
-    runner = _UIDemoRunner(
+
+    session = build_ui_session(
         seed=seed,
         human_pid=human_pid,
         bot=bot,
@@ -605,7 +551,7 @@ def run_demo_ui(
         start_points=start_points,
         log_dir=log_dir,
     )
-    runner.run()
+    session.run()
 
 
 def run_demo_headless(
@@ -616,18 +562,20 @@ def run_demo_headless(
     jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
-):
+    emit_logs: bool = True,
+) -> None:
     """Run the Mahjong16 demo without the console UI (headless)."""
-    runner = _HeadlessDemoRunner(
+
+    session = build_headless_session(
         seed=seed,
-        human_pid=None,
         bot=bot,
         hands=hands,
         jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
+        emit_logs=emit_logs,
     )
-    runner.run()
+    session.run()
 
 
 def run_demo_headless_collect(
@@ -639,11 +587,11 @@ def run_demo_headless_collect(
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     hand_progress_cb: Optional[Callable[[int], None]] = None,
-):
+) -> List[Dict[str, Any]]:
     """Run the headless demo and return per-hand summaries without writing logs."""
-    runner = _HeadlessDemoRunner(
+
+    session = build_headless_session(
         seed=seed,
-        human_pid=human_pid,
         bot=bot,
         hands=hands,
         jangs=jangs,
@@ -652,42 +600,316 @@ def run_demo_headless_collect(
         emit_logs=False,
         hand_progress_cb=hand_progress_cb,
     )
-    return runner.run()
+    return session.run()
 
 
-def run_demo(
-    seed=None,
-    human_pid: Optional[int] = 0,
-    bot: str = "auto",
-    hands: int = 1,
-    jangs: int = 0,
-    start_points: int = 1000,
-    log_dir: Optional[str] = None,
-    enable_ui: bool = True,
-):
-    """Backward-compatible wrapper for existing callers.
+class BatchLogManager:
+    """Manage incremental batch log writes and fallbacks."""
 
-    Prefer using `run_demo_ui` or `run_demo_headless` when the desired mode is known.
-    """
-    if enable_ui:
-        return run_demo_ui(
-            seed=seed,
-            human_pid=human_pid,
-            bot=bot,
-            hands=hands,
-            jangs=jangs,
-            start_points=start_points,
-            log_dir=log_dir,
+    def __init__(self, log_dir: Optional[str], emit_logs: bool) -> None:
+        self.log_dir = log_dir
+        self.emit_logs = emit_logs
+        self._writer: Optional[HandLogWriter] = None
+        self._log_path: Optional[str] = None
+        self._failed = False
+        self._had_writer = False
+
+    def append(self, summary: Dict[str, Any], log_fn: Optional[Callable[[str], None]] = None) -> None:
+        if self.log_dir is None or self._failed:
+            return
+        try:
+            if self._writer is None:
+                payments = summary.get("payments") or []
+                totals = summary.get("totals_after_hand") or []
+                max_players = max(len(payments), len(totals)) or None
+                self._writer = HandLogWriter(
+                    self.log_dir,
+                    max_players=max_players,
+                )
+                self._had_writer = True
+            self._writer.append(summary)
+            if self._log_path is None and self._writer.path is not None:
+                self._log_path = str(self._writer.path)
+        except Exception as exc:
+            self._failed = True
+            if self._writer is not None:
+                try:
+                    self._writer.close()
+                except Exception:  # pragma: no cover - defensive cleanup
+                    logger.debug("Failed to close batch log writer after append error", exc_info=True)
+            self._writer = None
+            self._log_path = None
+            logger.exception("Failed to append batch log entry in %s", self.log_dir)
+            if log_fn is not None:
+                log_fn(f"[warn] failed to append batch log in {self.log_dir}: {exc}")
+
+    def close(self) -> None:
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            finally:
+                self._writer = None
+
+    def finalize(
+        self,
+        hand_summaries: List[Dict[str, Any]],
+        log_fn: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        self.close()
+        finalize_dir = self.log_dir
+        if self._had_writer and not self._failed:
+            finalize_dir = None
+
+        if not self.emit_logs and self.log_dir is not None and (not self._had_writer or self._failed):
+            try:
+                written = write_hand_log(hand_summaries, self.log_dir)
+                if log_fn is not None and written is not None:
+                    log_fn(f"[log] wrote per-hand summary to {written}")
+            except Exception:
+                logger.exception("Failed to write hand log in %s during batch finalize", self.log_dir)
+
+        return finalize_dir, self._log_path if not self._failed else None
+
+
+class HeadlessBatchRunner:
+    """Coordinate batched headless demo runs."""
+
+    def __init__(
+        self,
+        *,
+        sessions: int,
+        cores: Optional[int],
+        seed: Optional[int],
+        bot: str,
+        hands: int,
+        jangs: int,
+        start_points: int,
+        log_dir: Optional[str],
+        emit_logs: bool,
+    ) -> None:
+        if sessions <= 0:
+            raise ValueError("sessions must be >= 1")
+        if cores is not None and cores <= 0:
+            raise ValueError("cores must be >= 1 when provided")
+
+        self.sessions = sessions
+        self.cores = cores
+        self.seed = seed
+        self.bot = bot
+        self.hands = hands
+        self.jangs = jangs
+        self.start_points = start_points
+        self.emit_logs = emit_logs
+
+        self.log_manager = BatchLogManager(log_dir, emit_logs)
+        self.collapse_sessions = emit_logs and sessions > 8
+
+        self.jobs: List[Tuple[int, Optional[int]]] = []
+        self.pending_results: Dict[int, Tuple[Optional[int], List[Dict[str, Any]]]] = {}
+        self.next_flush_session = 0
+        self.all_summaries: List[Dict[str, Any]] = []
+        self.global_hand_index = 1
+
+        self.progress: Optional[Progress] = None
+        self.session_tasks: Dict[int, int] = {}
+        self.aggregate_task_id: Optional[int] = None
+        self.max_workers: int = 1
+
+    def run(self) -> List[Dict[str, Any]]:
+        self.max_workers = self._determine_worker_count()
+        session_seeds = _prepare_session_seeds(self.seed, self.sessions)
+        self.jobs = list(enumerate(session_seeds))
+
+        with self._progress_context() as progress:
+            self._bind_progress(progress)
+            if self.emit_logs:
+                self._log("=== mahjong16 demo batch（Headless） ===")
+            self._initialize_progress_tasks()
+            if self.max_workers <= 1:
+                self._run_serial_jobs()
+            else:
+                self._run_parallel_jobs()
+
+        self._flush_ready_sessions()
+        finalize_dir, appended_path = self.log_manager.finalize(
+            self.all_summaries,
+            self._log if self.emit_logs else None,
         )
-    return run_demo_headless(
-        seed=seed,
-        human_pid=None,
-        bot=bot,
-        hands=hands,
-        jangs=jangs,
-        start_points=start_points,
-        log_dir=log_dir,
-    )
+
+        if self.emit_logs:
+            _finalize_demo(self.all_summaries, log_dir=finalize_dir, enable_ui=False)
+            if appended_path is not None:
+                self._log(f"[log] appended per-hand summary to {appended_path}")
+
+        return self.all_summaries
+
+    def _determine_worker_count(self) -> int:
+        if self.cores is not None:
+            requested = min(self.cores, self.sessions)
+            return max(1, requested)
+        available = os.cpu_count() or 1
+        return max(1, min(self.sessions, available))
+
+    def _progress_context(self):
+        if self.emit_logs and self.sessions > 1:
+            return Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+            )
+        return nullcontext()
+
+    def _bind_progress(self, progress: Any) -> None:
+        self.progress = progress if isinstance(progress, Progress) else None
+
+    def _log(self, message: str) -> None:
+        if not self.emit_logs:
+            return
+        if self.progress is not None:
+            self.progress.console.print(message)
+        else:
+            print(message)
+
+    def _initialize_progress_tasks(self) -> None:
+        if self.progress is None:
+            return
+        if self.collapse_sessions:
+            self.aggregate_task_id = self.progress.add_task(
+                "Sessions Completed",
+                total=self.sessions,
+            )
+            return
+        per_session_total = None
+        if self.jangs <= 0 and self.hands > 0:
+            per_session_total = self.hands
+        for idx, _ in self.jobs:
+            self.session_tasks[idx] = self.progress.add_task(
+                f"Session {idx + 1}",
+                total=per_session_total,
+            )
+
+    def _make_hand_callback(self, idx: int) -> Optional[Callable[[int], None]]:
+        if self.progress is None or self.collapse_sessions:
+            return None
+        task_id = self.session_tasks.get(idx)
+        if task_id is None:
+            return None
+
+        def _cb(hand_idx: int) -> None:
+            self.progress.update(task_id, completed=hand_idx)
+
+        return _cb
+
+    def _update_session(self, idx: int, hand_idx: int) -> None:
+        if self.progress is None or self.collapse_sessions:
+            return
+        task_id = self.session_tasks.get(idx)
+        if task_id is None:
+            return
+        self.progress.update(task_id, completed=hand_idx)
+
+    def _finish_session(self, idx: int, hand_count: int) -> None:
+        if self.progress is None:
+            return
+        if self.collapse_sessions and self.aggregate_task_id is not None:
+            self.progress.advance(self.aggregate_task_id)
+            task = self.progress.tasks[self.aggregate_task_id]
+            if task.total is not None and task.completed >= task.total:
+                self.progress.stop_task(self.aggregate_task_id)
+            return
+        task_id = self.session_tasks.get(idx)
+        if task_id is None:
+            return
+        task = self.progress.tasks[task_id]
+        target = hand_count if task.total is None else min(hand_count, task.total)
+        self.progress.update(task_id, completed=target)
+        self.progress.stop_task(task_id)
+
+    def _record_session(self, idx: int, session_seed: Optional[int], summaries: List[Dict[str, Any]]) -> None:
+        self.pending_results[idx] = (session_seed, summaries)
+        self._flush_ready_sessions()
+
+    def _flush_ready_sessions(self) -> None:
+        while self.next_flush_session in self.pending_results:
+            session_seed, summaries = self.pending_results.pop(self.next_flush_session)
+            for local_idx, summary in enumerate(summaries, start=1):
+                entry = dict(summary)
+                entry.setdefault("hand_index", local_idx)
+                entry["session_index"] = self.next_flush_session
+                entry["session_hand_index"] = local_idx
+                entry["global_hand_index"] = self.global_hand_index
+                entry["session_seed"] = session_seed
+                self.all_summaries.append(entry)
+                self.global_hand_index += 1
+                self.log_manager.append(entry, self._log if self.emit_logs else None)
+            self.next_flush_session += 1
+
+    def _run_serial_jobs(self) -> None:
+        for idx, session_seed in self.jobs:
+            hand_cb = self._make_hand_callback(idx)
+            summaries = run_demo_headless_collect(
+                seed=session_seed,
+                bot=self.bot,
+                hands=self.hands,
+                jangs=self.jangs,
+                start_points=self.start_points,
+                log_dir=None,
+                hand_progress_cb=hand_cb,
+            )
+            self._record_session(idx, session_seed, summaries)
+            self._finish_session(idx, len(summaries))
+
+    def _run_parallel_jobs(self) -> None:
+        manager = mp.Manager() if self.progress is not None else None
+        progress_queue = manager.Queue() if manager is not None else None
+
+        try:
+            with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
+                future_map = {
+                    pool.submit(
+                        _run_headless_batch_session,
+                        idx,
+                        session_seed,
+                        self.bot,
+                        self.hands,
+                        self.jangs,
+                        self.start_points,
+                        progress_queue,
+                    ): idx
+                    for idx, session_seed in self.jobs
+                }
+
+                pending = set(future_map.keys())
+                while pending:
+                    if progress_queue is not None:
+                        try:
+                            session_idx, hand_idx = progress_queue.get(timeout=0.1)
+                        except Empty:
+                            pass
+                        else:
+                            self._update_session(session_idx, hand_idx)
+
+                    done = [future for future in pending if future.done()]
+                    for fut in done:
+                        pending.remove(fut)
+                        idx, session_seed, summaries = fut.result()
+                        self._record_session(idx, session_seed, summaries)
+                        self._finish_session(idx, len(summaries))
+
+                if progress_queue is not None:
+                    while True:
+                        try:
+                            session_idx, hand_idx = progress_queue.get_nowait()
+                        except Empty:
+                            break
+                        else:
+                            self._update_session(session_idx, hand_idx)
+        finally:
+            if manager is not None:
+                manager.shutdown()
 
 
 def run_demo_headless_batch(
@@ -704,238 +926,18 @@ def run_demo_headless_batch(
 ) -> List[Dict[str, Any]]:
     """Run multiple headless demo sessions, optionally in parallel, and aggregate logs."""
 
-    if sessions <= 0:
-        raise ValueError("sessions must be >= 1")
-    if cores is not None and cores <= 0:
-        raise ValueError("cores must be >= 1 when provided")
-
-    max_workers = cores if cores is not None else min(sessions, os.cpu_count() or 1)
-    max_workers = max(1, min(max_workers, sessions))
-    session_seeds = _prepare_session_seeds(seed, sessions)
-
-    jobs = list(enumerate(session_seeds))
-
-    collapse_sessions = emit_logs and sessions > 8
-
-    batch_log_writer: Optional[HandLogWriter] = None
-    batch_log_path = None
-    batch_log_failed = False
-
-    def _append_batch_log(summary: Dict[str, Any]) -> None:
-        nonlocal batch_log_writer, batch_log_path, batch_log_failed
-        if log_dir is None or batch_log_failed:
-            return
-        try:
-            if batch_log_writer is None:
-                payments = summary.get("payments") or []
-                totals = summary.get("totals_after_hand") or []
-                max_players = max(len(payments), len(totals)) or None
-                batch_log_writer = HandLogWriter(
-                    log_dir,
-                    max_players=max_players,
-                )
-            batch_log_writer.append(summary)
-            if batch_log_path is None:
-                batch_log_path = batch_log_writer.path
-        except Exception as exc:
-            batch_log_failed = True
-            batch_log_writer = None
-            if emit_logs:
-                print(f"[warn] failed to append batch log in {log_dir}: {exc}")
-
-    pending_results: Dict[int, Tuple[Optional[int], List[Dict[str, Any]]]] = {}
-    next_flush_session = 0
-    all_summaries: List[Dict[str, Any]] = []
-    global_hand_index = 1
-
-    def _flush_ready_sessions() -> None:
-        nonlocal next_flush_session, global_hand_index
-        while next_flush_session in pending_results:
-            session_seed, summaries = pending_results.pop(next_flush_session)
-            for local_idx, summary in enumerate(summaries, start=1):
-                entry = dict(summary)
-                entry.setdefault("hand_index", local_idx)
-                entry["session_index"] = next_flush_session
-                entry["session_hand_index"] = local_idx
-                entry["global_hand_index"] = global_hand_index
-                entry["session_seed"] = session_seed
-                all_summaries.append(entry)
-                global_hand_index += 1
-                _append_batch_log(entry)
-            next_flush_session += 1
-
-    def _record_session(idx: int, session_seed: Optional[int], summaries: List[Dict[str, Any]]) -> None:
-        pending_results[idx] = (session_seed, summaries)
-        _flush_ready_sessions()
-
-    progress_manager = (
-        Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-        )
-        if emit_logs and sessions > 1
-        else nullcontext()
+    runner = HeadlessBatchRunner(
+        sessions=sessions,
+        cores=cores,
+        seed=seed,
+        bot=bot,
+        hands=hands,
+        jangs=jangs,
+        start_points=start_points,
+        log_dir=log_dir,
+        emit_logs=emit_logs,
     )
-
-    with progress_manager as progress:
-        session_tasks: Dict[int, int] = {}
-        aggregate_task_id: Optional[int] = None
-
-        def _log(message: str) -> None:
-            if not emit_logs:
-                return
-            if progress is not None:
-                progress.console.print(message)
-            else:
-                print(message)
-
-        def _update_session(idx: int, hand_idx: int) -> None:
-            if progress is None or collapse_sessions:
-                return
-            task_id = session_tasks.get(idx)
-            if task_id is None:
-                return
-            progress.update(task_id, completed=hand_idx)
-
-        def _finish_session(idx: int, hand_count: int) -> None:
-            if progress is None:
-                return
-            if collapse_sessions and aggregate_task_id is not None:
-                progress.advance(aggregate_task_id)
-                task = progress.tasks[aggregate_task_id]
-                if task.total is not None and task.completed >= task.total:
-                    progress.stop_task(aggregate_task_id)
-                return
-            task_id = session_tasks.get(idx)
-            if task_id is None:
-                return
-            task = progress.tasks[task_id]
-            target = hand_count
-            if task.total is not None:
-                target = min(hand_count, task.total)
-            progress.update(task_id, completed=target)
-            progress.stop_task(task_id)
-
-        def _make_hand_cb(idx: int) -> Optional[Callable[[int], None]]:
-            if progress is None or collapse_sessions:
-                return None
-            task_id = session_tasks.get(idx)
-            if task_id is None:
-                return None
-
-            def _cb(hand_idx: int) -> None:
-                progress.update(task_id, completed=hand_idx)
-
-            return _cb
-
-        if emit_logs:
-            _log("=== mahjong16 demo batch（Headless） ===")
-
-        if progress is not None:
-            if collapse_sessions:
-                aggregate_task_id = progress.add_task(
-                    "Sessions Completed",
-                    total=sessions,
-                )
-            else:
-                per_session_total = None
-                if jangs > 0:
-                    per_session_total = None
-                elif hands > 0:
-                    per_session_total = hands
-                for idx, _ in jobs:
-                    session_tasks[idx] = progress.add_task(
-                        f"Session {idx + 1}",
-                        total=per_session_total,
-                    )
-
-        if max_workers <= 1:
-            for idx, session_seed in jobs:
-                hand_cb = _make_hand_cb(idx)
-                summaries = run_demo_headless_collect(
-                    seed=session_seed,
-                    human_pid=None,
-                    bot=bot,
-                    hands=hands,
-                    jangs=jangs,
-                    start_points=start_points,
-                    log_dir=None,
-                    hand_progress_cb=hand_cb,
-                )
-                _record_session(idx, session_seed, summaries)
-                _finish_session(idx, len(summaries))
-        else:
-            manager = mp.Manager() if progress is not None else None
-            progress_queue = manager.Queue() if manager is not None else None
-
-            try:
-                with ProcessPoolExecutor(max_workers=max_workers) as pool:
-                    future_map = {
-                        pool.submit(
-                            _run_headless_batch_session,
-                            idx,
-                            session_seed,
-                            bot,
-                            hands,
-                            jangs,
-                            start_points,
-                            progress_queue,
-                        ): idx
-                        for idx, session_seed in jobs
-                    }
-
-                    pending = set(future_map.keys())
-                    while pending:
-                        if progress_queue is not None:
-                            try:
-                                session_idx, hand_idx = progress_queue.get(timeout=0.1)
-                            except Empty:
-                                pass
-                            else:
-                                _update_session(session_idx, hand_idx)
-
-                        done = [f for f in pending if f.done()]
-                        for fut in done:
-                            pending.remove(fut)
-                            idx, session_seed, summaries = fut.result()
-                            _record_session(idx, session_seed, summaries)
-                            _finish_session(idx, len(summaries))
-
-                    if progress_queue is not None:
-                        while True:
-                            try:
-                                session_idx, hand_idx = progress_queue.get_nowait()
-                            except Empty:
-                                break
-                            else:
-                                _update_session(session_idx, hand_idx)
-            finally:
-                if manager is not None:
-                    manager.shutdown()
-
-    _flush_ready_sessions()
-
-    if batch_log_writer is not None:
-        batch_log_writer.close()
-
-    finalize_log_dir = log_dir
-    if batch_log_failed:
-        finalize_log_dir = log_dir
-    elif batch_log_writer is not None:
-        finalize_log_dir = None
-
-    if emit_logs:
-        _finalize_demo(all_summaries, log_dir=finalize_log_dir, enable_ui=False)
-        if batch_log_writer is not None and batch_log_path is not None:
-            print(f"[log] appended per-hand summary to {batch_log_path}")
-    elif log_dir is not None and (batch_log_writer is None or batch_log_failed):
-        write_hand_log(all_summaries, log_dir)
-
-    return all_summaries
+    return runner.run()
 
 
 def _finalize_demo(
@@ -991,7 +993,6 @@ def _run_headless_batch_session(
 
     summaries = run_demo_headless_collect(
         seed=session_seed,
-        human_pid=None,
         bot=bot,
         hands=hands,
         jangs=jangs,

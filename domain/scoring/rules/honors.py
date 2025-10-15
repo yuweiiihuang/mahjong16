@@ -3,7 +3,7 @@ from __future__ import annotations
 from ..breakdown import ScoreAccumulator
 from ..common import count_label
 from ..state import DerivedScoringState
-from ..types import ScoringContext
+from ..score_types import ScoringContext
 
 
 def apply_honors_rules(

@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
-from .state import PlayerState
-from .tiles import N_FLOWERS, N_TILES, is_flower
+from .player_state import PlayerState
+from ..tiles import N_FLOWERS, N_TILES, is_flower
 
 
 @dataclass

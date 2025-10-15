@@ -1,5 +1,5 @@
-from core.scoring.breakdown import ScoreAccumulator, ScoreItem
-from core.scoring.types import ScoringTable
+from domain.scoring.breakdown import ScoreAccumulator, ScoreItem
+from domain.scoring.score_types import ScoringTable
 
 
 TEST_TABLE = ScoringTable(

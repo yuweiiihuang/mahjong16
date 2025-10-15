@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
-from .types import ScoringTable
+from .score_types import ScoringTable
 
 
 @dataclass
@@ -135,4 +135,3 @@ class ScoreAccumulator:
         if 0 <= self._player_id < self._n_players:
             breakdown[self._player_id] = [item.to_dict() for item in self._items]
         return breakdown
-

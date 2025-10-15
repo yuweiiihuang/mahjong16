@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 from .breakdown import ScoreAccumulator
 from .rules import RULE_PIPELINE
 from .state import DerivedScoringState, build_state
-from .types import ScoringContext
+from .score_types import ScoringContext
 
 
 def score_with_breakdown(ctx: ScoringContext) -> tuple[List[int], Dict[int, List[Dict[str, Any]]]]:

@@ -1,9 +1,9 @@
-from core import Mahjong16Env
-from core.ruleset import Ruleset
-from core.scoring.engine import compute_payments, score_with_breakdown
-from core.scoring.tables import load_scoring_assets
-from core.scoring.types import ScoringContext
-from core.tiles import Tile
+from domain import Mahjong16Env
+from domain.rules import Ruleset
+from domain.scoring.engine import compute_payments, score_with_breakdown
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
+from domain.tiles import Tile
 from tests.helpers.tile_pool import TilePool
 
 

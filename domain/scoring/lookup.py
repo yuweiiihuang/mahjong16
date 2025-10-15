@@ -4,7 +4,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from .types import ScoringTable
+from .score_types import ScoringTable
 
 
 @lru_cache(maxsize=16)

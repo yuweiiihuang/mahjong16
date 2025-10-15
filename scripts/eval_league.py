@@ -4,7 +4,7 @@ The script orchestrates repeated headless matches between a roster of agents
 and reports aggregated standings.  Agents can be referenced by built‑in alias
 (`auto`, `greedy`, `random`, `rulebot`) or by an import path in the form
 ``package.module:ClassOrFactory``.  Each match draws four participants, plays a fixed number of hands, and accumulates points
-using the standard scoring pipeline from :mod:`core.scoring`.
+using the standard scoring pipeline from :mod:`domain.scoring`.
 
 Example
 -------
@@ -41,10 +41,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.table import TableManager
-from core import Mahjong16Env, Ruleset
-from core.scoring.engine import compute_payments, score_with_breakdown
-from core.scoring.tables import load_scoring_assets
-from core.scoring.types import ScoringContext
+from domain import Mahjong16Env, Ruleset
+from domain.scoring.engine import compute_payments, score_with_breakdown
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
 
 
 StrategyFactory = Callable[..., Any]
@@ -149,7 +149,7 @@ _BUILTIN_FACTORIES: Mapping[str, StrategyFactory] | None = None
 def builtin_factories() -> Mapping[str, StrategyFactory]:
     global _BUILTIN_FACTORIES
     if _BUILTIN_FACTORIES is None:
-        from app.strategies import AutoStrategy
+        from bots import AutoStrategy
         from bots.greedy import GreedyBotStrategy
         from bots.random_bot import RandomBot
         from bots.rulebot import RuleBot
