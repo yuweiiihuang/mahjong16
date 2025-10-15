@@ -56,6 +56,11 @@ if __name__ == "__main__":
         help="Run headless (disable interactive console UI). Implies logging unless overridden.",
     )
     parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Use the pygame-based graphical UI instead of the Rich console UI.",
+    )
+    parser.add_argument(
         "--sessions",
         type=int,
         default=1,
@@ -105,6 +110,9 @@ if __name__ == "__main__":
     enable_ui = not args.no_ui
     if sessions > 1 or (cores is not None and cores > 1):
         enable_ui = False
+    use_gui = bool(args.gui)
+    if use_gui and not enable_ui:
+        raise SystemExit("--gui requires interactive mode with a single session and UI enabled.")
     log_dir = args.log_dir
     if not enable_ui and not log_dir:
         log_dir = "logs"
@@ -132,4 +140,6 @@ if __name__ == "__main__":
             jangs=args.jangs,
             start_points=start_points,
             log_dir=log_dir,
+            use_gui=use_gui,
+            emit_logs=not use_gui,
         )

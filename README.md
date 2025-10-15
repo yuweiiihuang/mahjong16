@@ -13,7 +13,7 @@
   風花牌計分。
 - 台數計算採分層管線：`domain/scoring/state.py` 整理衍生狀態，`domain/scoring/rules/*`
   套用番種，`domain/scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
-- `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
+- `app/runtime.py` 提供 Rich 文字介面與 pygame 圖形介面，皆可切換 headless 模式並輸出 CSV 手局摘要。
 - `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
 - `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
 
@@ -28,6 +28,7 @@ pip install -r requirements.txt
 
 python main.py --help
 python main.py --seed 42 --human 0 --bot greedy --hands 8
+python main.py --gui --human 0 --bot greedy          # 圖形介面示範
 python main.py --no-ui --hands 50 --log-dir logs/demo   # headless + CSV 摘要
 pytest -q
 ```
@@ -52,6 +53,7 @@ mahjong16/
 │  └─ logging.py        # 欄位化手局紀錄（CSV）
 ├─ ui/
 │  ├─ console.py        # Rich 互動介面（提示行動、展示河牌/剩餘張數）
+│  ├─ gui/              # pygame GUI（牌桌佈局、滑鼠點擊操作）
 │  └─ rich_helpers.py   # Rich 組件共用工具
 ├─ bots/                # 範例策略（RandomBot、RuleBot、Greedy）
 ├─ rl/                  # 自對弈與訓練骨架（buffer/net/selfplay）
@@ -79,6 +81,7 @@ mahjong16/
 - `--start-points <int>`：每位玩家的起始分數，須為正整數，預設 1000。
 - `--log-dir <path>`：寫入每局 CSV 摘要的資料夾，headless 且未指定時預設為 `logs/`。
 - `--no-ui`：禁用互動 Rich 介面並改以 headless 流程執行，會自動關閉真人座位。
+- `--gui`：啟動 pygame 圖形介面（需單桌互動模式），可滑鼠點選手牌與吃碰槓胡按鈕。
 - `--sessions <int>`：獨立桌次數量，>1 時改用批次 headless；預設 1。
 - `--cores <int>`：批次 headless 最大工作程序數；省略時根據 CPU 自動判定。
 

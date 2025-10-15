@@ -131,20 +131,18 @@ def _resolve_winds(
     return dealer_wind, winner_wind
 
 
-def _build_session_dependencies(
+def _build_session_core(
     seed: Optional[int],
-    human_pid: Optional[int],
     bot: str,
-) -> Tuple[Mahjong16Env, TableManager, List[Strategy], ScoringTable]:
+) -> Tuple[Mahjong16Env, TableManager, ScoringTable]:
     rules = Ruleset(
         scoring_profile="taiwan_base",
         rule_profile="common",
     )
     env = Mahjong16Env(rules, seed=seed)
     table_manager = TableManager(rules, seed=seed)
-    strategies = build_strategies(env.rules.n_players, human_pid, bot)
     scoring_table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
-    return env, table_manager, strategies, scoring_table
+    return env, table_manager, scoring_table
 
 
 class SessionService:
@@ -475,15 +473,36 @@ def build_ui_session(
     start_points: int = 1000,
     log_dir: Optional[str] = None,
     emit_logs: bool = True,
+    ui_mode: str = "console",
 ) -> SessionService:
-    """Assemble a UI session service with the rich console adapter."""
+    """Assemble a UI session service with either the console or GUI adapter."""
 
-    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, human_pid, bot)
-    adapter = ConsoleUIAdapter(
-        human_pid=human_pid,
-        n_players=env.rules.n_players,
-        log_dir=log_dir,
-        emit_logs=emit_logs,
+    env, table_manager, scoring_table = _build_session_core(seed, bot)
+
+    human_interface = None
+    if ui_mode == "gui":
+        from ui.gui import MahjongGuiAdapter  # Lazy import to avoid pygame overhead when unused
+
+        adapter = MahjongGuiAdapter(
+            human_pid=human_pid,
+            n_players=env.rules.n_players,
+            log_dir=log_dir,
+            enable_logging=emit_logs,
+        )
+        human_interface = adapter
+    else:
+        adapter = ConsoleUIAdapter(
+            human_pid=human_pid,
+            n_players=env.rules.n_players,
+            log_dir=log_dir,
+            emit_logs=emit_logs,
+        )
+
+    strategies = build_strategies(
+        env.rules.n_players,
+        human_pid,
+        bot,
+        human_interface=human_interface,
     )
     return SessionService(
         env=env,
@@ -511,7 +530,13 @@ def build_headless_session(
 ) -> SessionService:
     """Assemble a headless session service with logging/progress adapters."""
 
-    env, table_manager, strategies, scoring_table = _build_session_dependencies(seed, None, bot)
+    env, table_manager, scoring_table = _build_session_core(seed, bot)
+    strategies = build_strategies(
+        env.rules.n_players,
+        None,
+        bot,
+        human_interface=None,
+    )
     adapter = HeadlessLogAdapter(
         n_players=env.rules.n_players,
         log_dir=log_dir,
@@ -539,8 +564,11 @@ def run_demo_ui(
     jangs: int = 0,
     start_points: int = 1000,
     log_dir: Optional[str] = None,
+    *,
+    use_gui: bool = False,
+    emit_logs: bool = True,
 ) -> None:
-    """Run the Mahjong16 demo with the interactive console UI enabled."""
+    """Run the Mahjong16 demo with either the console UI or the graphical UI."""
 
     session = build_ui_session(
         seed=seed,
@@ -550,6 +578,8 @@ def run_demo_ui(
         jangs=jangs,
         start_points=start_points,
         log_dir=log_dir,
+        emit_logs=emit_logs,
+        ui_mode="gui" if use_gui else "console",
     )
     session.run()
 

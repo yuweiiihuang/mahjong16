@@ -9,6 +9,39 @@ from ui.console import prompt_reaction_action, prompt_turn_action
 PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 
 
+class HumanInterface(Protocol):
+    """Protocol for UI frontends that can prompt human actions."""
+
+    def prompt_turn_action(self, obs: Observation) -> Action:
+        """Prompt for an action during the player's turn."""
+
+    def prompt_reaction_action(self, obs: Observation) -> Action:
+        """Prompt for an action during a reaction opportunity."""
+
+
+class _ConsoleHumanInterface:
+    """Default interface that proxies to the Rich console prompts."""
+
+    def prompt_turn_action(self, obs: Observation) -> Action:
+        return prompt_turn_action(obs)
+
+    def prompt_reaction_action(self, obs: Observation) -> Action:
+        return prompt_reaction_action(obs)
+
+
+_default_interface: HumanInterface = _ConsoleHumanInterface()
+
+
+def set_default_human_interface(interface: Optional[HumanInterface]) -> None:
+    """Override the module-level fallback interface for human strategies."""
+
+    global _default_interface
+    if interface is None:
+        _default_interface = _ConsoleHumanInterface()
+    else:
+        _default_interface = interface
+
+
 class Strategy(Protocol):
     """Protocol for strategies used by the demo gameplay loop."""
 
@@ -63,19 +96,29 @@ class AutoStrategy:
 
 
 class HumanStrategy:
-    """Interactive console strategy that renders waits and prompts for input."""
+    """Strategy wrapper that delegates prompts to the configured interface."""
+
+    def __init__(self, interface: Optional[HumanInterface] = None) -> None:
+        self.interface = interface
 
     def choose(self, obs: Observation) -> Action:
         acts: List[Action] = obs.get("legal_actions", []) or []
         phase = obs.get("phase")
         if not acts:
             return {"type": "PASS"}
+        iface = self.interface or _default_interface
         if phase == "TURN":
-            return prompt_turn_action(obs)
-        return prompt_reaction_action(obs)
+            return iface.prompt_turn_action(obs)
+        return iface.prompt_reaction_action(obs)
 
 
-def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List[Strategy]:
+def build_strategies(
+    n_players: int,
+    human_pid: Optional[int],
+    bot: str,
+    *,
+    human_interface: Optional[HumanInterface] = None,
+) -> List[Strategy]:
     """
     Build a list of strategies for each player.
 
@@ -99,15 +142,22 @@ def build_strategies(n_players: int, human_pid: Optional[int], bot: str) -> List
     strategies: List[Strategy] = []
     for pid in range(n_players):
         if human_pid is not None and pid == human_pid:
-            strategies.append(HumanStrategy())
+            strategies.append(HumanStrategy(interface=human_interface))
         else:
             if bot == "greedy":
                 strategies.append(GreedyBotStrategy())
             elif bot == "human":
-                strategies.append(HumanStrategy())
+                strategies.append(HumanStrategy(interface=human_interface))
             else:  # bot == "auto"
                 strategies.append(AutoStrategy())
     return strategies
 
 
-__all__ = ["Strategy", "AutoStrategy", "HumanStrategy", "build_strategies"]
+__all__ = [
+    "Strategy",
+    "AutoStrategy",
+    "HumanStrategy",
+    "HumanInterface",
+    "build_strategies",
+    "set_default_human_interface",
+]
