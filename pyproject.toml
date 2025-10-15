@@ -5,8 +5,10 @@ description = "first version"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi",
     "ipykernel>=6.30.1",
     "pandas>=2.3.3",
     "pytest>=8",
     "rich>=14.1.0",
+    "uvicorn",
 ]
