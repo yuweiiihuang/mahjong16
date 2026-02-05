@@ -5,9 +5,15 @@ import { mockTableState } from '../state/tableStore'
 
 export function Table() {
   const table = useMemo(() => mockTableState, [])
-  const meldUnits = Math.max(1, table.selfMelds.length * 3)
-  const handUnits = Math.max(1, table.selfHand.length)
+  const sideTotalUnits = 16
+  const selfTotalUnits = 17
+  const meldUnits = Math.min(selfTotalUnits - 1, table.selfMelds.length * 3)
+  const handUnits = Math.max(1, selfTotalUnits - meldUnits)
   const totalUnits = meldUnits + handUnits
+  const leftMeldUnits = Math.min(sideTotalUnits - 1, table.leftMelds.length * 3)
+  const rightMeldUnits = Math.min(sideTotalUnits - 1, table.rightMelds.length * 3)
+  const leftHandUnits = Math.max(1, sideTotalUnits - leftMeldUnits)
+  const rightHandUnits = Math.max(1, sideTotalUnits - rightMeldUnits)
 
   return (
     <div className="table-shell">
@@ -15,15 +21,21 @@ export function Table() {
 
       <div className="table-grid">
         {/* 對家 */}
-        <div className="region color-opponent opp-meld">對家 副露</div>
+        <div className="region color-opponent opp-meld">
+          <span className="region-label">對家 副露</span>
+        </div>
         <div className="region color-opponent opp-hand">
           <div className="region-content">
             <div className="region-title">對家 手牌</div>
             <HandRail labels={table.oppHand} />
           </div>
         </div>
-        <div className="region color-opponent opp-discard">對家 棄牌</div>
-        <div className="region color-opponent opp-flower">對家 花牌</div>
+        <div className="region color-opponent opp-discard">
+          <span className="region-label">對家 棄牌</span>
+        </div>
+        <div className="region color-opponent opp-flower">
+          <span className="region-label">對家 花牌</span>
+        </div>
 
         {/* 我方 */}
         <div
@@ -57,29 +69,87 @@ export function Table() {
             <HandRail labels={table.selfDiscards} />
           </div>
         </div>
-        <div className="region color-user self-flower">我的 花牌</div>
+        <div className="region color-user self-flower">
+          <span className="region-label">我的 花牌</span>
+        </div>
 
         {/* 上家 */}
-        <div className="region color-left left-meld">上家 副露</div>
+        <div className="region color-left left-meld">
+          <span className="region-label">上家 副露</span>
+        </div>
         <div className="region color-left left-hand">
           <div className="region-content">
-            <div className="region-title">上家 手牌</div>
-            <HandRail labels={table.leftHand} orientation="vertical" />
+            <div
+              className="side-rail"
+              style={{
+                ['--side-units' as keyof React.CSSProperties]: sideTotalUnits.toString(),
+                ['--meld-units' as keyof React.CSSProperties]: leftMeldUnits.toString(),
+                ['--hand-units' as keyof React.CSSProperties]: leftHandUnits.toString(),
+              }}
+            >
+              <div className="side-melds">
+                <div className="region-title">上家 副露</div>
+                <div className="melds vertical">
+                  {table.leftMelds.map((meld, idx) => (
+                    <HandRail key={`left-meld-${idx}`} labels={meld} orientation="vertical" />
+                  ))}
+                </div>
+              </div>
+              <div className="side-hand">
+                <div className="region-title">上家 手牌</div>
+                <HandRail
+                  labels={table.leftHand.slice(0, leftHandUnits)}
+                  orientation="vertical"
+                />
+              </div>
+            </div>
           </div>
         </div>
-        <div className="region color-left left-discard">上家 棄牌</div>
-        <div className="region color-left left-flower">上家 花牌</div>
+        <div className="region color-left left-discard">
+          <span className="region-label">上家 棄牌</span>
+        </div>
+        <div className="region color-left left-flower">
+          <span className="region-label">上家 花牌</span>
+        </div>
 
         {/* 下家 */}
-        <div className="region color-right right-meld">下家 副露</div>
+        <div className="region color-right right-meld">
+          <span className="region-label">下家 副露</span>
+        </div>
         <div className="region color-right right-hand">
           <div className="region-content">
-            <div className="region-title">下家 手牌</div>
-            <HandRail labels={table.rightHand} orientation="vertical" />
+            <div
+              className="side-rail"
+              style={{
+                ['--side-units' as keyof React.CSSProperties]: sideTotalUnits.toString(),
+                ['--meld-units' as keyof React.CSSProperties]: rightMeldUnits.toString(),
+                ['--hand-units' as keyof React.CSSProperties]: rightHandUnits.toString(),
+              }}
+            >
+              <div className="side-melds">
+                <div className="region-title">下家 副露</div>
+                <div className="melds vertical">
+                  {table.rightMelds.map((meld, idx) => (
+                    <HandRail key={`right-meld-${idx}`} labels={meld} orientation="vertical" />
+                  ))}
+                </div>
+              </div>
+              <div className="side-hand">
+                <div className="region-title">下家 手牌</div>
+                <HandRail
+                  labels={table.rightHand.slice(0, rightHandUnits)}
+                  orientation="vertical"
+                />
+              </div>
+            </div>
           </div>
         </div>
-        <div className="region color-right right-discard">下家 棄牌</div>
-        <div className="region color-right right-flower">下家 花牌</div>
+        <div className="region color-right right-discard">
+          <span className="region-label">下家 棄牌</span>
+        </div>
+        <div className="region color-right right-flower">
+          <span className="region-label">下家 花牌</span>
+        </div>
 
         {/* 中央資訊 */}
         <div className="center-console-cell">

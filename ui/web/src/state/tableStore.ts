@@ -16,8 +16,11 @@ export type TableState = {
   selfDiscards: string[]
   selfMelds: string[][]
   oppHand: string[]
+  oppMelds: string[][]
   leftHand: string[]
+  leftMelds: string[][]
   rightHand: string[]
+  rightMelds: string[][]
 }
 
 export const mockTableState: TableState = {
@@ -39,7 +42,10 @@ export const mockTableState: TableState = {
     ['三', '四', '五'],
     ['九', '九', '九'],
   ],
-  oppHand: Array.from({ length: 13 }, () => '牌'),
-  leftHand: Array.from({ length: 13 }, () => '牌'),
-  rightHand: Array.from({ length: 13 }, () => '牌'),
+  oppHand: Array.from({ length: 16 }, () => '牌'),
+  oppMelds: [],
+  leftHand: Array.from({ length: 16 }, () => '牌'),
+  leftMelds: [],
+  rightHand: Array.from({ length: 16 }, () => '牌'),
+  rightMelds: [],
 }
