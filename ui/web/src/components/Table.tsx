@@ -6,10 +6,12 @@ import { mockTableState } from '../state/tableStore'
 export function Table() {
   const table = useMemo(() => mockTableState, [])
   const sideTotalUnits = 16
-  const selfTotalUnits = 17
+  const oppTotalUnits = 16
+  const selfTotalUnits = 16
   const meldUnits = Math.min(selfTotalUnits - 1, table.selfMelds.length * 3)
   const handUnits = Math.max(1, selfTotalUnits - meldUnits)
   const totalUnits = meldUnits + handUnits
+  const oppHandUnits = oppTotalUnits
   const leftMeldUnits = Math.min(sideTotalUnits - 1, table.leftMelds.length * 3)
   const rightMeldUnits = Math.min(sideTotalUnits - 1, table.rightMelds.length * 3)
   const leftHandUnits = Math.max(1, sideTotalUnits - leftMeldUnits)
@@ -21,14 +23,25 @@ export function Table() {
 
       <div className="table-grid">
         {/* 對家 */}
-        <div className="region color-opponent opp-meld">
-          <span className="region-label">對家 副露</span>
-        </div>
         <div className="region color-opponent opp-hand">
           <div className="region-content">
-            <div className="region-title">對家 手牌</div>
-            <HandRail labels={table.oppHand} />
+            <div
+              className="top-rail"
+              style={{
+                ['--top-units' as keyof React.CSSProperties]: oppTotalUnits.toString(),
+                ['--hand-units' as keyof React.CSSProperties]: oppHandUnits.toString(),
+              }}
+            >
+              <div className="top-hand">
+                <div className="region-title">對家 手牌 / 副露</div>
+                <HandRail labels={table.oppHand.slice(0, oppHandUnits)} />
+              </div>
+            </div>
           </div>
+        </div>
+        <div className="region color-opponent opp-draw">
+          <span className="region-label">進牌</span>
+          <div className="tile draw-tile" data-label="進" />
         </div>
         <div className="region color-opponent opp-discard">
           <span className="region-label">對家 棄牌</span>
@@ -38,30 +51,34 @@ export function Table() {
         </div>
 
         {/* 我方 */}
-        <div
-          className="self-row"
-          style={{
-            ['--meld-units' as keyof React.CSSProperties]: meldUnits.toString(),
-            ['--hand-units' as keyof React.CSSProperties]: handUnits.toString(),
-            ['--self-units' as keyof React.CSSProperties]: totalUnits.toString(),
-          }}
-        >
-          <div className="region color-user self-meld">
-            <div className="region-content">
-              <div className="region-title">我的 副露</div>
-              <div className="melds">
-                {table.selfMelds.map((meld, idx) => (
-                  <HandRail key={`meld-${idx}`} labels={meld} />
-                ))}
+        <div className="region color-user self-hand">
+          <div className="region-content">
+            <div
+              className="bottom-rail"
+              style={{
+                ['--bottom-units' as keyof React.CSSProperties]: totalUnits.toString(),
+                ['--meld-units' as keyof React.CSSProperties]: meldUnits.toString(),
+                ['--hand-units' as keyof React.CSSProperties]: handUnits.toString(),
+              }}
+            >
+              <div className="bottom-melds">
+                <div className="region-title">我的 副露</div>
+                <div className="melds">
+                  {table.selfMelds.map((meld, idx) => (
+                    <HandRail key={`self-meld-${idx}`} labels={meld} />
+                  ))}
+                </div>
+              </div>
+              <div className="bottom-hand">
+                <div className="region-title">自己的 手牌</div>
+                <HandRail labels={table.selfHand} />
               </div>
             </div>
           </div>
-          <div className="region color-user self-hand">
-            <div className="region-content">
-              <div className="region-title">自己的 手牌</div>
-              <HandRail labels={table.selfHand} />
-            </div>
-          </div>
+        </div>
+        <div className="region color-user self-draw">
+          <span className="region-label">進牌</span>
+          <div className="tile draw-tile" data-label="進" />
         </div>
         <div className="region color-user self-discard">
           <div className="region-content">
@@ -105,6 +122,10 @@ export function Table() {
             </div>
           </div>
         </div>
+        <div className="region color-left left-draw">
+          <span className="region-label">進牌</span>
+          <div className="tile draw-tile draw-left" data-label="進" />
+        </div>
         <div className="region color-left left-discard">
           <span className="region-label">上家 棄牌</span>
         </div>
@@ -143,6 +164,10 @@ export function Table() {
               </div>
             </div>
           </div>
+        </div>
+        <div className="region color-right right-draw">
+          <span className="region-label">進牌</span>
+          <div className="tile draw-tile draw-right" data-label="進" />
         </div>
         <div className="region color-right right-discard">
           <span className="region-label">下家 棄牌</span>
