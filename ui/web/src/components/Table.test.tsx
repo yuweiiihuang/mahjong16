@@ -12,6 +12,6 @@ describe('Table', () => {
     expect(regions.length).toBe(16) // 4 seats *4 zones (center console not counted as region)
 
     // tiles rendered for all hands, melds, and discards
-    expect(container.querySelectorAll('.tile').length).toBe(70)
+    expect(container.querySelectorAll('.tile').length).toBe(74)
   })
 })

@@ -151,41 +151,35 @@ body {
   flex-direction: column;
 }
 
-.opp-meld    { grid-row: 1 / 2; grid-column: 10 / 12; }           /* (0,9)-(0,10) */
-.opp-hand    { grid-row: 1 / 2; grid-column: 2 / 10; }            /* (0,1)-(0,8) */
+.opp-draw    { grid-row: 1 / 2; grid-column: 2 / 3; }             /* (0,1)-(0,1) */
+.opp-hand    { grid-row: 1 / 2; grid-column: 3 / 12; }            /* (0,2)-(0,10) */
 .opp-discard { grid-row: 2 / 4; grid-column: 4 / 8; }             /* rows1-2 cols3-6 */
 .opp-flower  { grid-row: 2 / 4; grid-column: 8 / 10; }            /* rows1-2 cols7-8 */
 
-.self-meld   { grid-row: 10 / 11; grid-column: 1 / 4; }           /* (9,0)-(9,2) */
-.self-hand   { grid-row: 10 / 11; grid-column: 4 / 12; }          /* (9,3)-(9,10) */
+.self-hand   { grid-row: 10 / 11; grid-column: 2 / 11; }          /* (9,1)-(9,9) */
 .self-flower { grid-row: 8 / 10; grid-column: 4 / 6; }            /* rows7-8 cols3-4 */
 .self-discard{ grid-row: 8 / 10; grid-column: 6 / 10; }           /* rows7-8 cols5-8 */
 
 .self-row {
+  display: none;
+}
+
+.self-draw {
   grid-row: 10 / 11;
-  grid-column: 2 / 12;
-  display: grid;
-  grid-template-columns: repeat(var(--self-units), 1fr);
-  gap: calc(8px * var(--scale));
-}
-
-.self-row .self-meld {
-  grid-column: 1 / span var(--meld-units);
-}
-
-.self-row .self-hand {
-  grid-column: span var(--hand-units);
+  grid-column: 11 / 12;
 }
 
 .left-meld   { grid-row: 1 / 4; grid-column: 1 / 2; }             /* (0,0)-(2,0) */
 .left-flower { grid-row: 2 / 4; grid-column: 2 / 4; }             /* rows1-2 cols1-2 */
-.left-hand   { grid-row: 1 / 11; grid-column: 1 / 2; }            /* (0,0)-(9,0) */
+.left-hand   { grid-row: 1 / 10; grid-column: 1 / 2; }            /* (0,0)-(8,0) */
 .left-discard{ grid-row: 4 / 8; grid-column: 2 / 4; }             /* rows3-6 cols1-2 */
+.left-draw   { grid-row: 10 / 11; grid-column: 1 / 2; }           /* (9,0)-(9,0) */
 
 .right-meld  { grid-row: 8 / 11; grid-column: 12 / 13; }          /* (7..9,11) */
-.right-hand  { grid-row: 1 / 11; grid-column: 12 / 13; }          /* (0..9,11) */
+.right-hand  { grid-row: 2 / 11; grid-column: 12 / 13; }          /* (1..9,11) */
 .right-flower{ grid-row: 6 / 8; grid-column: 10 / 12; }           /* rows5-6 cols9-10 */
 .right-discard{grid-row: 2 / 6; grid-column: 10 / 12; }           /* rows1-4 cols9-10 */
+.right-draw  { grid-row: 1 / 2; grid-column: 12 / 13; }           /* (0,11)-(0,11) */
 
 .center-console {
   grid-row: 5 / 7;
@@ -362,6 +356,10 @@ body {
   pointer-events: none;
 }
 
+.opp-meld {
+  display: none;
+}
+
 .left-meld,
 .right-meld {
   display: none;
@@ -393,7 +391,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 0;
-  --side-pad: calc(6px * var(--scale));
+  --side-pad: calc(8px * var(--scale));
   --side-step: calc((100% - (2 * var(--side-pad))) / var(--hand-units));
 }
 
@@ -414,4 +412,67 @@ body {
 
 .right-hand .side-hand .tile {
   transform: translateX(-50%) rotate(-90deg);
+}
+
+.draw-tile {
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+}
+
+.draw-left {
+  transform: rotate(90deg);
+}
+
+.draw-right {
+  transform: rotate(-90deg);
+}
+
+.opp-draw .draw-tile {
+  transform: rotate(180deg);
+}
+
+.top-rail {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: calc(8px * var(--scale));
+  grid-template-columns: repeat(var(--top-units), 1fr);
+}
+
+.top-rail .top-hand {
+  grid-column: 1 / -1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.bottom-rail {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: calc(8px * var(--scale));
+  grid-template-columns: repeat(var(--bottom-units), 1fr);
+}
+
+.bottom-rail .bottom-melds {
+  grid-column: 1 / span var(--meld-units);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.bottom-rail .bottom-hand {
+  grid-column: span var(--hand-units);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
 }
