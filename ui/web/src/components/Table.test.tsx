@@ -12,6 +12,6 @@ describe('Table', () => {
     expect(regions.length).toBe(18) // includes 2 extra side meld regions in current layout
 
     // tiles rendered for all hands, melds, and discards
-    expect(container.querySelectorAll('.tile').length).toBe(71)
+    expect(container.querySelectorAll('.tile').length).toBe(137)
   })
 })

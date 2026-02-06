@@ -19,10 +19,13 @@ export type TableState = {
   selfDiscards: string[]
   selfMelds: string[][]
   oppHand: string[]
+  oppDiscards: string[]
   oppMelds: string[][]
   leftHand: string[]
+  leftDiscards: string[]
   leftMelds: string[][]
   rightHand: string[]
+  rightDiscards: string[]
   rightMelds: string[][]
 }
 
@@ -40,13 +43,16 @@ export const mockTableState: TableState = {
     { id: 'p4', name: 'Space', seat: 'Left', score: 9100 },
   ],
   selfHand: ['二', '三', '四', '五', '六', '七', '八', '九', '一', '二', '三', '四', '五'],
-  selfDiscards: ['九', '北', '一', '五', '三', '七'],
+  selfDiscards: ['九', '北', '一', '五', '三', '七', '東', '西', '南', '中', '發', '白', '二', '四', '六', '八', '三', '五'],
   selfMelds: [['二', '二', '二']],
   oppHand: Array.from({ length: 16 }, () => '牌'),
+  oppDiscards: ['一', '五', '八', '東', '白', '九', '二', '六', '七', '南', '西', '發', '三', '四', '五', '北', '中', '一'],
   oppMelds: [],
   leftHand: Array.from({ length: 16 }, () => '牌'),
+  leftDiscards: ['三', '七', '南', '中', '二', '六', '四', '五', '八', '九', '東', '白', '一', '三', '五', '七', '北', '發'],
   leftMelds: [],
   rightHand: Array.from({ length: 16 }, () => '牌'),
+  rightDiscards: ['四', '九', '北', '發', '五', '一', '二', '三', '六', '七', '東', '南', '八', '白', '中', '一', '五', '九'],
   rightMelds: [],
 }
 
