@@ -157,8 +157,8 @@ body {
 .opp-flower  { grid-row: 2 / 4; grid-column: 8 / 10; }            /* rows1-2 cols7-8 */
 
 .self-hand   { grid-row: 10 / 11; grid-column: 2 / 11; }          /* (9,1)-(9,9) */
-.self-flower { grid-row: 8 / 10; grid-column: 4 / 6; }            /* rows7-8 cols3-4 */
-.self-discard{ grid-row: 8 / 10; grid-column: 6 / 10; }           /* rows7-8 cols5-8 */
+.self-flower { grid-row: 8 / 10; grid-column: 2 / 4; }            /* rows7-8 cols1-2 */
+.self-discard{ grid-row: 8 / 10; grid-column: 4 / 8; }            /* rows7-8 cols3-6 */
 
 .self-row {
   display: none;

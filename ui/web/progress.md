@@ -11,6 +11,8 @@ Original prompt: 你可以建議一個開發流程嗎？我現在就是做一個
 - Updated `vite.config.ts` to use `defineConfig` from `vitest/config` so the `test` block type-checks in build.
 - Updated `tsconfig.app.json` / `tsconfig.test.json` to keep app builds from type-checking test globals.
 - Replaced the initial skill-client wrapper with a local Playwright runner because Chromium launch flags in the skill client aborted in this environment.
+- Added anchor fixture wiring for `anchor-01-self-draw`: only one draw seat is rendered at a time.
+- Updated e2e output naming to anchor-based artifacts (`anchor-01-self-draw.png/.json`).
 
 ### Validation
 

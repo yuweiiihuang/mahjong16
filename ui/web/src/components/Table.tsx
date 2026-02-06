@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { CenterConsole } from './CenterConsole'
 import { HandRail } from './HandRail'
-import { mockTableState } from '../state/tableStore'
+import { resolveTableStateFromSearch } from '../state/tableStore'
 
 declare global {
   interface Window {
@@ -10,7 +10,7 @@ declare global {
 }
 
 export function Table() {
-  const table = useMemo(() => mockTableState, [])
+  const table = useMemo(() => resolveTableStateFromSearch(window.location.search), [])
   const sideTotalUnits = 16
   const oppTotalUnits = 16
   const selfTotalUnits = 16
@@ -35,6 +35,8 @@ export function Table() {
           name: player.name,
           score: player.score,
         })),
+        activeSeat: table.activeSeat,
+        drawSeat: table.drawSeat,
         counts: {
           selfHand: table.selfHand.length,
           selfDiscards: table.selfDiscards.length,
@@ -75,7 +77,7 @@ export function Table() {
         </div>
         <div className="region color-opponent opp-draw">
           <span className="region-label">進牌</span>
-          <div className="tile draw-tile" data-label="進" />
+          {table.drawSeat === 'Opponent' ? <div className="tile draw-tile" data-label="進" /> : null}
         </div>
         <div className="region color-opponent opp-discard">
           <span className="region-label">對家 棄牌</span>
@@ -112,7 +114,7 @@ export function Table() {
         </div>
         <div className="region color-user self-draw">
           <span className="region-label">進牌</span>
-          <div className="tile draw-tile" data-label="進" />
+          {table.drawSeat === 'User' ? <div className="tile draw-tile" data-label="進" /> : null}
         </div>
         <div className="region color-user self-discard">
           <div className="region-content">
@@ -158,7 +160,9 @@ export function Table() {
         </div>
         <div className="region color-left left-draw">
           <span className="region-label">進牌</span>
-          <div className="tile draw-tile draw-left" data-label="進" />
+          {table.drawSeat === 'Left' ? (
+            <div className="tile draw-tile draw-left" data-label="進" />
+          ) : null}
         </div>
         <div className="region color-left left-discard">
           <span className="region-label">上家 棄牌</span>
@@ -201,7 +205,9 @@ export function Table() {
         </div>
         <div className="region color-right right-draw">
           <span className="region-label">進牌</span>
-          <div className="tile draw-tile draw-right" data-label="進" />
+          {table.drawSeat === 'Right' ? (
+            <div className="tile draw-tile draw-right" data-label="進" />
+          ) : null}
         </div>
         <div className="region color-right right-discard">
           <span className="region-label">下家 棄牌</span>
