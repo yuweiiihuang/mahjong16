@@ -11,6 +11,11 @@ declare global {
 
 export function Table() {
   const table = useMemo(() => resolveTableStateFromSearch(window.location.search), [])
+  const oppDiscardColumns = 6
+  const selfDiscardColumns = 6
+  const selfDiscardRows = Math.max(1, Math.ceil(table.selfDiscards.length / selfDiscardColumns))
+  const sideDiscardRows = 6
+  const rightDiscardColumns = Math.max(1, Math.ceil(table.rightDiscards.length / sideDiscardRows))
   const sideTotalUnits = 16
   const oppTotalUnits = 16
   const selfTotalUnits = 16
@@ -42,8 +47,11 @@ export function Table() {
           selfDiscards: table.selfDiscards.length,
           selfMelds: table.selfMelds.length,
           oppHand: table.oppHand.length,
+          oppDiscards: table.oppDiscards.length,
           leftHand: table.leftHand.length,
+          leftDiscards: table.leftDiscards.length,
           rightHand: table.rightHand.length,
+          rightDiscards: table.rightDiscards.length,
         },
         coordinates: 'origin at viewport top-left; +x to right, +y to bottom',
       })
@@ -80,7 +88,24 @@ export function Table() {
           {table.drawSeat === 'Opponent' ? <div className="tile draw-tile" data-label="進" /> : null}
         </div>
         <div className="region color-opponent opp-discard">
-          <span className="region-label">對家 棄牌</span>
+          <div className="region-content">
+            <div className="region-title">對家 棄牌</div>
+            <div className="discard-grid-opp" aria-label="opp-discard-grid">
+              {table.oppDiscards.map((_, idx) => (
+                <div
+                  key={`opp-discard-${idx}`}
+                  className="tile"
+                  data-label={`${idx + 1}`}
+                  style={
+                    {
+                      gridColumn: oppDiscardColumns - (idx % oppDiscardColumns),
+                      gridRow: Math.floor(idx / oppDiscardColumns) + 1,
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
+          </div>
         </div>
         <div className="region color-opponent opp-flower">
           <span className="region-label">對家 花牌</span>
@@ -119,7 +144,21 @@ export function Table() {
         <div className="region color-user self-discard">
           <div className="region-content">
             <div className="region-title">我的 棄牌</div>
-            <HandRail labels={table.selfDiscards} />
+            <div className="discard-grid-self" aria-label="self-discard-grid">
+              {table.selfDiscards.map((_, idx) => (
+                <div
+                  key={`self-discard-${idx}`}
+                  className="tile"
+                  data-label={`${idx + 1}`}
+                  style={
+                    {
+                      gridColumn: (idx % selfDiscardColumns) + 1,
+                      gridRow: selfDiscardRows - Math.floor(idx / selfDiscardColumns),
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
           </div>
         </div>
         <div className="region color-user self-flower">
@@ -165,7 +204,14 @@ export function Table() {
           ) : null}
         </div>
         <div className="region color-left left-discard">
-          <span className="region-label">上家 棄牌</span>
+          <div className="region-content">
+            <div className="region-title">上家 棄牌</div>
+            <div className="discard-grid-vertical" aria-label="left-discard-grid">
+              {table.leftDiscards.map((_, idx) => (
+                <div key={`left-discard-${idx}`} className="tile" data-label={`${idx + 1}`} />
+              ))}
+            </div>
+          </div>
         </div>
         <div className="region color-left left-flower">
           <span className="region-label">上家 花牌</span>
@@ -210,7 +256,24 @@ export function Table() {
           ) : null}
         </div>
         <div className="region color-right right-discard">
-          <span className="region-label">下家 棄牌</span>
+          <div className="region-content">
+            <div className="region-title">下家 棄牌</div>
+            <div className="discard-grid-vertical" aria-label="right-discard-grid">
+              {table.rightDiscards.map((_, idx) => (
+                <div
+                  key={`right-discard-${idx}`}
+                  className="tile"
+                  data-label={`${idx + 1}`}
+                  style={
+                    {
+                      gridColumn: rightDiscardColumns - Math.floor(idx / sideDiscardRows),
+                      gridRow: sideDiscardRows - (idx % sideDiscardRows),
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
+          </div>
         </div>
         <div className="region color-right right-flower">
           <span className="region-label">下家 花牌</span>
