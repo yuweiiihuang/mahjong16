@@ -44,6 +44,12 @@
   using `scripts/bench_sim.py` and targeted pytest modules.
 - **Web UI loop**: develop in `ui/web` with `npm run dev`, gate with `npm run test` and `npm run lint`, and
   verify release readiness with `npm run build`.
+- **Web UI anchor/e2e loop**: use `cd ui/web && npm run test:e2e:ui` for repeatable anchor screenshots and
+  state snapshots under `ui/web/artifacts/ui-e2e/latest`. Use `cd ui/web && npm run test:gate` as the
+  full pre-commit gate (`lint + test + build + e2e`).
+- **Web UI anchor conventions**:
+  - Default anchor is `anchor-01-self-draw` and should represent a legal single-draw-turn state.
+  - Exactly one seat may show draw state at a time (`drawSeat`).
 
 ## Coding Style & Naming Conventions
 - Follow PEP 8 with 4-space indentation and keep lines at or below 100 characters.
