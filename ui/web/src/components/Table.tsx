@@ -1,7 +1,13 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { CenterConsole } from './CenterConsole'
 import { HandRail } from './HandRail'
 import { mockTableState } from '../state/tableStore'
+
+declare global {
+  interface Window {
+    render_game_to_text?: () => string
+  }
+}
 
 export function Table() {
   const table = useMemo(() => mockTableState, [])
@@ -16,6 +22,34 @@ export function Table() {
   const rightMeldUnits = Math.min(sideTotalUnits - 1, table.rightMelds.length * 3)
   const leftHandUnits = Math.max(1, sideTotalUnits - leftMeldUnits)
   const rightHandUnits = Math.max(1, sideTotalUnits - rightMeldUnits)
+
+  useEffect(() => {
+    window.render_game_to_text = () =>
+      JSON.stringify({
+        mode: 'layout-static',
+        wind: table.wind,
+        round: table.round,
+        timer: table.timer,
+        players: table.players.map((player) => ({
+          seat: player.seat,
+          name: player.name,
+          score: player.score,
+        })),
+        counts: {
+          selfHand: table.selfHand.length,
+          selfDiscards: table.selfDiscards.length,
+          selfMelds: table.selfMelds.length,
+          oppHand: table.oppHand.length,
+          leftHand: table.leftHand.length,
+          rightHand: table.rightHand.length,
+        },
+        coordinates: 'origin at viewport top-left; +x to right, +y to bottom',
+      })
+
+    return () => {
+      delete window.render_game_to_text
+    }
+  }, [table])
 
   return (
     <div className="table-shell">

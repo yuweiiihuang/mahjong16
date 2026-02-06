@@ -1,3 +1,37 @@
+# Mahjong Web UI
+
+## Fast Iteration Loop
+
+1. Start local dev server:
+   - `npm run dev`
+2. Make one small UI change.
+3. Re-run repeatable visual smoke capture:
+   - `npm run test:e2e:ui`
+4. Check generated artifacts under:
+   - `/Users/huangyuwei/Projects/mahjong16/ui/web/artifacts/ui-e2e/latest`
+
+## Merge Gate
+
+- Run full gate before committing:
+  - `npm run test:gate`
+- This runs:
+  - `lint`
+  - `unit tests`
+  - `build`
+  - `repeatable e2e UI screenshots`
+
+## E2E Notes
+
+- The e2e runner is a project-local Playwright script:
+  - `/Users/huangyuwei/Projects/mahjong16/ui/web/scripts/run-ui-e2e.mjs`
+- Default URL is `http://localhost:5173` (override with `UI_E2E_URL`).
+- Output folder is reset on every run:
+  - `/Users/huangyuwei/Projects/mahjong16/ui/web/artifacts/ui-e2e/latest`
+- If `playwright` is missing, install it in this package:
+  - `npm install -D playwright`
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
