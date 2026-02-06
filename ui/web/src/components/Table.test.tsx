@@ -9,7 +9,7 @@ describe('Table', () => {
     expect(screen.getByText(/Current Wind/i)).toBeInTheDocument()
     // region placeholders should fill the grid
     const regions = container.querySelectorAll('.region')
-    expect(regions.length).toBe(16) // 4 seats *4 zones (center console not counted as region)
+    expect(regions.length).toBe(18) // includes 2 extra side meld regions in current layout
 
     // tiles rendered for all hands, melds, and discards
     expect(container.querySelectorAll('.tile').length).toBe(74)
