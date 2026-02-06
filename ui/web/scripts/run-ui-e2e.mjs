@@ -6,7 +6,9 @@ import { chromium } from 'playwright'
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const actionsFile = path.join(projectRoot, 'e2e', 'actions', 'layout-smoke.json')
 const outputDir = path.join(projectRoot, 'artifacts', 'ui-e2e', 'latest')
-const url = process.env.UI_E2E_URL ?? 'http://localhost:5173'
+const anchorId = process.env.UI_E2E_ANCHOR ?? 'anchor-01-self-draw'
+const defaultUrl = `http://localhost:5173/?anchor=${encodeURIComponent(anchorId)}`
+const url = process.env.UI_E2E_URL ?? defaultUrl
 const headless = process.env.UI_E2E_HEADLESS !== '0'
 
 function resolveChromiumExecutablePath() {
@@ -82,10 +84,12 @@ async function applyStep(page, step) {
   }
 }
 
-async function capture(page, iteration, errors) {
+async function capture(page, name, errors) {
+  await page.waitForTimeout(200)
   await page.screenshot({
-    path: path.join(outputDir, `shot-${iteration}.png`),
+    path: path.join(outputDir, `${name}.png`),
     fullPage: true,
+    timeout: 60000,
   })
 
   const state = await page.evaluate(() => {
@@ -96,12 +100,12 @@ async function capture(page, iteration, errors) {
   })
 
   if (state) {
-    fs.writeFileSync(path.join(outputDir, `state-${iteration}.json`), state)
+    fs.writeFileSync(path.join(outputDir, `${name}.json`), state)
   }
 
   if (errors.length > 0) {
     fs.writeFileSync(
-      path.join(outputDir, `errors-${iteration}.json`),
+      path.join(outputDir, `${name}-errors.json`),
       JSON.stringify(errors, null, 2),
     )
   }
@@ -131,15 +135,10 @@ async function main() {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(350)
 
-  for (let i = 0; i < 3; i += 1) {
-    for (const step of steps) {
-      await applyStep(page, step)
-    }
-    await capture(page, i, errors)
-    if (errors.length > 0) {
-      break
-    }
+  for (const step of steps) {
+    await applyStep(page, step)
   }
+  await capture(page, anchorId, errors)
 
   await browser.close()
 
