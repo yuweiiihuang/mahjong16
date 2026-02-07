@@ -38,6 +38,8 @@
   - 新增上家副露微調參數 `--left-meld-scale`；最終採用 `0.85` 作為不裁切且視覺平衡值。
   - 調整上家副露排版：組內貼齊、組間微重疊（-4）、並收緊上家副露與手牌間距（side-hand top inset = -8）。
   - 以最新設定重刷 0~5 截圖，輸出至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
+  - 將上家「同組副露內」間距改為幾何貼齊公式：`margin-top = (tile-vert-w - tile-vert-h) * left-meld-scale`，確保三張牌邊緣相接且不重疊。
+  - 上家副露 tile 在副露區移除陰影（避免視覺上看似有縫），並用該規則再次重刷 `anchor-left-meld-0..5`。
 
 ## TODO
 
