@@ -1,13 +1,17 @@
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import net from 'node:net'
 import { chromium } from 'playwright'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
 const actionsFile = path.join(projectRoot, 'e2e', 'actions', 'layout-smoke.json')
 const outputDir = path.join(projectRoot, 'artifacts', 'ui-e2e', 'latest')
 const anchorId = process.env.UI_E2E_ANCHOR ?? 'anchor-01-self-draw'
-const defaultUrl = `http://localhost:5173/?anchor=${encodeURIComponent(anchorId)}`
+const internalHost = process.env.UI_E2E_HOST ?? '127.0.0.1'
+const internalPort = Number.parseInt(process.env.UI_E2E_PORT ?? '4173', 10)
+const defaultUrl = `http://${internalHost}:${internalPort}/?anchor=${encodeURIComponent(anchorId)}`
 const url = process.env.UI_E2E_URL ?? defaultUrl
 const headless = process.env.UI_E2E_HEADLESS !== '0'
 
@@ -65,6 +69,57 @@ function fail(message) {
   process.exit(1)
 }
 
+function isPortOpen(host, port) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    socket.setTimeout(250)
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    const close = () => {
+      socket.destroy()
+      resolve(false)
+    }
+    socket.once('timeout', close)
+    socket.once('error', close)
+    socket.connect(port, host)
+  })
+}
+
+async function waitForServer(host, port, timeoutMs = 30000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await isPortOpen(host, port)) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  throw new Error(`Timed out waiting for server on ${host}:${port}`)
+}
+
+function startLocalServer(host, port) {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const child = spawn(
+    npmCmd,
+    ['run', 'dev', '--', '--host', host, '--port', String(port), '--strictPort'],
+    {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, CI: process.env.CI ?? '1' },
+    },
+  )
+
+  child.stdout.on('data', (chunk) => {
+    process.stdout.write(`[vite] ${chunk}`)
+  })
+  child.stderr.on('data', (chunk) => {
+    process.stderr.write(`[vite] ${chunk}`)
+  })
+
+  return child
+}
+
 function loadSteps() {
   if (!fs.existsSync(actionsFile)) {
     fail(`Actions file not found: ${actionsFile}`)
@@ -116,31 +171,45 @@ async function main() {
   fs.rmSync(outputDir, { recursive: true, force: true })
   fs.mkdirSync(outputDir, { recursive: true })
 
-  const browser = await chromium.launch({
-    headless,
-    executablePath: resolveChromiumExecutablePath(),
-  })
-  const page = await browser.newPage({ viewport: { width: 1680, height: 960 } })
-  const errors = []
-
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') {
-      errors.push({ type: 'console.error', text: msg.text() })
+  let localServer = null
+  let browser = null
+  try {
+    if (!process.env.UI_E2E_URL) {
+      localServer = startLocalServer(internalHost, internalPort)
+      await waitForServer(internalHost, internalPort)
     }
-  })
-  page.on('pageerror', (err) => {
-    errors.push({ type: 'pageerror', text: String(err) })
-  })
 
-  await page.goto(url, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(350)
+    browser = await chromium.launch({
+      headless,
+      executablePath: resolveChromiumExecutablePath(),
+    })
+    const page = await browser.newPage({ viewport: { width: 1680, height: 960 } })
+    const errors = []
 
-  for (const step of steps) {
-    await applyStep(page, step)
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        errors.push({ type: 'console.error', text: msg.text() })
+      }
+    })
+    page.on('pageerror', (err) => {
+      errors.push({ type: 'pageerror', text: String(err) })
+    })
+
+    await page.goto(url, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(350)
+
+    for (const step of steps) {
+      await applyStep(page, step)
+    }
+    await capture(page, anchorId, errors)
+  } finally {
+    if (browser) {
+      await browser.close()
+    }
+    if (localServer) {
+      localServer.kill('SIGTERM')
+    }
   }
-  await capture(page, anchorId, errors)
-
-  await browser.close()
 
   const artifacts = fs.readdirSync(outputDir).sort()
   console.log(`[test:e2e:ui] Artifacts written to ${outputDir}`)
