@@ -202,6 +202,9 @@ async function main() {
       await applyStep(page, step)
     }
     await capture(page, anchorId, errors)
+    if (errors.length > 0) {
+      throw new Error(`Captured ${errors.length} browser runtime error(s) during e2e run`)
+    }
   } finally {
     if (browser) {
       await browser.close()
