@@ -56,13 +56,22 @@ export const mockTableState: TableState = {
   rightMelds: [],
 }
 
+const DEFAULT_ANCHOR_ID = 'anchor-01-self-draw'
+
+const anchorFixtures: Record<string, TableState> = {
+  [DEFAULT_ANCHOR_ID]: mockTableState,
+}
+
 export function resolveTableStateFromSearch(search: string): TableState {
   const params = new URLSearchParams(search)
-  const anchor = params.get('anchor')
-
-  if (!anchor || anchor === 'anchor-01-self-draw') {
-    return mockTableState
+  const anchor = params.get('anchor') ?? DEFAULT_ANCHOR_ID
+  const fixture = anchorFixtures[anchor]
+  if (fixture) {
+    return fixture
   }
 
-  return mockTableState
+  console.warn(
+    `[tableStore] Unknown anchor "${anchor}", falling back to "${DEFAULT_ANCHOR_ID}"`,
+  )
+  return anchorFixtures[DEFAULT_ANCHOR_ID]
 }
