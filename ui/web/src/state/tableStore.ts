@@ -74,6 +74,14 @@ const LEFT_MELD_SETS: string[][] = [
   ['北', '北', '北'],
 ]
 
+const RIGHT_MELD_SETS: string[][] = [
+  ['四', '四', '四'],
+  ['六', '七', '八'],
+  ['發', '發', '發'],
+  ['一', '二', '三'],
+  ['白', '白', '白'],
+]
+
 function createLeftMeldFixture(meldCount: number): TableState {
   const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
   const handCount = 16 - cappedMeldCount * 3
@@ -92,9 +100,49 @@ const leftMeldFixtures: Record<string, TableState> = Object.fromEntries(
   }),
 ) as Record<string, TableState>
 
+function createRightMeldFixture(meldCount: number): TableState {
+  const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
+  const handCount = 16 - cappedMeldCount * 3
+  return {
+    ...mockTableState,
+    anchorId: `anchor-right-meld-${cappedMeldCount}`,
+    rightMelds: RIGHT_MELD_SETS.slice(0, cappedMeldCount),
+    rightHand: Array.from({ length: handCount }, () => '牌'),
+  }
+}
+
+const rightMeldFixtures: Record<string, TableState> = Object.fromEntries(
+  Array.from({ length: 6 }, (_, idx) => {
+    const fixture = createRightMeldFixture(idx)
+    return [fixture.anchorId, fixture]
+  }),
+) as Record<string, TableState>
+
+function createBothMeldFixture(meldCount: number): TableState {
+  const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
+  const handCount = 16 - cappedMeldCount * 3
+  return {
+    ...mockTableState,
+    anchorId: `anchor-both-meld-${cappedMeldCount}`,
+    leftMelds: LEFT_MELD_SETS.slice(0, cappedMeldCount),
+    rightMelds: RIGHT_MELD_SETS.slice(0, cappedMeldCount),
+    leftHand: Array.from({ length: handCount }, () => '牌'),
+    rightHand: Array.from({ length: handCount }, () => '牌'),
+  }
+}
+
+const bothMeldFixtures: Record<string, TableState> = Object.fromEntries(
+  Array.from({ length: 6 }, (_, idx) => {
+    const fixture = createBothMeldFixture(idx)
+    return [fixture.anchorId, fixture]
+  }),
+) as Record<string, TableState>
+
 const anchorFixtures: Record<string, TableState> = {
   [DEFAULT_ANCHOR_ID]: mockTableState,
   ...leftMeldFixtures,
+  ...rightMeldFixtures,
+  ...bothMeldFixtures,
 }
 
 export function resolveTableStateFromSearch(search: string): TableState {
