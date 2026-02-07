@@ -327,20 +327,20 @@ export function Table() {
                 ['--hand-units' as keyof React.CSSProperties]: rightHandUnits.toString(),
               }}
             >
-              <div className="side-melds">
-                <div className="region-title">下家 副露</div>
-                <div className="melds vertical">
-                  {table.rightMelds.map((meld, idx) => (
-                    <HandRail key={`right-meld-${idx}`} labels={meld} orientation="vertical" />
-                  ))}
-                </div>
-              </div>
               <div className="side-hand">
                 <div className="region-title">下家 手牌</div>
                 <HandRail
                   labels={table.rightHand.slice(0, rightHandUnits)}
                   orientation="vertical"
                 />
+              </div>
+              <div className="side-melds">
+                <div className="region-title">下家 副露</div>
+                <div className="melds" aria-label="right-melds">
+                  {table.rightMelds.map((meld, idx) => (
+                    <HandRail key={`right-meld-${idx}`} labels={meld} orientation="vertical" />
+                  ))}
+                </div>
               </div>
             </div>
           </div>
