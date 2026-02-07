@@ -257,7 +257,7 @@ export function Table() {
             >
               <div className="side-melds">
                 <div className="region-title">上家 副露</div>
-                <div className="melds vertical">
+                <div className="melds" aria-label="left-melds">
                   {table.leftMelds.map((meld, idx) => (
                     <HandRail key={`left-meld-${idx}`} labels={meld} orientation="vertical" />
                   ))}

@@ -35,6 +35,7 @@
   --cc-pad-h: calc(16px * var(--scale));
   --cc-label: calc(13px * var(--scale));
   --cc-value: calc(32px * var(--scale));
+  --left-meld-scale: 0.85;
 }
 
 * {
@@ -631,6 +632,39 @@ body {
   min-height: 0;
 }
 
+.left-hand .side-melds .melds {
+  margin-top: calc(4px * var(--scale));
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0;
+  overflow: visible;
+}
+
+.left-hand .side-melds .melds > .hand-rail.vertical + .hand-rail.vertical {
+  margin-top: calc(-4px * var(--scale));
+}
+
+.left-hand .side-melds {
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: calc(2px * var(--scale));
+  overflow: hidden;
+}
+
+.left-hand .side-melds .hand-rail.vertical {
+  gap: 0;
+}
+
+.left-hand .side-melds .hand-rail.vertical .tile + .tile {
+  margin-top: calc(-12px * var(--scale));
+}
+
+.left-hand .side-melds .tile {
+  width: calc(var(--tile-vert-w) * var(--left-meld-scale));
+  height: calc(var(--tile-vert-h) * var(--left-meld-scale));
+}
+
 .side-rail .side-hand {
   flex: var(--hand-units);
   position: relative;
@@ -656,6 +690,10 @@ body {
 
 .left-hand .side-hand .tile {
   transform: translateX(-50%) rotate(90deg);
+}
+
+.left-hand .side-hand .hand-rail.vertical {
+  inset: calc(-8px * var(--scale)) var(--side-pad) var(--side-pad) var(--side-pad);
 }
 
 .right-hand .side-hand .tile {
