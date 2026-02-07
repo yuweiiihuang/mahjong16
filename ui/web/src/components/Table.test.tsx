@@ -13,6 +13,10 @@ describe('Table', () => {
     const oppDiscardGrid = screen.getByLabelText('opp-discard-grid')
     const leftDiscardGrid = screen.getByLabelText('left-discard-grid')
     const rightDiscardGrid = screen.getByLabelText('right-discard-grid')
+    const playerPanelUser = screen.getByLabelText('player-panel-user')
+    const playerPanelOpponent = screen.getByLabelText('player-panel-opponent')
+    const playerPanelLeft = screen.getByLabelText('player-panel-left')
+    const playerPanelRight = screen.getByLabelText('player-panel-right')
 
     expect(within(selfDiscardGrid).getAllByRole('generic').length).toBe(
       mockTableState.selfDiscards.length,
@@ -26,5 +30,10 @@ describe('Table', () => {
     expect(within(rightDiscardGrid).getAllByRole('generic').length).toBe(
       mockTableState.rightDiscards.length,
     )
+
+    expect(within(playerPanelUser).getByText('You')).toBeInTheDocument()
+    expect(within(playerPanelOpponent).getByText('Leaf')).toBeInTheDocument()
+    expect(within(playerPanelLeft).getByText('Space')).toBeInTheDocument()
+    expect(within(playerPanelRight).getByText('Moka')).toBeInTheDocument()
   })
 })

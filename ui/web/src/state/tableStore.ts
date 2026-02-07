@@ -1,4 +1,4 @@
-type Seat = 'User' | 'Opponent' | 'Right' | 'Left'
+export type Seat = 'User' | 'Opponent' | 'Right' | 'Left'
 
 export type PlayerState = {
   id: string

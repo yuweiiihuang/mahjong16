@@ -1,7 +1,9 @@
 import { useEffect, useMemo } from 'react'
 import { CenterConsole } from './CenterConsole'
 import { HandRail } from './HandRail'
+import { PlayerPanel } from './PlayerPanel'
 import { resolveTableStateFromSearch } from '../state/tableStore'
+import type { PlayerState, Seat } from '../state/tableStore'
 
 declare global {
   interface Window {
@@ -11,6 +13,26 @@ declare global {
 
 export function Table() {
   const table = useMemo(() => resolveTableStateFromSearch(window.location.search), [])
+  const seatLabels: Record<Seat, string> = {
+    User: '自己',
+    Opponent: '對家',
+    Left: '上家',
+    Right: '下家',
+  }
+  const getPlayer = (seat: Seat): PlayerState => {
+    return (
+      table.players.find((player) => player.seat === seat) ?? {
+        id: `fallback-${seat}`,
+        name: seatLabels[seat],
+        seat,
+        score: 0,
+      }
+    )
+  }
+  const opponentPlayer = getPlayer('Opponent')
+  const leftPlayer = getPlayer('Left')
+  const rightPlayer = getPlayer('Right')
+  const userPlayer = getPlayer('User')
   const oppDiscardColumns = 6
   const selfDiscardColumns = 6
   const selfDiscardRows = Math.max(1, Math.ceil(table.selfDiscards.length / selfDiscardColumns))
@@ -64,6 +86,40 @@ export function Table() {
   return (
     <div className="table-shell">
       <div className="table-edge-strip" />
+      <div className="player-panels">
+        <div className="player-panel-slot seat-opponent" aria-label="player-panel-opponent">
+          <PlayerPanel
+            name={opponentPlayer.name}
+            seat={opponentPlayer.seat}
+            score={opponentPlayer.score}
+            seatLabel={seatLabels[opponentPlayer.seat]}
+          />
+        </div>
+        <div className="player-panel-slot seat-left" aria-label="player-panel-left">
+          <PlayerPanel
+            name={leftPlayer.name}
+            seat={leftPlayer.seat}
+            score={leftPlayer.score}
+            seatLabel={seatLabels[leftPlayer.seat]}
+          />
+        </div>
+        <div className="player-panel-slot seat-right" aria-label="player-panel-right">
+          <PlayerPanel
+            name={rightPlayer.name}
+            seat={rightPlayer.seat}
+            score={rightPlayer.score}
+            seatLabel={seatLabels[rightPlayer.seat]}
+          />
+        </div>
+        <div className="player-panel-slot seat-user" aria-label="player-panel-user">
+          <PlayerPanel
+            name={userPlayer.name}
+            seat={userPlayer.seat}
+            score={userPlayer.score}
+            seatLabel={seatLabels[userPlayer.seat]}
+          />
+        </div>
+      </div>
 
       <div className="table-grid">
         {/* 對家 */}
