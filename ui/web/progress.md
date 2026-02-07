@@ -32,6 +32,12 @@
   - 下家花牌改為側邊方向與欄優先順序（vertical + grid-auto-flow: column，牌面旋轉 -90）。
   - 下家花牌區上擴一個 row（7/10），下家棄牌區上移（2/7）；下家花牌順序改為右下->右上->左下->左上（顯式 gridRow/gridColumn）。
   - 下家花牌改為貼齊花牌區右下角（right-flower flower-grid align-content:end，region-content justify-content:flex-end）。
+  - Anchor fixture 調整為壓版面配置：棄牌上限 21，並將手牌/副露改為共用 16（示例為 10 手牌 + 2 副露）。
+  - 修正上家副露渲染：改為「組別往下增長」，每組維持 3 張，並與手牌共用同一 side-rail 高度配額。
+  - 新增 `anchor-left-meld-0` ~ `anchor-left-meld-5` 六組 anchor，對應副露 0~5 組與手牌 16/13/10/7/4/1。
+  - 新增上家副露微調參數 `--left-meld-scale`；最終採用 `0.85` 作為不裁切且視覺平衡值。
+  - 調整上家副露排版：組內貼齊、組間微重疊（-4）、並收緊上家副露與手牌間距（side-hand top inset = -8）。
+  - 以最新設定重刷 0~5 截圖，輸出至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
 
 ## TODO
 
