@@ -26,3 +26,17 @@ Original prompt: 你可以建議一個開發流程嗎？我現在就是做一個
 - Install `playwright` in `ui/web` when network access is available.
 - Expand action payloads into scenario-specific sequences once the UI has interactive controls.
 - Add a visual baseline approval step (diff review) when layouts start changing frequently.
+
+- 2026-02-07: 將下家棄牌區/花牌區下移到與上家點對稱位置（right-discard 4/8、right-flower 8/10），使花牌區緊貼我方進牌區上方且不重疊。
+
+- 2026-02-07: 將我方花牌/棄牌區整組右移（self-flower 4/6、self-discard 6/10），右側貼齊下家花牌左緣。
+
+- 2026-02-07: 上家棄牌區往下擴增一個 row（left-discard 4/9），並將上家棄牌示例擴至 21 張（3x7）。
+
+- 2026-02-07: 下家棄牌區往上擴增一個 row（right-discard 3/8），並將下家棄牌改為 21 張；右側棄牌網格 rows 改為 7（3x7）。
+
+- 2026-02-07: 我方與對家棄牌改為 21 張，並將中路棄牌網格欄數調整為 7（3x7），檢查編號順序連續。
+
+- 2026-02-07: 修正我方棄牌區垂直置中：self-discard region-content 改為 justify-content:center，並移除 discard-grid-self 的 margin-top。
+
+- 2026-02-07: 修正對家棄牌區垂直置中：opp-discard region-content 改為 justify-content:center，並移除 discard-grid-opp 的 margin-top。

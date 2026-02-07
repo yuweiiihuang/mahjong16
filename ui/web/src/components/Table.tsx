@@ -33,10 +33,10 @@ export function Table() {
   const leftPlayer = getPlayer('Left')
   const rightPlayer = getPlayer('Right')
   const userPlayer = getPlayer('User')
-  const oppDiscardColumns = 6
-  const selfDiscardColumns = 6
+  const oppDiscardColumns = 7
+  const selfDiscardColumns = 7
   const selfDiscardRows = Math.max(1, Math.ceil(table.selfDiscards.length / selfDiscardColumns))
-  const sideDiscardRows = 6
+  const sideDiscardRows = 7
   const rightDiscardColumns = Math.max(1, Math.ceil(table.rightDiscards.length / sideDiscardRows))
   const sideTotalUnits = 16
   const oppTotalUnits = 16
