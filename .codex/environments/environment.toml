@@ -3,4 +3,7 @@ version = 1
 name = "mahjong16"
 
 [setup]
-script = ""
+script = '''
+uv venv .venv
+uv pip install -r requirements.txt
+'''
