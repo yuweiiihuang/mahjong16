@@ -37,6 +37,8 @@ export function Table() {
   const selfDiscardColumns = 7
   const selfDiscardRows = Math.max(1, Math.ceil(table.selfDiscards.length / selfDiscardColumns))
   const sideDiscardRows = 7
+  const sideFlowerRows = 4
+  const sideFlowerColumns = 2
   const rightDiscardColumns = Math.max(1, Math.ceil(table.rightDiscards.length / sideDiscardRows))
   const sideTotalUnits = 16
   const oppTotalUnits = 16
@@ -67,13 +69,17 @@ export function Table() {
         counts: {
           selfHand: table.selfHand.length,
           selfDiscards: table.selfDiscards.length,
+          selfFlowers: table.selfFlowers.length,
           selfMelds: table.selfMelds.length,
           oppHand: table.oppHand.length,
           oppDiscards: table.oppDiscards.length,
+          oppFlowers: table.oppFlowers.length,
           leftHand: table.leftHand.length,
           leftDiscards: table.leftDiscards.length,
+          leftFlowers: table.leftFlowers.length,
           rightHand: table.rightHand.length,
           rightDiscards: table.rightDiscards.length,
+          rightFlowers: table.rightFlowers.length,
         },
         coordinates: 'origin at viewport top-left; +x to right, +y to bottom',
       })
@@ -164,7 +170,14 @@ export function Table() {
           </div>
         </div>
         <div className="region color-opponent opp-flower">
-          <span className="region-label">對家 花牌</span>
+          <div className="region-content">
+            <div className="region-title">對家 花牌</div>
+            <div className="flower-grid horizontal" aria-label="opp-flower-grid">
+              {table.oppFlowers.map((flower, idx) => (
+                <div key={`opp-flower-${idx}`} className="tile flower-tile" data-label={flower} />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* 我方 */}
@@ -218,7 +231,14 @@ export function Table() {
           </div>
         </div>
         <div className="region color-user self-flower">
-          <span className="region-label">我的 花牌</span>
+          <div className="region-content">
+            <div className="region-title">我的 花牌</div>
+            <div className="flower-grid horizontal" aria-label="self-flower-grid">
+              {table.selfFlowers.map((flower, idx) => (
+                <div key={`self-flower-${idx}`} className="tile flower-tile" data-label={flower} />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* 上家 */}
@@ -270,7 +290,14 @@ export function Table() {
           </div>
         </div>
         <div className="region color-left left-flower">
-          <span className="region-label">上家 花牌</span>
+          <div className="region-content">
+            <div className="region-title">上家 花牌</div>
+            <div className="flower-grid vertical" aria-label="left-flower-grid">
+              {table.leftFlowers.map((flower, idx) => (
+                <div key={`left-flower-${idx}`} className="tile flower-tile" data-label={flower} />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* 下家 */}
@@ -332,7 +359,24 @@ export function Table() {
           </div>
         </div>
         <div className="region color-right right-flower">
-          <span className="region-label">下家 花牌</span>
+          <div className="region-content">
+            <div className="region-title">下家 花牌</div>
+            <div className="flower-grid vertical" aria-label="right-flower-grid">
+              {table.rightFlowers.map((flower, idx) => (
+                <div
+                  key={`right-flower-${idx}`}
+                  className="tile flower-tile"
+                  data-label={flower}
+                  style={
+                    {
+                      gridColumn: sideFlowerColumns - Math.floor(idx / sideFlowerRows),
+                      gridRow: sideFlowerRows - (idx % sideFlowerRows),
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* 中央資訊 */}
