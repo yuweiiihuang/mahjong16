@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import net from 'node:net'
 import { chromium } from 'playwright'
@@ -14,55 +13,6 @@ const internalPort = Number.parseInt(process.env.UI_E2E_PORT ?? '4173', 10)
 const defaultUrl = `http://${internalHost}:${internalPort}/?anchor=${encodeURIComponent(anchorId)}`
 const url = process.env.UI_E2E_URL ?? defaultUrl
 const headless = process.env.UI_E2E_HEADLESS !== '0'
-
-function resolveChromiumExecutablePath() {
-  const defaultPath = chromium.executablePath()
-  if (fs.existsSync(defaultPath)) {
-    return defaultPath
-  }
-
-  const cacheRoot = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright')
-  if (!fs.existsSync(cacheRoot)) {
-    return defaultPath
-  }
-
-  const chromiumDirs = fs
-    .readdirSync(cacheRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith('chromium-'))
-    .map((entry) => entry.name)
-    .sort()
-    .reverse()
-
-  for (const dirName of chromiumDirs) {
-    const armPath = path.join(
-      cacheRoot,
-      dirName,
-      'chrome-mac-arm64',
-      'Google Chrome for Testing.app',
-      'Contents',
-      'MacOS',
-      'Google Chrome for Testing',
-    )
-    if (fs.existsSync(armPath)) {
-      return armPath
-    }
-
-    const x64Path = path.join(
-      cacheRoot,
-      dirName,
-      'chrome-mac-x64',
-      'Google Chrome for Testing.app',
-      'Contents',
-      'MacOS',
-      'Google Chrome for Testing',
-    )
-    if (fs.existsSync(x64Path)) {
-      return x64Path
-    }
-  }
-
-  return defaultPath
-}
 
 function fail(message) {
   console.error(`[test:e2e:ui] ${message}`)
@@ -181,7 +131,6 @@ async function main() {
 
     browser = await chromium.launch({
       headless,
-      executablePath: resolveChromiumExecutablePath(),
     })
     const page = await browser.newPage({ viewport: { width: 1680, height: 960 } })
     const errors = []
