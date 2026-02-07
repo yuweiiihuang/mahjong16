@@ -8,7 +8,7 @@
 3. Re-run repeatable visual smoke capture:
    - `npm run test:e2e:ui`
 4. Check generated artifacts under:
-   - `/Users/huangyuwei/Projects/mahjong16/ui/web/artifacts/ui-e2e/latest`
+   - `ui/web/artifacts/ui-e2e/latest` (from repo root)
    - Current anchor outputs:
      - `anchor-01-self-draw.png`
      - `anchor-01-self-draw.json`
@@ -26,11 +26,13 @@
 ## E2E Notes
 
 - The e2e runner is a project-local Playwright script:
-  - `/Users/huangyuwei/Projects/mahjong16/ui/web/scripts/run-ui-e2e.mjs`
-- Default URL is `http://localhost:5173` (override with `UI_E2E_URL`).
+  - `ui/web/scripts/run-ui-e2e.mjs` (from repo root)
+  - `scripts/run-ui-e2e.mjs` (from `ui/web`)
+- Default URL is `http://127.0.0.1:4173` when `UI_E2E_URL` is not set.
 - Default anchor is `anchor-01-self-draw` (override with `UI_E2E_ANCHOR`).
 - Output folder is reset on every run:
-  - `/Users/huangyuwei/Projects/mahjong16/ui/web/artifacts/ui-e2e/latest`
+  - `ui/web/artifacts/ui-e2e/latest` (from repo root)
+  - `artifacts/ui-e2e/latest` (from `ui/web`)
 - If `playwright` is missing, install it in this package:
   - `npm install -D playwright`
 
