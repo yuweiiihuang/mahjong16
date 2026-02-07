@@ -657,12 +657,13 @@ body {
 }
 
 .left-hand .side-melds .hand-rail.vertical .tile + .tile {
-  margin-top: calc(-12px * var(--scale));
+  margin-top: calc((var(--tile-vert-w) - var(--tile-vert-h)) * var(--left-meld-scale));
 }
 
 .left-hand .side-melds .tile {
   width: calc(var(--tile-vert-w) * var(--left-meld-scale));
   height: calc(var(--tile-vert-h) * var(--left-meld-scale));
+  box-shadow: none;
 }
 
 .side-rail .side-hand {

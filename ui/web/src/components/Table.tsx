@@ -51,6 +51,11 @@ export function Table() {
   const rightMeldUnits = Math.min(sideTotalUnits - 1, table.rightMelds.length * 3)
   const leftHandUnits = Math.max(1, sideTotalUnits - leftMeldUnits)
   const rightHandUnits = Math.max(1, sideTotalUnits - rightMeldUnits)
+  const leftMeldCount = table.leftMelds.length
+  const leftMeldStackOffsetPx = Math.max(0, 4 - leftMeldCount)
+  const leftMeldGroupOverlapPx = leftMeldCount <= 1 ? 0 : -(leftMeldCount - 1)
+  const leftMeldTileOverlapPx = -(8 + Math.min(4, leftMeldCount))
+  const leftHandTopInsetPx = -Math.round((leftMeldCount / 5) * 8)
 
   useEffect(() => {
     window.render_game_to_text = () =>
@@ -253,6 +258,14 @@ export function Table() {
                 ['--side-units' as keyof React.CSSProperties]: sideTotalUnits.toString(),
                 ['--meld-units' as keyof React.CSSProperties]: leftMeldUnits.toString(),
                 ['--hand-units' as keyof React.CSSProperties]: leftHandUnits.toString(),
+                ['--left-meld-stack-offset' as keyof React.CSSProperties]:
+                  `${leftMeldStackOffsetPx}px`,
+                ['--left-meld-group-overlap' as keyof React.CSSProperties]:
+                  `${leftMeldGroupOverlapPx}px`,
+                ['--left-meld-tile-overlap' as keyof React.CSSProperties]:
+                  `${leftMeldTileOverlapPx}px`,
+                ['--left-hand-top-inset' as keyof React.CSSProperties]:
+                  `${leftHandTopInsetPx}px`,
               }}
             >
               <div className="side-melds">
