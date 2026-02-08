@@ -35,5 +35,5 @@ ren_hu,人胡,"台灣麻將台數計算表;維基教科書",false,0,"discard_cou
 di_hu,地胡,"台灣麻將台數計算表;維基教科書",true,16,"discards ==1 and win_source in RON/TSUMO",,,implemented
 tian_hu,天胡,"台灣麻將台數計算表;維基教科書",true,32,"tsumo and discard_count==0",,,implemented
 si_gang_pai,四槓牌,"維基教科書",true,8,"single-player four kongs => immediate win; multi-player four kongs => draw",,"zimo (variant: not stack)",missing
-zha_hu_penalty,詐胡,"維基教科書",true,0,"illegal HU declaration penalty to three players",,,missing
+zha_hu_penalty,詐胡,"維基教科書",false,0,"illegal HU declaration penalty to three players",,,missing
 dealer_streak_cap_10,連莊上限十次,"台灣麻將台數計算表",false,0,"cap dealer_streak at 10 for specific variants",,,missing

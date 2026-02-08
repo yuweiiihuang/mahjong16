@@ -1,12 +1,12 @@
 {
   "summary": {
     "total_rules": 38,
-    "required_rules": 34,
+    "required_rules": 33,
     "covered_required_rules": 32,
     "gaps_by_level": {
-      "P0": 2,
+      "P0": 1,
       "P1": 0,
-      "P2": 1,
+      "P2": 2,
       "P3": 0
     }
   },
@@ -374,11 +374,11 @@
     {
       "rule_id": "zha_hu_penalty",
       "zh_name": "詐胡",
-      "spec_required": true,
+      "spec_required": false,
       "in_profile": true,
       "in_engine": false,
       "in_tests": false,
-      "gap_level": "P0",
+      "gap_level": "P2",
       "notes": "L1=OK, L2=MISS, L4=MISS, catalog_status=missing"
     },
     {

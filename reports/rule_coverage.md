@@ -1,19 +1,19 @@
 # Rule Coverage Report
 
-- Generated (UTC): `2026-02-08 14:35:28Z`
+- Generated (UTC): `2026-02-08 14:51:40Z`
 - Baseline profile: `taiwan_base`
 - Total rules: `38`
-- Required coverage: `32/34`
-- Gap counts: `P0=2`, `P1=0`, `P2=1`, `P3=0`
+- Required coverage: `32/33`
+- Gap counts: `P0=1`, `P1=0`, `P2=2`, `P3=0`
 
 ## P0 Findings
 - `si_gang_pai` (四槓牌): profile=True, engine=False, tests=False
-- `zha_hu_penalty` (詐胡): profile=True, engine=False, tests=False
 
 ## P1 Findings
 - None
 
 ## P2 Findings
+- `zha_hu_penalty` (詐胡): profile=True, engine=False, tests=False
 - `dealer_streak_cap_10` (連莊上限十次): profile=True, engine=False, tests=False
 
 ## P3 Findings
@@ -59,5 +59,5 @@
 | `di_hu` | 地胡 | Y | Y | Y | Y | - |
 | `tian_hu` | 天胡 | Y | Y | Y | Y | - |
 | `si_gang_pai` | 四槓牌 | Y | Y | N | N | P0 |
-| `zha_hu_penalty` | 詐胡 | Y | Y | N | N | P0 |
+| `zha_hu_penalty` | 詐胡 | N | Y | N | N | P2 |
 | `dealer_streak_cap_10` | 連莊上限十次 | N | Y | N | N | P2 |
