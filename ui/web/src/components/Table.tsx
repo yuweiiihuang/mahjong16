@@ -322,7 +322,7 @@ export function Table() {
         <div className="region color-right right-hand">
           <div className="region-content">
             <div
-              className="side-rail"
+              className={`side-rail${rightMeldUnits === 0 ? ' is-meld-empty' : ''}`}
               style={{
                 ['--side-units' as keyof React.CSSProperties]: sideTotalUnits.toString(),
                 ['--meld-units' as keyof React.CSSProperties]: rightMeldUnits.toString(),

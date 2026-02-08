@@ -677,7 +677,7 @@ body {
 }
 
 .right-hand .side-melds .melds {
-  margin-top: calc(4px * var(--scale));
+  margin-top: 0;
   flex-direction: column;
   justify-content: flex-start;
   align-items: center;
@@ -690,9 +690,10 @@ body {
 }
 
 .right-hand .side-melds {
-  justify-content: flex-start;
+  justify-content: flex-end;
   align-items: center;
-  padding-top: calc(2px * var(--scale));
+  padding-top: 0;
+  padding-bottom: calc(2px * var(--scale));
   overflow: hidden;
 }
 
@@ -770,11 +771,30 @@ body {
 }
 
 .right-hand .side-hand .hand-rail.vertical {
-  inset: calc(-8px * var(--scale)) var(--side-pad) var(--side-pad) var(--side-pad);
+  inset: calc(6px * var(--scale)) var(--side-pad) var(--side-pad) var(--side-pad);
 }
 
 .right-hand .side-hand .tile {
   transform: translateX(-50%) rotate(-90deg);
+}
+
+.right-hand .side-rail.is-meld-empty .side-melds {
+  display: none;
+}
+
+.right-hand .side-rail.is-meld-empty .side-hand {
+  flex: 1;
+}
+
+.right-hand .side-rail.is-meld-empty .side-hand .hand-rail.vertical {
+  inset: var(--side-pad);
+}
+
+.right-hand .side-rail.is-meld-empty .side-hand .hand-rail.vertical .tile {
+  top: calc(
+    ((var(--i) * (100% - (2 * var(--side-pad)) - var(--tile-vert-w))) / 15) -
+      calc(2px * var(--scale))
+  );
 }
 
 .draw-tile {

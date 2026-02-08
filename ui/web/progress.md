@@ -51,6 +51,12 @@
   - 上家手排 top inset 改為依 `handUnits` 線性縮放，降低 `meld` 增加時極端 case 的擠壓感。
   - 修正 `meld=5`（`handUnits=1`）單張牌貼底問題：新增 `is-hand-single` 佈局與旋轉幾何補償，讓底部 gap 與 `meld=4` 接近一致。
   - 重刷 `anchor-left-meld-0..5` sweep，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
+  - 下家套用同等修正：手牌/副露間距改為統一規則，移除 `meld=0`、`handUnits=1` 的分支定位，避免右側三段式間距漂移。
+  - 修正右側不一致根因：`side-melds` 由上對齊改為下對齊（`justify-content:flex-end` + 固定底部內距），使 `meld=1..5` 的副露到底框 gap 一致。
+  - 修正右側 `meld=0` 基準：右側純手牌在「手牌&副露」整體虛線區內垂直置中，量測 top/bottom gap 等距。
+  - 量測確認右側一致性：`meld=0..5` 手牌到上框 gap 收斂至同一基準（約 17px），`meld=1..5` 副露到底框 gap 固定。
+  - 後續 sweep 流程統一：改以 `anchor-both-meld-0..5` 作為唯一六組驗證集，左右家同時受測，避免左/右分開跑造成比較基準混亂。
+  - 重刷 `anchor-both-meld-0..5`，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-both-meld-*.png`。
 
 ## TODO
 
