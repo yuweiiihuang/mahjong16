@@ -55,7 +55,7 @@ export function Table() {
   const leftMeldStackOffsetPx = Math.max(0, 4 - leftMeldCount)
   const leftMeldGroupOverlapPx = leftMeldCount <= 1 ? 0 : -(leftMeldCount - 1)
   const leftMeldTileOverlapPx = -(8 + Math.min(4, leftMeldCount))
-  const leftHandTopInsetPx = -Math.round((leftMeldCount / 5) * 8)
+  const leftHandTopInsetPx = -Math.round(((leftHandUnits - 1) / 15) * 8)
 
   useEffect(() => {
     window.render_game_to_text = () =>
@@ -253,7 +253,9 @@ export function Table() {
         <div className="region color-left left-hand">
           <div className="region-content">
             <div
-              className="side-rail"
+              className={`side-rail${leftMeldUnits === 0 ? ' is-meld-empty' : ''}${
+                leftHandUnits === 1 ? ' is-hand-single' : ''
+              }`}
               style={{
                 ['--side-units' as keyof React.CSSProperties]: sideTotalUnits.toString(),
                 ['--meld-units' as keyof React.CSSProperties]: leftMeldUnits.toString(),
