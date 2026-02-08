@@ -1,0 +1,39 @@
+rule_id,zh_name,source_doc,required_in_taiwan_base,tai_value,trigger,excludes,includes,status
+dealer,莊家,"台灣麻將台數計算表;維基教科書",true,1,"winner_is_dealer, dealer_streak",, ,implemented
+quan_feng_ke,圈風牌,"台灣麻將台數計算表;維基教科書",true,1,"winner hand has round-wind triplet",da_si_xi,,implemented
+men_feng_ke,風位牌,"台灣麻將台數計算表;維基教科書",true,1,"winner hand has seat-wind triplet",da_si_xi,,implemented
+zheng_hua,正花牌,"台灣麻將台數計算表;維基教科書",true,1,"winner flowers match seat wind",,,implemented
+hua_gang,花槓,"台灣麻將台數計算表;維基教科書",true,2,"flowers contain seasons set and/or gentlemen set",,,implemented
+zimo,自摸,"台灣麻將台數計算表;維基教科書",true,1,"win_source is TSUMO",menqing_zimo,,implemented
+menqing,門清,"台灣麻將台數計算表;維基教科書",true,1,"no open meld CHI/PONG/GANG/KAKAN",menqing_zimo,,implemented
+menqing_zimo,門清自摸,"台灣麻將台數計算表;維基教科書",true,3,"menqing and tsumo",,"menqing;zimo",implemented
+ping_hu,平胡,"台灣麻將台數計算表;維基教科書",true,2,"ron with chow-only shape, no honors/flowers, not single wait",,,implemented
+dragon_pung,三元牌,"台灣麻將台數計算表;維基教科書",true,1,"dragon triplet count",xiao_san_yuan;da_san_yuan,,implemented
+san_an_ke,三暗刻,"台灣麻將台數計算表;維基教科書",true,2,"concealed triplets >=3",si_an_ke;wu_an_ke,,implemented
+si_an_ke,四暗刻,"台灣麻將台數計算表;維基教科書",true,5,"concealed triplets >=4",wu_an_ke,"san_an_ke",implemented
+wu_an_ke,五暗刻,"台灣麻將台數計算表;維基教科書",true,8,"concealed triplets >=5",,"san_an_ke;si_an_ke",implemented
+peng_peng_hu,碰碰胡,"台灣麻將台數計算表;維基教科書",true,4,"all melds are pungs/kongs and no chi",,,implemented
+hun_yi_se,混一色,"台灣麻將台數計算表;維基教科書",true,4,"single suit plus honors",,,implemented
+qing_yi_se,清一色,"台灣麻將台數計算表;維基教科書",true,8,"single suit without honors",,,implemented
+zi_yi_se,字一色,"台灣麻將台數計算表;維基教科書",false,0,"all tiles are honors",,,implemented
+xiao_san_yuan,小三元,"台灣麻將台數計算表;維基教科書",true,4,"two dragon triplets and one dragon pair",,"dragon_pung",implemented
+da_san_yuan,大三元,"台灣麻將台數計算表;維基教科書",true,8,"three dragon triplets",,"dragon_pung",implemented
+xiao_si_xi,小四喜,"台灣麻將台數計算表;維基教科書",true,8,"three wind triplets and one wind pair",,,implemented
+da_si_xi,大四喜,"台灣麻將台數計算表;維基教科書",true,16,"four wind triplets",,"quan_feng_ke;men_feng_ke",implemented
+du_ting,獨聽,"台灣麻將台數計算表;維基教科書",true,1,"single wait set and win tile in wait",,,implemented
+ting,聽牌,"台灣麻將台數計算表;維基教科書",false,0,"declared_ting or tenpai_before_draw",,,implemented
+quan_qiu_ren,全求人,"台灣麻將台數計算表;維基教科書",true,1,"ron with all open melds and single concealed tile",,,implemented
+he_di,河底撈魚,"台灣麻將台數計算表;維基教科書",true,1,"ron on final drawable discard",,,implemented
+hai_di,海底撈月,"台灣麻將台數計算表;維基教科書",true,1,"tsumo on final drawable tile",,,implemented
+qiang_gang,搶槓,"台灣麻將台數計算表;維基教科書",true,1,"win_by_qiang_gang flag",,,implemented
+gang_shang,槓上自摸,"台灣麻將台數計算表;維基教科書",true,2,"win_by_gang_draw flag",,"zimo",implemented
+qi_qiang_yi,七搶一,"台灣麻將台數計算表;維基教科書",true,8,"flower_win_type is qi_qiang_yi",,,implemented
+ba_xian,八仙過海,"台灣麻將台數計算表;維基教科書",true,8,"flower_win_type is ba_xian or 8 unique flowers",,,implemented
+di_ting,地聽,"台灣麻將台數計算表;維基教科書",true,8,"ting_declared_at <=8 and no open meld at declaration",,,implemented
+tian_ting,天聽,"台灣麻將台數計算表;維基教科書",true,16,"ting_declared_at <=1",,,implemented
+ren_hu,人胡,"台灣麻將台數計算表;維基教科書",false,0,"discard_count in first round and open_meld_count==0",,,implemented
+di_hu,地胡,"台灣麻將台數計算表;維基教科書",true,16,"discards ==1 and win_source in RON/TSUMO",,,implemented
+tian_hu,天胡,"台灣麻將台數計算表;維基教科書",true,32,"tsumo and discard_count==0",,,implemented
+si_gang_pai,四槓牌,"維基教科書",true,8,"single-player four kongs => immediate win; multi-player four kongs => draw",,"zimo (variant: not stack)",missing
+zha_hu_penalty,詐胡,"維基教科書",true,0,"illegal HU declaration penalty to three players",,,missing
+dealer_streak_cap_10,連莊上限十次,"台灣麻將台數計算表",false,0,"cap dealer_streak at 10 for specific variants",,,missing

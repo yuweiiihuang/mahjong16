@@ -1,0 +1,395 @@
+{
+  "summary": {
+    "total_rules": 38,
+    "required_rules": 34,
+    "covered_required_rules": 32,
+    "gaps_by_level": {
+      "P0": 2,
+      "P1": 0,
+      "P2": 1,
+      "P3": 0
+    }
+  },
+  "items": [
+    {
+      "rule_id": "dealer",
+      "zh_name": "莊家",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "quan_feng_ke",
+      "zh_name": "圈風牌",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=da_si_xi"
+    },
+    {
+      "rule_id": "men_feng_ke",
+      "zh_name": "風位牌",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=da_si_xi"
+    },
+    {
+      "rule_id": "zheng_hua",
+      "zh_name": "正花牌",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "hua_gang",
+      "zh_name": "花槓",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "zimo",
+      "zh_name": "自摸",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=menqing_zimo"
+    },
+    {
+      "rule_id": "menqing",
+      "zh_name": "門清",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=menqing_zimo"
+    },
+    {
+      "rule_id": "menqing_zimo",
+      "zh_name": "門清自摸",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=menqing;zimo"
+    },
+    {
+      "rule_id": "ping_hu",
+      "zh_name": "平胡",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "dragon_pung",
+      "zh_name": "三元牌",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=xiao_san_yuan;da_san_yuan"
+    },
+    {
+      "rule_id": "san_an_ke",
+      "zh_name": "三暗刻",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=si_an_ke;wu_an_ke"
+    },
+    {
+      "rule_id": "si_an_ke",
+      "zh_name": "四暗刻",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, excludes=wu_an_ke, includes=san_an_ke"
+    },
+    {
+      "rule_id": "wu_an_ke",
+      "zh_name": "五暗刻",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=san_an_ke;si_an_ke"
+    },
+    {
+      "rule_id": "peng_peng_hu",
+      "zh_name": "碰碰胡",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "hun_yi_se",
+      "zh_name": "混一色",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "qing_yi_se",
+      "zh_name": "清一色",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "zi_yi_se",
+      "zh_name": "字一色",
+      "spec_required": false,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "xiao_san_yuan",
+      "zh_name": "小三元",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=dragon_pung"
+    },
+    {
+      "rule_id": "da_san_yuan",
+      "zh_name": "大三元",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=dragon_pung"
+    },
+    {
+      "rule_id": "xiao_si_xi",
+      "zh_name": "小四喜",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "da_si_xi",
+      "zh_name": "大四喜",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=quan_feng_ke;men_feng_ke"
+    },
+    {
+      "rule_id": "du_ting",
+      "zh_name": "獨聽",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "ting",
+      "zh_name": "聽牌",
+      "spec_required": false,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "quan_qiu_ren",
+      "zh_name": "全求人",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "he_di",
+      "zh_name": "河底撈魚",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "hai_di",
+      "zh_name": "海底撈月",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "qiang_gang",
+      "zh_name": "搶槓",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "gang_shang",
+      "zh_name": "槓上自摸",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented, includes=zimo"
+    },
+    {
+      "rule_id": "qi_qiang_yi",
+      "zh_name": "七搶一",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "ba_xian",
+      "zh_name": "八仙過海",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "di_ting",
+      "zh_name": "地聽",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "tian_ting",
+      "zh_name": "天聽",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "ren_hu",
+      "zh_name": "人胡",
+      "spec_required": false,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "di_hu",
+      "zh_name": "地胡",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "tian_hu",
+      "zh_name": "天胡",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": true,
+      "in_tests": true,
+      "gap_level": "",
+      "notes": "L1=OK, L2=OK, L4=OK, catalog_status=implemented"
+    },
+    {
+      "rule_id": "si_gang_pai",
+      "zh_name": "四槓牌",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": false,
+      "in_tests": false,
+      "gap_level": "P0",
+      "notes": "L1=OK, L2=MISS, L4=MISS, catalog_status=missing, includes=zimo (variant: not stack)"
+    },
+    {
+      "rule_id": "zha_hu_penalty",
+      "zh_name": "詐胡",
+      "spec_required": true,
+      "in_profile": true,
+      "in_engine": false,
+      "in_tests": false,
+      "gap_level": "P0",
+      "notes": "L1=OK, L2=MISS, L4=MISS, catalog_status=missing"
+    },
+    {
+      "rule_id": "dealer_streak_cap_10",
+      "zh_name": "連莊上限十次",
+      "spec_required": false,
+      "in_profile": true,
+      "in_engine": false,
+      "in_tests": false,
+      "gap_level": "P2",
+      "notes": "L1=OK, L2=MISS, L4=MISS, catalog_status=missing"
+    }
+  ]
+}
