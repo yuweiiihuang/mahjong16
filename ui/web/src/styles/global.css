@@ -667,6 +667,15 @@ body {
   box-shadow: none;
 }
 
+.left-hand .region-title {
+  z-index: 5;
+}
+
+.left-hand .side-melds > .region-title,
+.left-hand .side-hand > .region-title {
+  top: calc(-4px * var(--scale));
+}
+
 .right-hand .side-melds .melds {
   margin-top: calc(4px * var(--scale));
   flex-direction: column;
@@ -729,7 +738,35 @@ body {
 }
 
 .left-hand .side-hand .hand-rail.vertical {
-  inset: calc(-8px * var(--scale)) var(--side-pad) var(--side-pad) var(--side-pad);
+  inset: var(--left-hand-top-inset, calc(-8px * var(--scale))) var(--side-pad) var(--side-pad)
+    var(--side-pad);
+}
+
+.left-hand .side-rail.is-meld-empty .side-hand .hand-rail.vertical {
+  inset: var(--side-pad);
+}
+
+.left-hand .side-rail.is-meld-empty .side-melds {
+  display: none;
+}
+
+.left-hand .side-rail.is-meld-empty .side-hand {
+  flex: 1;
+}
+
+.left-hand .side-rail.is-meld-empty .side-hand .hand-rail.vertical .tile {
+  top: calc(
+    ((var(--i) * (100% - (2 * var(--side-pad)) - var(--tile-vert-w))) / 15) -
+      calc(2px * var(--scale))
+  );
+}
+
+.left-hand .side-rail.is-hand-single .side-hand .hand-rail.vertical {
+  inset: var(--side-pad);
+}
+
+.left-hand .side-rail.is-hand-single .side-hand .hand-rail.vertical .tile {
+  top: calc(50% - (var(--tile-vert-w) / 2) - (var(--tile-vert-h) - var(--tile-vert-w)));
 }
 
 .right-hand .side-hand .hand-rail.vertical {

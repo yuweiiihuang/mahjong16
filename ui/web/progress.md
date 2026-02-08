@@ -45,6 +45,13 @@
   - 新增 `anchor-right-meld-0..5`（只測下家副露變化）與 `anchor-both-meld-0..5`（上下家同時使用相同 meld 數）。
   - 完成 `anchor-both-meld-0..5` sweep，輸出至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-both-meld-*.png`。
 
+- 2026-02-08:
+  - 修正上家 `meld=0` 置中語意：改為在「手牌&副露」整體虛線區內垂直置中（`is-meld-empty` 時隱藏 `side-melds` 並讓 `side-hand` 佔滿 side-rail）。
+  - 上家 `meld=0` 手排改用 16 張/15 段的幾何分佈公式，並校正固定偏移使上下邊界 gap 等距。
+  - 上家手排 top inset 改為依 `handUnits` 線性縮放，降低 `meld` 增加時極端 case 的擠壓感。
+  - 修正 `meld=5`（`handUnits=1`）單張牌貼底問題：新增 `is-hand-single` 佈局與旋轉幾何補償，讓底部 gap 與 `meld=4` 接近一致。
+  - 重刷 `anchor-left-meld-0..5` sweep，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
+
 ## TODO
 
 - Expand action payloads into scenario-specific sequences once the UI has interactive controls.
