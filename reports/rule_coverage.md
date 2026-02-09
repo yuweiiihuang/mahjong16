@@ -1,6 +1,5 @@
 # Rule Coverage Report
 
-- Generated (UTC): `2026-02-08 14:51:40Z`
 - Baseline profile: `taiwan_base`
 - Total rules: `38`
 - Required coverage: `32/33`

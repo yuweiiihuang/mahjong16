@@ -244,11 +244,26 @@ def build_coverage(
 
 
 def to_markdown(items: list[RuleCoverageItem], summary: CoverageSummary, taiwan_profile: str) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+    return to_markdown_with_options(
+        items=items,
+        summary=summary,
+        taiwan_profile=taiwan_profile,
+        include_timestamp=False,
+    )
+
+
+def to_markdown_with_options(
+    items: list[RuleCoverageItem],
+    summary: CoverageSummary,
+    taiwan_profile: str,
+    include_timestamp: bool,
+) -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ") if include_timestamp else None
     lines: list[str] = []
     lines.append("# Rule Coverage Report")
     lines.append("")
-    lines.append(f"- Generated (UTC): `{now}`")
+    if now:
+        lines.append(f"- Generated (UTC): `{now}`")
     lines.append(f"- Baseline profile: `{taiwan_profile}`")
     lines.append(f"- Total rules: `{summary.total_rules}`")
     lines.append(
@@ -284,6 +299,34 @@ def to_markdown(items: list[RuleCoverageItem], summary: CoverageSummary, taiwan_
     return "\n".join(lines)
 
 
+def _validate_inputs(
+    catalog_path: Path,
+    profiles_dir: Path,
+    scoring_rules_dir: Path,
+    gameplay_dir: Path,
+    tests_dir: Path,
+    taiwan_profile: str,
+) -> None:
+    if not catalog_path.exists():
+        raise FileNotFoundError(f"Rule catalog not found: {catalog_path}")
+    if not catalog_path.is_file():
+        raise ValueError(f"Rule catalog must be a file: {catalog_path}")
+    if not profiles_dir.exists() or not profiles_dir.is_dir():
+        raise FileNotFoundError(f"Profiles directory not found: {profiles_dir}")
+    if not any(profiles_dir.glob("*.json")):
+        raise ValueError(f"No profile JSON files found in: {profiles_dir}")
+    if not scoring_rules_dir.exists() or not scoring_rules_dir.is_dir():
+        raise FileNotFoundError(f"Scoring rules directory not found: {scoring_rules_dir}")
+    if not any(scoring_rules_dir.glob("*.py")):
+        raise ValueError(f"No scoring rule .py files found in: {scoring_rules_dir}")
+    if not gameplay_dir.exists() or not gameplay_dir.is_dir():
+        raise FileNotFoundError(f"Gameplay directory not found: {gameplay_dir}")
+    if not tests_dir.exists() or not tests_dir.is_dir():
+        raise FileNotFoundError(f"Tests directory not found: {tests_dir}")
+    if not str(taiwan_profile or "").strip():
+        raise ValueError("taiwan_profile must be a non-empty string")
+
+
 def run_audit(
     catalog_path: Path,
     profiles_dir: Path,
@@ -293,9 +336,23 @@ def run_audit(
     output_json: Path,
     output_md: Path,
     taiwan_profile: str,
+    include_timestamp: bool = False,
 ) -> tuple[list[RuleCoverageItem], CoverageSummary]:
+    _validate_inputs(
+        catalog_path=catalog_path,
+        profiles_dir=profiles_dir,
+        scoring_rules_dir=scoring_rules_dir,
+        gameplay_dir=gameplay_dir,
+        tests_dir=tests_dir,
+        taiwan_profile=taiwan_profile,
+    )
     specs = load_rule_catalog(catalog_path)
     profiles = load_profiles(profiles_dir)
+    if taiwan_profile not in profiles:
+        available = ", ".join(sorted(profiles.keys()))
+        raise ValueError(
+            f"Profile '{taiwan_profile}' not found in {profiles_dir}. Available: {available}"
+        )
     engine_keys = scan_engine_keys(scoring_rules_dir)
 
     gameplay_files = list(gameplay_dir.glob("*.py"))
@@ -323,7 +380,10 @@ def run_audit(
         encoding="utf-8",
     )
 
-    output_md.write_text(to_markdown(items, summary, taiwan_profile), encoding="utf-8")
+    output_md.write_text(
+        to_markdown_with_options(items, summary, taiwan_profile, include_timestamp),
+        encoding="utf-8",
+    )
     return items, summary
 
 
@@ -377,6 +437,11 @@ def parse_args() -> argparse.Namespace:
         default="taiwan_base",
         help="Baseline profile key",
     )
+    parser.add_argument(
+        "--include-timestamp",
+        action="store_true",
+        help="Include generation timestamp in markdown report",
+    )
     return parser.parse_args()
 
 
@@ -391,6 +456,7 @@ def main() -> int:
         output_json=args.output_json,
         output_md=args.output_md,
         taiwan_profile=args.taiwan_profile,
+        include_timestamp=args.include_timestamp,
     )
 
     print(

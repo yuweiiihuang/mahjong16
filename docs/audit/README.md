@@ -7,7 +7,7 @@
 - 規格表：`docs/audit/rule_catalog.csv`
 - 計分設定：`configs/scoring/profiles/*.json`
 - 引擎程式：`domain/scoring/rules/*.py` 與 `domain/gameplay/*.py`
-- 測試：`tests/test_*.py`
+- 測試：`tests/**/test_*.py`
 
 ## 執行
 ```bash

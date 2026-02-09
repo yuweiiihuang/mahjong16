@@ -92,3 +92,80 @@ def test_scan_engine_keys_extracts_acc_add_calls(tmp_path: Path) -> None:
 
     keys = mod.scan_engine_keys(rules_dir)
     assert keys == {"k1", "k2"}
+
+
+def test_run_audit_fails_when_taiwan_profile_missing(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    mod = _load_module(repo_root)
+
+    catalog = tmp_path / "catalog.csv"
+    catalog.write_text(
+        "\n".join(
+            [
+                "rule_id,zh_name,source_doc,required_in_taiwan_base,tai_value,trigger,"
+                "excludes,includes,status",
+                "alpha,Alpha,doc,true,1,t,,,implemented",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    profiles_dir = tmp_path / "profiles"
+    profiles_dir.mkdir()
+    (profiles_dir / "other_profile.json").write_text('{"alpha": 1}\n', encoding="utf-8")
+
+    scoring_rules_dir = tmp_path / "scoring_rules"
+    scoring_rules_dir.mkdir()
+    (scoring_rules_dir / "r.py").write_text('acc.add("alpha")\n', encoding="utf-8")
+
+    gameplay_dir = tmp_path / "gameplay"
+    gameplay_dir.mkdir()
+    (gameplay_dir / "g.py").write_text("pass\n", encoding="utf-8")
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_alpha.py").write_text('assert "alpha"\n', encoding="utf-8")
+
+    output_json = tmp_path / "out" / "rule_coverage.json"
+    output_md = tmp_path / "out" / "rule_coverage.md"
+
+    try:
+        mod.run_audit(
+            catalog_path=catalog,
+            profiles_dir=profiles_dir,
+            scoring_rules_dir=scoring_rules_dir,
+            gameplay_dir=gameplay_dir,
+            tests_dir=tests_dir,
+            output_json=output_json,
+            output_md=output_md,
+            taiwan_profile="taiwan_base",
+        )
+        assert False, "Expected ValueError for missing taiwan_profile"
+    except ValueError as exc:
+        assert "taiwan_base" in str(exc)
+
+
+def test_markdown_omits_timestamp_by_default() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    mod = _load_module(repo_root)
+
+    item = mod.RuleCoverageItem(
+        rule_id="alpha",
+        zh_name="Alpha",
+        spec_required=True,
+        in_profile=True,
+        in_engine=True,
+        in_tests=True,
+        gap_level="",
+        notes="",
+    )
+    summary = mod.CoverageSummary(
+        total_rules=1,
+        required_rules=1,
+        covered_required_rules=1,
+        gaps_by_level={"P0": 0, "P1": 0, "P2": 0, "P3": 0},
+    )
+
+    rendered = mod.to_markdown([item], summary, "taiwan_base")
+    assert "Generated (UTC)" not in rendered
