@@ -37,6 +37,7 @@
   --cc-value: calc(32px * var(--scale));
   --left-meld-scale: 0.85;
   --right-meld-scale: 0.85;
+  --self-meld-scale: 0.85;
 }
 
 * {
@@ -836,7 +837,9 @@ body {
   width: 100%;
   height: 100%;
   display: grid;
+  --self-edge-gap: calc(8px * var(--scale));
   gap: calc(8px * var(--scale));
+  padding: 0 var(--self-edge-gap);
   grid-template-columns: repeat(var(--bottom-units), 1fr);
 }
 
@@ -845,7 +848,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-width: 0;
 }
@@ -855,7 +858,46 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   min-width: 0;
+}
+
+.bottom-rail .bottom-hand .hand-rail {
+  gap: 0;
+  justify-content: flex-end;
+}
+
+.bottom-rail .bottom-melds .melds {
+  margin-top: 0;
+  justify-content: flex-start;
+  gap: 0;
+  overflow: visible;
+}
+
+.bottom-rail .bottom-melds .hand-rail {
+  gap: 0;
+}
+
+.bottom-rail .bottom-melds .hand-rail + .hand-rail {
+  margin-left: calc(10px * var(--scale));
+}
+
+.bottom-rail.is-meld-empty .bottom-hand {
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+.bottom-rail.is-meld-empty .bottom-hand .hand-rail {
+  justify-content: center;
+}
+
+.bottom-rail.is-meld-empty .bottom-melds {
+  display: none;
+}
+
+.self-hand .bottom-melds .tile {
+  width: calc(var(--tile-w) * var(--self-meld-scale));
+  height: calc(var(--tile-h) * var(--self-meld-scale));
+  box-shadow: none;
 }
