@@ -189,7 +189,7 @@ export function Table() {
         <div className="region color-user self-hand">
           <div className="region-content">
             <div
-              className="bottom-rail"
+              className={`bottom-rail${meldUnits === 0 ? ' is-meld-empty' : ''}`}
               style={{
                 ['--bottom-units' as keyof React.CSSProperties]: totalUnits.toString(),
                 ['--meld-units' as keyof React.CSSProperties]: meldUnits.toString(),

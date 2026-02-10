@@ -58,6 +58,15 @@
   - 後續 sweep 流程統一：改以 `anchor-both-meld-0..5` 作為唯一六組驗證集，左右家同時受測，避免左/右分開跑造成比較基準混亂。
   - 重刷 `anchor-both-meld-0..5`，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-both-meld-*.png`。
 
+- 2026-02-10:
+  - 調整我方底部 rail 排版語意：`meld=0` 時手牌置中；`meld>0` 時固定同列顯示，方向為「副露左起、手牌右起」。
+  - 我方底部 rail 新增與側家一致的邊界間距概念（`--self-edge-gap`），確保手牌/副露相對區域邊框維持固定 gap。
+  - 我方副露新增專屬縮放變數 `--self-meld-scale`，並套用為 `0.85`，對齊上下家副露縮放比例。
+  - 我方手牌內牌距改為貼緊（`gap: 0`），降低手牌橫向鬆散感。
+  - 我方副露改為三張一組顯示（組內貼齊），並依需求將「不同組」副露改為分開顯示（組間距 `10px * scale`）。
+  - 我方副露 tile 移除陰影，避免縮放後因陰影造成視覺縫隙誤判。
+  - 多次重刷 `anchor-01-self-draw` 並確認輸出至 `ui/web/artifacts/ui-e2e/latest/anchor-01-self-draw.png`。
+
 ## TODO
 
 - Expand action payloads into scenario-specific sequences once the UI has interactive controls.
