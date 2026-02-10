@@ -82,6 +82,20 @@ const RIGHT_MELD_SETS: string[][] = [
   ['白', '白', '白'],
 ]
 
+const SELF_MELD_SETS: string[][] = [
+  ['二', '二', '二'],
+  ['三', '四', '五'],
+  ['中', '中', '中'],
+  ['六', '七', '八'],
+  ['東', '東', '東'],
+]
+
+const SELF_HAND_ORDER = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '北', '南', '西', '東']
+
+function createSelfHandTiles(count: number): string[] {
+  return Array.from({ length: count }, (_, idx) => SELF_HAND_ORDER[idx % SELF_HAND_ORDER.length])
+}
+
 function createLeftMeldFixture(meldCount: number): TableState {
   const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
   const handCount = 16 - cappedMeldCount * 3
@@ -138,11 +152,34 @@ const bothMeldFixtures: Record<string, TableState> = Object.fromEntries(
   }),
 ) as Record<string, TableState>
 
+function createAllMeldFixture(meldCount: number): TableState {
+  const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
+  const handCount = 16 - cappedMeldCount * 3
+  return {
+    ...mockTableState,
+    anchorId: `anchor-all-meld-${cappedMeldCount}`,
+    selfMelds: SELF_MELD_SETS.slice(0, cappedMeldCount),
+    leftMelds: LEFT_MELD_SETS.slice(0, cappedMeldCount),
+    rightMelds: RIGHT_MELD_SETS.slice(0, cappedMeldCount),
+    selfHand: createSelfHandTiles(handCount),
+    leftHand: Array.from({ length: handCount }, () => '牌'),
+    rightHand: Array.from({ length: handCount }, () => '牌'),
+  }
+}
+
+const allMeldFixtures: Record<string, TableState> = Object.fromEntries(
+  Array.from({ length: 6 }, (_, idx) => {
+    const fixture = createAllMeldFixture(idx)
+    return [fixture.anchorId, fixture]
+  }),
+) as Record<string, TableState>
+
 const anchorFixtures: Record<string, TableState> = {
   [DEFAULT_ANCHOR_ID]: mockTableState,
   ...leftMeldFixtures,
   ...rightMeldFixtures,
   ...bothMeldFixtures,
+  ...allMeldFixtures,
 }
 
 export function resolveTableStateFromSearch(search: string): TableState {
