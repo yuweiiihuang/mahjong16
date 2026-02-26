@@ -43,10 +43,11 @@ export function Table() {
   const sideTotalUnits = 16
   const oppTotalUnits = 16
   const selfTotalUnits = 16
+  const oppMeldUnits = Math.min(oppTotalUnits - 1, table.oppMelds.length * 3)
+  const oppHandUnits = Math.max(1, oppTotalUnits - oppMeldUnits)
   const meldUnits = Math.min(selfTotalUnits - 1, table.selfMelds.length * 3)
   const handUnits = Math.max(1, selfTotalUnits - meldUnits)
   const totalUnits = meldUnits + handUnits
-  const oppHandUnits = oppTotalUnits
   const leftMeldUnits = Math.min(sideTotalUnits - 1, table.leftMelds.length * 3)
   const rightMeldUnits = Math.min(sideTotalUnits - 1, table.rightMelds.length * 3)
   const leftHandUnits = Math.max(1, sideTotalUnits - leftMeldUnits)
@@ -137,15 +138,24 @@ export function Table() {
         <div className="region color-opponent opp-hand">
           <div className="region-content">
             <div
-              className="top-rail"
+              className={`top-rail${oppMeldUnits === 0 ? ' is-meld-empty' : ''}`}
               style={{
                 ['--top-units' as keyof React.CSSProperties]: oppTotalUnits.toString(),
+                ['--meld-units' as keyof React.CSSProperties]: oppMeldUnits.toString(),
                 ['--hand-units' as keyof React.CSSProperties]: oppHandUnits.toString(),
               }}
             >
               <div className="top-hand">
-                <div className="region-title">對家 手牌 / 副露</div>
+                <div className="region-title">對家 手牌</div>
                 <HandRail labels={table.oppHand.slice(0, oppHandUnits)} />
+              </div>
+              <div className="top-melds">
+                <div className="region-title">對家 副露</div>
+                <div className="melds">
+                  {table.oppMelds.map((meld, idx) => (
+                    <HandRail key={`opp-meld-${idx}`} labels={meld} />
+                  ))}
+                </div>
               </div>
             </div>
           </div>

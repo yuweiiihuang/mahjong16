@@ -82,6 +82,14 @@ const RIGHT_MELD_SETS: string[][] = [
   ['白', '白', '白'],
 ]
 
+const OPP_MELD_SETS: string[][] = [
+  ['二', '三', '四'],
+  ['五', '六', '七'],
+  ['中', '中', '中'],
+  ['一', '二', '三'],
+  ['發', '發', '發'],
+]
+
 const SELF_MELD_SETS: string[][] = [
   ['二', '二', '二'],
   ['三', '四', '五'],
@@ -132,6 +140,24 @@ const rightMeldFixtures: Record<string, TableState> = Object.fromEntries(
   }),
 ) as Record<string, TableState>
 
+function createOppMeldFixture(meldCount: number): TableState {
+  const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
+  const handCount = 16 - cappedMeldCount * 3
+  return {
+    ...mockTableState,
+    anchorId: `anchor-opp-meld-${cappedMeldCount}`,
+    oppMelds: OPP_MELD_SETS.slice(0, cappedMeldCount),
+    oppHand: Array.from({ length: handCount }, () => '牌'),
+  }
+}
+
+const oppMeldFixtures: Record<string, TableState> = Object.fromEntries(
+  Array.from({ length: 6 }, (_, idx) => {
+    const fixture = createOppMeldFixture(idx)
+    return [fixture.anchorId, fixture]
+  }),
+) as Record<string, TableState>
+
 function createBothMeldFixture(meldCount: number): TableState {
   const cappedMeldCount = Math.max(0, Math.min(5, meldCount))
   const handCount = 16 - cappedMeldCount * 3
@@ -159,9 +185,11 @@ function createAllMeldFixture(meldCount: number): TableState {
     ...mockTableState,
     anchorId: `anchor-all-meld-${cappedMeldCount}`,
     selfMelds: SELF_MELD_SETS.slice(0, cappedMeldCount),
+    oppMelds: OPP_MELD_SETS.slice(0, cappedMeldCount),
     leftMelds: LEFT_MELD_SETS.slice(0, cappedMeldCount),
     rightMelds: RIGHT_MELD_SETS.slice(0, cappedMeldCount),
     selfHand: createSelfHandTiles(handCount),
+    oppHand: Array.from({ length: handCount }, () => '牌'),
     leftHand: Array.from({ length: handCount }, () => '牌'),
     rightHand: Array.from({ length: handCount }, () => '牌'),
   }
@@ -178,6 +206,7 @@ const anchorFixtures: Record<string, TableState> = {
   [DEFAULT_ANCHOR_ID]: mockTableState,
   ...leftMeldFixtures,
   ...rightMeldFixtures,
+  ...oppMeldFixtures,
   ...bothMeldFixtures,
   ...allMeldFixtures,
 }
