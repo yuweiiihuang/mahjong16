@@ -38,6 +38,7 @@
   --left-meld-scale: 0.85;
   --right-meld-scale: 0.85;
   --self-meld-scale: 0.85;
+  --opp-meld-scale: 0.85;
 }
 
 * {
@@ -819,18 +820,68 @@ body {
   width: 100%;
   height: 100%;
   display: grid;
+  --opp-edge-gap: calc(8px * var(--scale));
   gap: calc(8px * var(--scale));
+  padding: 0 var(--opp-edge-gap);
   grid-template-columns: repeat(var(--top-units), 1fr);
 }
 
 .top-rail .top-hand {
-  grid-column: 1 / -1;
+  grid-column: 1 / span var(--hand-units);
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-width: 0;
+}
+
+.top-rail .top-melds {
+  grid-column: span var(--meld-units);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+}
+
+.top-rail .top-hand .hand-rail {
+  gap: 0;
+  justify-content: flex-start;
+}
+
+.top-rail .top-melds .melds {
+  justify-content: flex-end;
+  gap: 0;
+  overflow: visible;
+}
+
+.top-rail .top-melds .hand-rail {
+  gap: 0;
+}
+
+.top-rail .top-melds .hand-rail + .hand-rail {
+  margin-left: calc(10px * var(--scale));
+}
+
+.top-rail.is-meld-empty .top-hand {
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+.top-rail.is-meld-empty .top-hand .hand-rail {
+  justify-content: center;
+}
+
+.top-rail.is-meld-empty .top-melds {
+  display: none;
+}
+
+.opp-hand .top-melds .tile {
+  width: calc(var(--tile-w) * var(--opp-meld-scale));
+  height: calc(var(--tile-h) * var(--opp-meld-scale));
+  box-shadow: none;
 }
 
 .bottom-rail {
