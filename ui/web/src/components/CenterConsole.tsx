@@ -1,20 +1,53 @@
-import { colors } from '../styles/tokens'
+type Seat = 'User' | 'Opponent' | 'Right' | 'Left'
+
+const seatWindTiles = [
+  {
+    seat: 'User' as const,
+    positionClass: 'bottom-right',
+    rotationClass: 'rotate-0',
+    wind: '東',
+  },
+  {
+    seat: 'Right' as const,
+    positionClass: 'top-right',
+    rotationClass: 'rotate-left-90',
+    wind: '南',
+  },
+  {
+    seat: 'Opponent' as const,
+    positionClass: 'top-left',
+    rotationClass: 'rotate-180',
+    wind: '西',
+  },
+  {
+    seat: 'Left' as const,
+    positionClass: 'bottom-left',
+    rotationClass: 'rotate-right-90',
+    wind: '北',
+  },
+] as const
 
 type CenterConsoleProps = {
-  wind: 'East' | 'South' | 'West' | 'North'
-  round: number
-  timer: number
+  drawSeat: Seat | null
 }
 
-export function CenterConsole({ wind, round, timer }: CenterConsoleProps) {
+export function CenterConsole({ drawSeat }: CenterConsoleProps) {
   return (
     <div className="center-console-panel" aria-label="center-console">
-      <div className="label">Current Wind</div>
-      <div className="value" style={{ color: colors.accent }}>
-        {wind} {round}
-      </div>
-      <div className="label">Timer</div>
-      <div className="value">{timer.toString().padStart(2, '0')}</div>
+      {seatWindTiles.map((tile) => (
+        <div
+          key={tile.wind}
+          className={[
+            'seat-wind-tile',
+            tile.positionClass,
+            drawSeat === tile.seat ? 'is-drawing' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <span className={`wind ${tile.rotationClass}`}>{tile.wind}</span>
+        </div>
+      ))}
     </div>
   )
 }

@@ -199,30 +199,86 @@ body {
   grid-column: 6 / 8;
   display: grid;
   place-items: center;
+  overflow: hidden;
 }
 .center-console-panel {
-  min-width: var(--cc-min-w);
-  text-align: center;
+  min-width: min(var(--cc-min-w), 100%);
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   background: rgba(6, 19, 15, 0.76);
   border-radius: var(--cc-radius);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  padding: var(--cc-pad-v) var(--cc-pad-h);
+  padding: calc(6px * var(--scale)) calc(8px * var(--scale));
   box-shadow: var(--panel-shadow);
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: calc(4px * var(--scale));
 }
 
-.center-console-panel .label {
-  color: var(--text-muted);
-  font-size: var(--cc-label);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.seat-wind-tile {
+  --seat-alpha: 0.1;
+  border-radius: 10px;
+  border: none;
+  background: rgba(8, 28, 22, 0.72);
+  padding: calc(2px * var(--scale));
+  display: grid;
+  place-items: center;
+  min-height: 0;
 }
 
-.center-console-panel .value {
-  font-size: var(--cc-value);
+.seat-wind-tile.is-drawing {
+  --seat-alpha: 0.5;
+}
+
+.seat-wind-tile .wind {
+  font-size: calc(22px * var(--scale));
   font-family: 'Orbitron', 'Roboto Mono', monospace;
-  letter-spacing: 0.05em;
+  color: #ffffff;
+  line-height: 1;
+  display: inline-block;
+  transform-origin: center;
+}
+
+.seat-wind-tile .wind.rotate-0 {
+  transform: rotate(0deg);
+}
+
+.seat-wind-tile .wind.rotate-left-90 {
+  transform: rotate(-90deg);
+}
+
+.seat-wind-tile .wind.rotate-180 {
+  transform: rotate(180deg);
+}
+
+.seat-wind-tile .wind.rotate-right-90 {
+  transform: rotate(90deg);
+}
+
+.seat-wind-tile.top-left {
+  grid-column: 1;
+  grid-row: 1;
+  background: rgba(211, 47, 47, var(--seat-alpha));
+}
+
+.seat-wind-tile.top-right {
+  grid-column: 2;
+  grid-row: 1;
+  background: rgba(245, 208, 35, var(--seat-alpha));
+}
+
+.seat-wind-tile.bottom-left {
+  grid-column: 1;
+  grid-row: 2;
+  background: rgba(30, 102, 200, var(--seat-alpha));
+}
+
+.seat-wind-tile.bottom-right {
+  grid-column: 2;
+  grid-row: 2;
+  background: rgba(46, 125, 50, var(--seat-alpha));
 }
 
 .panel {

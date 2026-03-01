@@ -406,7 +406,7 @@ export function Table() {
 
         {/* 中央資訊 */}
         <div className="center-console-cell">
-          <CenterConsole wind={table.wind} round={table.round} timer={table.timer} />
+          <CenterConsole drawSeat={table.drawSeat} />
         </div>
       </div>
     </div>

@@ -7,7 +7,10 @@ describe('Table', () => {
     render(<Table />)
 
     expect(screen.getByLabelText('center-console')).toBeInTheDocument()
-    expect(screen.getByText(/Current Wind/i)).toBeInTheDocument()
+    expect(screen.getByText('東')).toBeInTheDocument()
+    expect(screen.getByText('南')).toBeInTheDocument()
+    expect(screen.getByText('西')).toBeInTheDocument()
+    expect(screen.getByText('北')).toBeInTheDocument()
 
     const selfDiscardGrid = screen.getByLabelText('self-discard-grid')
     const oppDiscardGrid = screen.getByLabelText('opp-discard-grid')
