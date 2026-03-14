@@ -1,0 +1,73 @@
+## 修正方向紀錄
+
+- 2026-02-06:
+  - 新增 `npm run test:e2e:ui`，建立可重現的 UI 截圖流程。
+  - 新增 `npm run test:gate`，作為 pre-merge gate（`lint + unit + build + e2e`）。
+  - 新增 `scripts/run-ui-e2e.mjs`，統一 URL、actions 與輸出資料夾。
+  - 新增 `e2e/actions/layout-smoke.json`，作為預設 action payload。
+  - 在 `Table.tsx` 新增 `window.render_game_to_text`，每次執行輸出 state snapshot。
+  - e2e 產物改為 anchor 命名（`anchor-01-self-draw.png/.json`）。
+  - `vite.config.ts` 改用 `vitest/config` 的 `defineConfig`，讓 `test` 區塊可正確 type-check。
+  - 更新 `tsconfig.app.json` / `tsconfig.test.json`，避免 app build 混入 test globals。
+  - 原 skill-client wrapper 改為本地 Playwright runner，避免 Chromium flag 問題。
+
+- 2026-02-07:
+  - 將下家棄牌區/花牌區下移到與上家點對稱位置（right-discard 4/8、right-flower 8/10），使花牌區緊貼我方進牌區上方且不重疊。
+  - 將我方花牌/棄牌區整組右移（self-flower 4/6、self-discard 6/10），右側貼齊下家花牌左緣。
+  - 上家棄牌區往下擴增一個 row（left-discard 4/9），並將上家棄牌示例擴至 21 張（3x7）。
+  - 下家棄牌區往上擴增一個 row（right-discard 3/8），並將下家棄牌改為 21 張；右側棄牌網格 rows 改為 7（3x7）。
+  - 我方與對家棄牌改為 21 張，並將中路棄牌網格欄數調整為 7（3x7），檢查編號順序連續。
+  - 修正我方棄牌區垂直置中：self-discard region-content 改為 justify-content:center，並移除 discard-grid-self 的 margin-top。
+  - 修正對家棄牌區垂直置中：opp-discard region-content 改為 justify-content:center，並移除 discard-grid-opp 的 margin-top。
+  - 四家花牌區新增實際牌面渲染（各 8 張），新增 TableState flower 欄位與 flower-grid/flower-tile 樣式。
+  - 花牌顯示改為順序 1~8；修正上家/下家花牌排列方向（上家按欄由上到下，下家鏡像）。
+  - 修正上家/下家花牌順序檢查模式：改為畫面同向遞增（1 2 / 3 4 / 5 6 / 7 8）。
+  - 移除左右花牌縮小樣式，左右花牌改為與上下同規格 4x2 顯示，避免過小並讓順序直觀。
+  - 上家花牌整組向右旋轉 90 度，並將上家花牌區下擴一個 grid row；上家棄牌區下移一個 row，避免重疊。
+  - 上家花牌改為左上角對齊，並調整旋轉後可視順序為左上到右下遞增。
+  - 上家花牌改為左上對齊 2x4 直式格，移除 transform 偏移，順序改為左上到右下。
+  - 修正上家花牌方向：left-flower 的 flower-tile 旋轉 90 度。
+  - 上家花牌方向改為側邊牌樣式（tile 尺寸轉橫向 + 字旋轉90），移除直接旋轉 tile 造成的錯位。
+  - 上家花牌改為欄優先順序（左上->左下->右上->右下），left-flower flower-grid 加上 grid-auto-flow: column。
+  - 下家花牌改為側邊方向與欄優先順序（vertical + grid-auto-flow: column，牌面旋轉 -90）。
+  - 下家花牌區上擴一個 row（7/10），下家棄牌區上移（2/7）；下家花牌順序改為右下->右上->左下->左上（顯式 gridRow/gridColumn）。
+  - 下家花牌改為貼齊花牌區右下角（right-flower flower-grid align-content:end，region-content justify-content:flex-end）。
+  - Anchor fixture 調整為壓版面配置：棄牌上限 21，並將手牌/副露改為共用 16（示例為 10 手牌 + 2 副露）。
+  - 修正上家副露渲染：改為「組別往下增長」，每組維持 3 張，並與手牌共用同一 side-rail 高度配額。
+  - 新增 `anchor-left-meld-0` ~ `anchor-left-meld-5` 六組 anchor，對應副露 0~5 組與手牌 16/13/10/7/4/1。
+  - 新增上家副露微調參數 `--left-meld-scale`；最終採用 `0.85` 作為不裁切且視覺平衡值。
+  - 調整上家副露排版：組內貼齊、組間微重疊（-4）、並收緊上家副露與手牌間距（side-hand top inset = -8）。
+  - 以最新設定重刷 0~5 截圖，輸出至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
+  - 將上家「同組副露內」間距改為幾何貼齊公式：`margin-top = (tile-vert-w - tile-vert-h) * left-meld-scale`，確保三張牌邊緣相接且不重疊。
+  - 上家副露 tile 在副露區移除陰影（避免視覺上看似有縫），並用該規則再次重刷 `anchor-left-meld-0..5`。
+  - 下家副露套用與上家一致規則：同組幾何貼齊（不重疊）、組間距一致、手牌與副露間距一致，並新增 `--right-meld-scale`。
+  - 修正下家布局順序為「上方手牌、下方副露」。
+  - 新增 `anchor-right-meld-0..5`（只測下家副露變化）與 `anchor-both-meld-0..5`（上下家同時使用相同 meld 數）。
+  - 完成 `anchor-both-meld-0..5` sweep，輸出至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-both-meld-*.png`。
+
+- 2026-02-08:
+  - 修正上家 `meld=0` 置中語意：改為在「手牌&副露」整體虛線區內垂直置中（`is-meld-empty` 時隱藏 `side-melds` 並讓 `side-hand` 佔滿 side-rail）。
+  - 上家 `meld=0` 手排改用 16 張/15 段的幾何分佈公式，並校正固定偏移使上下邊界 gap 等距。
+  - 上家手排 top inset 改為依 `handUnits` 線性縮放，降低 `meld` 增加時極端 case 的擠壓感。
+  - 修正 `meld=5`（`handUnits=1`）單張牌貼底問題：新增 `is-hand-single` 佈局與旋轉幾何補償，讓底部 gap 與 `meld=4` 接近一致。
+  - 重刷 `anchor-left-meld-0..5` sweep，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-left-meld-*.png`。
+  - 下家套用同等修正：手牌/副露間距改為統一規則，移除 `meld=0`、`handUnits=1` 的分支定位，避免右側三段式間距漂移。
+  - 修正右側不一致根因：`side-melds` 由上對齊改為下對齊（`justify-content:flex-end` + 固定底部內距），使 `meld=1..5` 的副露到底框 gap 一致。
+  - 修正右側 `meld=0` 基準：右側純手牌在「手牌&副露」整體虛線區內垂直置中，量測 top/bottom gap 等距。
+  - 量測確認右側一致性：`meld=0..5` 手牌到上框 gap 收斂至同一基準（約 17px），`meld=1..5` 副露到底框 gap 固定。
+  - 後續 sweep 流程統一：改以 `anchor-both-meld-0..5` 作為唯一六組驗證集，左右家同時受測，避免左/右分開跑造成比較基準混亂。
+  - 重刷 `anchor-both-meld-0..5`，輸出更新至 `ui/web/artifacts/ui-e2e/meld-sweep/anchor-both-meld-*.png`。
+
+- 2026-02-10:
+  - 調整我方底部 rail 排版語意：`meld=0` 時手牌置中；`meld>0` 時固定同列顯示，方向為「副露左起、手牌右起」。
+  - 我方底部 rail 新增與側家一致的邊界間距概念（`--self-edge-gap`），確保手牌/副露相對區域邊框維持固定 gap。
+  - 我方副露新增專屬縮放變數 `--self-meld-scale`，並套用為 `0.85`，對齊上下家副露縮放比例。
+  - 我方手牌內牌距改為貼緊（`gap: 0`），降低手牌橫向鬆散感。
+  - 我方副露改為三張一組顯示（組內貼齊），並依需求將「不同組」副露改為分開顯示（組間距 `10px * scale`）。
+  - 我方副露 tile 移除陰影，避免縮放後因陰影造成視覺縫隙誤判。
+  - 多次重刷 `anchor-01-self-draw` 並確認輸出至 `ui/web/artifacts/ui-e2e/latest/anchor-01-self-draw.png`。
+
+## TODO
+
+- Expand action payloads into scenario-specific sequences once the UI has interactive controls.
+- Add a visual baseline approval step (diff review) when layouts start changing frequently.
