@@ -1,6 +1,6 @@
 # mahjong16 — 台灣 16 張麻將環境
 
-![mahjong16 CLI demo](docs/assets/cli-demo.gif)
+<img src="docs/assets/cli-demo.gif" alt="mahjong16 CLI demo" width="540">
 
 `python main.py --seed 19 --human none --bot greedy --hands 1` 的 CLI 對局示意。
 
