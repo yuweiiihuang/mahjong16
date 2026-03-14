@@ -1,5 +1,9 @@
 # mahjong16 — 台灣 16 張麻將環境
 
+![mahjong16 CLI demo](docs/assets/cli-demo.gif)
+
+`python main.py --seed 19 --human none --bot greedy --hands 1` 的 CLI 對局示意。
+
 `mahjong16` 面向 AI 對局與策略研究打造，提供台灣 16 張麻將規則的可重現模擬環境。
 核心遊戲元件集中在 `domain/` 套件，以語意子模組拆分摸打流程、桌面狀態、牌面資料與
 規則判定；周邊程式提供終端 CLI 體驗、bot 策略與 reinforcement learning 腳手架，
