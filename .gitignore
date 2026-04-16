@@ -77,3 +77,10 @@ datasets/
 .tmp/
 .cache/
 **/.ipynb_checkpoints/
+
+# --- graphify 產物 ---
+.graphify_*.json
+.graphify_python
+.graphify_semantic_chunks/
+graphify-out/
+.codex/
