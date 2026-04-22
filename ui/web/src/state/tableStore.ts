@@ -2,20 +2,26 @@ export type Seat = 'User' | 'Opponent' | 'Right' | 'Left'
 
 export type PlayerState = {
   id: string
+  pid?: number
   name: string
   seat: Seat
   score: number
+  seatWind?: string
+  isDealer?: boolean
 }
 
 export type TableState = {
   anchorId: string
-  activeSeat: Seat
+  activeSeat: Seat | null
   drawSeat: Seat | null
-  wind: 'East' | 'South' | 'West' | 'North'
+  wind: string
   round: number
   timer: number
   players: PlayerState[]
   selfHand: string[]
+  selfHandTileIds?: number[]
+  selfDrawn?: string | null
+  selfDrawnTileId?: number | null
   selfDiscards: string[]
   selfFlowers: string[]
   selfMelds: string[][]
@@ -33,6 +39,55 @@ export type TableState = {
   rightMelds: string[][]
 }
 
+export type SessionStatus = 'awaiting_action' | 'hand_result' | 'finished'
+
+export type SessionAction = {
+  type: string
+  tile?: number
+  from?: 'hand' | 'drawn'
+  use?: number[]
+  waits?: number[]
+  source?: string
+}
+
+export type BreakdownItem = {
+  key?: string
+  label?: string
+  base?: number
+  count?: number
+  points?: number
+}
+
+export type SessionResult = {
+  payments: number[]
+  totalsAfterHand: number[]
+  winnerPid: number | null
+  winnerSeat: Seat | null
+  winSource: string | null
+  winnerBreakdown: BreakdownItem[]
+}
+
+export type SessionMeta = {
+  handIndex: number
+  jangIndex: number
+  dealerPid: number | null
+  dealerSeat: Seat | null
+  quanFeng: string | null
+  phase: string | null
+  activeSeat: Seat | null
+  drawSeat: Seat | null
+  humanPid: number
+}
+
+export type SessionSnapshot = {
+  sessionId: string
+  status: SessionStatus
+  table: TableState
+  legalActions: SessionAction[]
+  result: SessionResult | null
+  meta: SessionMeta
+}
+
 export const mockTableState: TableState = {
   anchorId: 'anchor-01-self-draw',
   activeSeat: 'User',
@@ -47,6 +102,7 @@ export const mockTableState: TableState = {
     { id: 'p4', name: 'Space', seat: 'Left', score: 40400 },
   ],
   selfHand: ['一', '二', '三', '四', '五', '六', '七', '八', '九', '一'],
+  selfDrawn: '九',
   selfDiscards: ['九', '北', '一', '五', '三', '七', '東', '西', '南', '中', '發', '白', '二', '四', '六', '八', '三', '五', '南', '白', '東'],
   selfFlowers: ['1', '2', '3', '4', '5', '6', '7', '8'],
   selfMelds: [['二', '二', '二'], ['三', '四', '五']],

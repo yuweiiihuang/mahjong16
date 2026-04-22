@@ -1,9 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { CenterConsole } from './CenterConsole'
 import { HandRail } from './HandRail'
 import { PlayerPanel } from './PlayerPanel'
-import { resolveTableStateFromSearch } from '../state/tableStore'
-import type { PlayerState, Seat } from '../state/tableStore'
+import type { PlayerState, Seat, TableState } from '../state/tableStore'
 
 declare global {
   interface Window {
@@ -11,8 +10,18 @@ declare global {
   }
 }
 
-export function Table() {
-  const table = useMemo(() => resolveTableStateFromSearch(window.location.search), [])
+type SelectedTile = {
+  tileId: number
+  source: 'hand' | 'drawn'
+}
+
+type TableProps = {
+  table: TableState
+  selectedTile?: SelectedTile | null
+  onSelectTile?: (tileId: number, source: 'hand' | 'drawn') => void
+}
+
+export function Table({ table, selectedTile, onSelectTile }: TableProps) {
   const seatLabels: Record<Seat, string> = {
     User: '自己',
     Opponent: '對家',
@@ -57,6 +66,12 @@ export function Table() {
   const leftMeldGroupOverlapPx = leftMeldCount <= 1 ? 0 : -(leftMeldCount - 1)
   const leftMeldTileOverlapPx = -(8 + Math.min(4, leftMeldCount))
   const leftHandTopInsetPx = -Math.round(((leftHandUnits - 1) / 15) * 8)
+  const seatWinds: Record<Seat, string> = {
+    User: getPlayer('User').seatWind ?? '東',
+    Opponent: getPlayer('Opponent').seatWind ?? '西',
+    Left: getPlayer('Left').seatWind ?? '北',
+    Right: getPlayer('Right').seatWind ?? '南',
+  }
 
   useEffect(() => {
     window.render_game_to_text = () =>
@@ -105,6 +120,8 @@ export function Table() {
             seat={opponentPlayer.seat}
             score={opponentPlayer.score}
             seatLabel={seatLabels[opponentPlayer.seat]}
+            seatWind={opponentPlayer.seatWind}
+            isDealer={opponentPlayer.isDealer}
           />
         </div>
         <div className="player-panel-slot seat-left" aria-label="player-panel-left">
@@ -113,6 +130,8 @@ export function Table() {
             seat={leftPlayer.seat}
             score={leftPlayer.score}
             seatLabel={seatLabels[leftPlayer.seat]}
+            seatWind={leftPlayer.seatWind}
+            isDealer={leftPlayer.isDealer}
           />
         </div>
         <div className="player-panel-slot seat-right" aria-label="player-panel-right">
@@ -121,6 +140,8 @@ export function Table() {
             seat={rightPlayer.seat}
             score={rightPlayer.score}
             seatLabel={seatLabels[rightPlayer.seat]}
+            seatWind={rightPlayer.seatWind}
+            isDealer={rightPlayer.isDealer}
           />
         </div>
         <div className="player-panel-slot seat-user" aria-label="player-panel-user">
@@ -129,6 +150,8 @@ export function Table() {
             seat={userPlayer.seat}
             score={userPlayer.score}
             seatLabel={seatLabels[userPlayer.seat]}
+            seatWind={userPlayer.seatWind}
+            isDealer={userPlayer.isDealer}
           />
         </div>
       </div>
@@ -216,14 +239,43 @@ export function Table() {
               </div>
               <div className="bottom-hand">
                 <div className="region-title">自己的 手牌</div>
-                <HandRail labels={table.selfHand} />
+                <HandRail
+                  labels={table.selfHand}
+                  tileIds={table.selfHandTileIds}
+                  selectedTileId={selectedTile?.source === 'hand' ? selectedTile.tileId : null}
+                  onTileClick={(tileId) => onSelectTile?.(tileId, 'hand')}
+                />
               </div>
             </div>
           </div>
         </div>
         <div className="region color-user self-draw">
           <span className="region-label">進牌</span>
-          {table.drawSeat === 'User' ? <div className="tile draw-tile" data-label="進" /> : null}
+          {table.drawSeat === 'User' ? (
+            typeof table.selfDrawnTileId === 'number' && typeof onSelectTile === 'function' ? (
+              <button
+                type="button"
+                className={[
+                  'tile',
+                  'draw-tile',
+                  'is-clickable',
+                  selectedTile?.source === 'drawn' && selectedTile.tileId === table.selfDrawnTileId
+                    ? 'is-selected'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                data-label={table.selfDrawn ?? '進'}
+                aria-pressed={
+                  selectedTile?.source === 'drawn' && selectedTile.tileId === table.selfDrawnTileId
+                }
+                aria-label={`drawn-tile-${table.selfDrawn ?? '進'}`}
+                onClick={() => onSelectTile(table.selfDrawnTileId as number, 'drawn')}
+              />
+            ) : (
+              <div className="tile draw-tile" data-label={table.selfDrawn ?? '進'} />
+            )
+          ) : null}
         </div>
         <div className="region color-user self-discard">
           <div className="region-content">
@@ -406,7 +458,11 @@ export function Table() {
 
         {/* 中央資訊 */}
         <div className="center-console-cell">
-          <CenterConsole drawSeat={table.drawSeat} />
+          <CenterConsole
+            drawSeat={table.drawSeat}
+            activeSeat={table.activeSeat}
+            seatWinds={seatWinds}
+          />
         </div>
       </div>
     </div>

@@ -6,11 +6,13 @@ type PlayerPanelProps = {
   seat: Seat
   score: number
   seatLabel?: string
+  seatWind?: string
+  isDealer?: boolean
 }
 
-export function PlayerPanel({ name, seat, score, seatLabel }: PlayerPanelProps) {
+export function PlayerPanel({ name, seat, score, seatLabel, seatWind, isDealer }: PlayerPanelProps) {
   const initials = name.slice(0, 1).toUpperCase()
-  const displaySeat = seatLabel ?? seat
+  const displaySeat = [seatLabel ?? seat, seatWind].filter(Boolean).join(' ')
   return (
     <div className={`panel player-panel player-panel-${seat.toLowerCase()}`}>
       <div className="player-meta">
@@ -21,6 +23,7 @@ export function PlayerPanel({ name, seat, score, seatLabel }: PlayerPanelProps) 
           <div style={{ fontWeight: 700 }}>{name}</div>
           <div className="seat-chip" style={{ color: colors.textPrimary }}>
             {displaySeat}
+            {isDealer ? ' 莊' : ''}
           </div>
         </div>
       </div>

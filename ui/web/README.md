@@ -1,5 +1,20 @@
 # Mahjong Web UI
 
+## Live Engine Session
+
+1. Start the local Python API from the repo root:
+   - `source .venv/bin/activate`
+   - `python scripts/run_web_api.py`
+2. In another shell, start the Vite app:
+   - `cd ui/web`
+   - `npm run dev`
+3. Open the dev URL without `?anchor=...` to use the live engine session.
+
+Notes:
+- The Vite dev server proxies `/api/*` to `http://127.0.0.1:8765`.
+- The browser stores the current `session_id` in `localStorage` and will try to resume it on refresh.
+- If the Python API restarts and the stored session disappears, the UI automatically creates a new game.
+
 ## Fast Iteration Loop
 
 1. Start local dev server:
@@ -30,6 +45,7 @@
   - `scripts/run-ui-e2e.mjs` (from `ui/web`)
 - Default URL is `http://127.0.0.1:4173` when `UI_E2E_URL` is not set.
 - Default anchor is `anchor-01-self-draw` (override with `UI_E2E_ANCHOR`).
+- Anchor mode remains fixture-only. The live engine session is only used when no `anchor` query string is present.
 - Output folder is reset on every run:
   - `ui/web/artifacts/ui-e2e/latest` (from repo root)
   - `artifacts/ui-e2e/latest` (from `ui/web`)

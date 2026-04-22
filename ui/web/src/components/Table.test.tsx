@@ -4,7 +4,7 @@ import { mockTableState } from '../state/tableStore'
 
 describe('Table', () => {
   it('renders key table regions and discard counts from the mocked state', () => {
-    render(<Table />)
+    render(<Table table={mockTableState} />)
 
     expect(screen.getByLabelText('center-console')).toBeInTheDocument()
     expect(screen.getByText('東')).toBeInTheDocument()

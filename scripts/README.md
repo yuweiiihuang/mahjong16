@@ -2,6 +2,17 @@
 
 以下指令預設從專案根目錄執行，可先透過 `pip install -r requirements.txt` 安裝所需相依套件。
 
+## run_web_api.py
+- 用途：啟動 Mahjong16 Web UI 所使用的本地 JSON API。
+- 基本用法：
+  - `python scripts/run_web_api.py`
+- 常見選項：
+  - `--host HOST`：指定綁定 host，預設 `127.0.0.1`。
+  - `--port PORT`：指定綁定 port，預設 `8765`。
+- 說明：
+  - API 提供 `POST /api/session`、`GET /api/session/{id}`、`POST /api/session/{id}/action`、`POST /api/session/{id}/continue`。
+  - Session 只存在 Python 行程記憶體中；瀏覽器刷新可續接，但後端重啟後舊 session 不保證存在。
+
 ## analyze_breakdown_flags.py
 - 用途：統計戰報（CSV）中的 breakdown 標籤出現頻率。
 - 基本用法：
