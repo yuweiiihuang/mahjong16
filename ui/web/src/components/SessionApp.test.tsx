@@ -89,7 +89,7 @@ describe('SessionApp', () => {
 
     render(<SessionApp />)
 
-    await screen.findByText('等待 自己 操作')
+    await screen.findByRole('button', { name: 'New Game' })
 
     fireEvent.click(screen.getByRole('button', { name: 'tile-一萬-horizontal-0' }))
     fireEvent.click(screen.getByRole('button', { name: '打出 一萬' }))
@@ -127,7 +127,7 @@ describe('SessionApp', () => {
 
     render(<SessionApp />)
 
-    await screen.findByText('等待 自己 操作')
+    await screen.findByRole('button', { name: 'New Game' })
     await waitFor(() => {
       expect(window.localStorage.getItem('mahjong16.session_id')).toBe('fresh-session')
     })
@@ -157,7 +157,7 @@ describe('SessionApp', () => {
 
     render(<SessionApp />)
 
-    await screen.findByText('等待 自己 操作')
+    await screen.findByRole('button', { name: 'New Game' })
     expect(screen.getByText('先點自己的手牌或摸進牌')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '胡牌' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打出 一萬' })).not.toBeInTheDocument()

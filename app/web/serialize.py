@@ -53,6 +53,13 @@ DEFAULT_NAMES = {
     "Left": "Space",
 }
 
+SORT_GROUP_BY_SUIT = {
+    0: 0,  # 萬
+    2: 1,  # 條
+    1: 2,  # 筒
+    3: 3,  # 字
+}
+
 
 def tile_id_to_web_label(tile_id: int | None) -> str:
     """Convert an engine tile id into the web UI's Chinese label format."""
@@ -102,6 +109,20 @@ def resolve_draw_pid(players: Sequence[Any]) -> Optional[int]:
     return None
 
 
+def sort_hand_tiles_for_web(tile_ids: Sequence[int]) -> List[int]:
+    def sort_key(tile_id: int) -> tuple[int, int, int]:
+        if is_flower(tile_id):
+            return (4, tile_id - N_TILES, tile_id)
+        suit = suit_of(tile_id)
+        rank = rank_of(tile_id)
+        group = SORT_GROUP_BY_SUIT.get(suit, 5)
+        if rank is not None:
+            return (group, rank, tile_id)
+        return (group, tile_id - 27, tile_id)
+
+    return sorted(tile_ids, key=sort_key)
+
+
 def serialize_table(
     *,
     env: Any,
@@ -142,7 +163,7 @@ def serialize_table(
         if not (0 <= pid < len(players)):
             return [], [], None, None
         player = players[pid]
-        hand_tiles = list(getattr(player, "hand", []) or [])
+        hand_tiles = sort_hand_tiles_for_web(list(getattr(player, "hand", []) or []))
         drawn_tile = getattr(player, "drawn", None)
         hand_labels = [tile_id_to_web_label(tile) for tile in hand_tiles]
         return hand_labels, hand_tiles, tile_id_to_web_label(drawn_tile) if drawn_tile is not None else None, drawn_tile

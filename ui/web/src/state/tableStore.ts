@@ -155,9 +155,54 @@ const SELF_MELD_SETS: string[][] = [
 ]
 
 const SELF_HAND_ORDER = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '北', '南', '西', '東']
+const DISCARD_STRESS_ORDER = [
+  '一萬',
+  '二萬',
+  '三萬',
+  '四萬',
+  '五萬',
+  '六萬',
+  '七萬',
+  '八萬',
+  '九萬',
+  '一條',
+  '二條',
+  '三條',
+  '四條',
+  '五條',
+  '六條',
+  '七條',
+  '八條',
+  '九條',
+  '一筒',
+  '二筒',
+  '三筒',
+  '四筒',
+  '五筒',
+  '六筒',
+  '七筒',
+  '八筒',
+  '九筒',
+  '東',
+  '南',
+  '西',
+  '北',
+  '中',
+  '發',
+  '白',
+  '花1',
+  '花2',
+]
 
 function createSelfHandTiles(count: number): string[] {
   return Array.from({ length: count }, (_, idx) => SELF_HAND_ORDER[idx % SELF_HAND_ORDER.length])
+}
+
+function createDiscardStressTiles(offset: number): string[] {
+  return Array.from(
+    { length: 36 },
+    (_, idx) => DISCARD_STRESS_ORDER[(idx + offset) % DISCARD_STRESS_ORDER.length],
+  )
 }
 
 function createLeftMeldFixture(meldCount: number): TableState {
@@ -258,6 +303,22 @@ const allMeldFixtures: Record<string, TableState> = Object.fromEntries(
   }),
 ) as Record<string, TableState>
 
+const v2StressFixture: TableState = {
+  ...createAllMeldFixture(5),
+  anchorId: 'anchor-v2-stress',
+  selfHand: createSelfHandTiles(16),
+  selfHandTileIds: Array.from({ length: 16 }, (_, index) => index),
+  selfDrawn: '九筒',
+  selfDrawnTileId: 26,
+  oppHand: Array.from({ length: 16 }, () => '牌'),
+  leftHand: Array.from({ length: 16 }, () => '牌'),
+  rightHand: Array.from({ length: 16 }, () => '牌'),
+  selfDiscards: createDiscardStressTiles(0),
+  oppDiscards: createDiscardStressTiles(9),
+  leftDiscards: createDiscardStressTiles(18),
+  rightDiscards: createDiscardStressTiles(27),
+}
+
 const anchorFixtures: Record<string, TableState> = {
   [DEFAULT_ANCHOR_ID]: mockTableState,
   ...leftMeldFixtures,
@@ -265,6 +326,7 @@ const anchorFixtures: Record<string, TableState> = {
   ...oppMeldFixtures,
   ...bothMeldFixtures,
   ...allMeldFixtures,
+  [v2StressFixture.anchorId]: v2StressFixture,
 }
 
 export function resolveTableStateFromSearch(search: string): TableState {

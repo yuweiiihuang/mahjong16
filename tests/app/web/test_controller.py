@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.web.controller import InvalidActionError, WebSessionController
-from app.web.serialize import tile_id_to_web_label
+from app.web.serialize import sort_hand_tiles_for_web, tile_id_to_web_label
 
 
 def _build_controller_waiting_for_human() -> WebSessionController:
@@ -30,6 +30,11 @@ def test_tile_id_to_web_label_covers_suits_honors_and_flowers() -> None:
     assert tile_id_to_web_label(18) == "一條"
     assert tile_id_to_web_label(27) == "東"
     assert tile_id_to_web_label(34) == "花1"
+
+
+def test_sort_hand_tiles_for_web_uses_wan_tiao_tong_honor_order() -> None:
+    tiles = [13, 31, 0, 20, 29, 9, 3, 24]
+    assert sort_hand_tiles_for_web(tiles) == [0, 3, 20, 24, 9, 13, 29, 31]
 
 
 def test_controller_stops_at_human_decision_and_serializes_live_table() -> None:

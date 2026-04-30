@@ -8,11 +8,15 @@ const projectRoot = path.resolve(import.meta.dirname, '..')
 const actionsFile = path.join(projectRoot, 'e2e', 'actions', 'layout-smoke.json')
 const outputDir = path.join(projectRoot, 'artifacts', 'ui-e2e', 'latest')
 const anchorId = process.env.UI_E2E_ANCHOR ?? 'anchor-01-self-draw'
+const layout = process.env.UI_E2E_LAYOUT
 const internalHost = process.env.UI_E2E_HOST ?? '127.0.0.1'
 const internalPort = Number.parseInt(process.env.UI_E2E_PORT ?? '4173', 10)
-const defaultUrl = `http://${internalHost}:${internalPort}/?anchor=${encodeURIComponent(anchorId)}`
+const defaultUrl = `http://${internalHost}:${internalPort}/?anchor=${encodeURIComponent(anchorId)}${
+  layout ? `&layout=${encodeURIComponent(layout)}` : ''
+}`
 const url = process.env.UI_E2E_URL ?? defaultUrl
 const headless = process.env.UI_E2E_HEADLESS !== '0'
+const viewportSpec = process.env.UI_E2E_VIEWPORTS
 
 function fail(message) {
   console.error(`[test:e2e:ui] ${message}`)
@@ -82,6 +86,22 @@ function loadSteps() {
   return steps
 }
 
+function parseViewports() {
+  if (!viewportSpec) {
+    return [{ width: 1680, height: 960, name: anchorId }]
+  }
+
+  return viewportSpec.split(',').map((spec) => {
+    const [widthText, heightText] = spec.trim().split('x')
+    const width = Number.parseInt(widthText, 10)
+    const height = Number.parseInt(heightText, 10)
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      fail(`Invalid UI_E2E_VIEWPORTS entry: ${spec}`)
+    }
+    return { width, height, name: `${anchorId}-${width}x${height}` }
+  })
+}
+
 async function applyStep(page, step) {
   const frames = Number.isFinite(step.frames) ? Math.max(1, step.frames) : 1
   for (let i = 0; i < frames; i += 1) {
@@ -106,6 +126,20 @@ async function capture(page, name, errors) {
 
   if (state) {
     fs.writeFileSync(path.join(outputDir, `${name}.json`), state)
+    const parsedState = JSON.parse(state)
+    if (parsedState.layout) {
+      fs.writeFileSync(
+        path.join(outputDir, `${name}-layout-report.json`),
+        JSON.stringify(parsedState.layout, null, 2),
+      )
+      if (Array.isArray(parsedState.layout.violations) && parsedState.layout.violations.length > 0) {
+        errors.push({
+          type: 'layout.violation',
+          text: `Captured ${parsedState.layout.violations.length} layout violation(s)`,
+          violations: parsedState.layout.violations,
+        })
+      }
+    }
   }
 
   if (errors.length > 0) {
@@ -118,6 +152,7 @@ async function capture(page, name, errors) {
 
 async function main() {
   const steps = loadSteps()
+  const viewports = parseViewports()
   fs.rmSync(outputDir, { recursive: true, force: true })
   fs.mkdirSync(outputDir, { recursive: true })
 
@@ -132,7 +167,7 @@ async function main() {
     browser = await chromium.launch({
       headless,
     })
-    const page = await browser.newPage({ viewport: { width: 1680, height: 960 } })
+    const page = await browser.newPage({ viewport: { width: viewports[0].width, height: viewports[0].height } })
     const errors = []
 
     page.on('console', (msg) => {
@@ -147,10 +182,16 @@ async function main() {
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(350)
 
-    for (const step of steps) {
-      await applyStep(page, step)
+    for (const viewport of viewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(url, { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(350)
+
+      for (const step of steps) {
+        await applyStep(page, step)
+      }
+      await capture(page, viewport.name, errors)
     }
-    await capture(page, anchorId, errors)
     if (errors.length > 0) {
       throw new Error(`Captured ${errors.length} browser runtime error(s) during e2e run`)
     }
