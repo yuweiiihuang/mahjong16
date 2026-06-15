@@ -28,8 +28,9 @@
 - `python scripts/eval_league.py --jangs 1 --matches 2 --seed 2024 --json-out logs/league/latest.json auto greedy random rulebot` — run league comparisons using jang-based table flow and JSON output.
 - `python scripts/analyze_breakdown_flags.py` — inspect latest log CSV breakdown frequencies.
 - `python scripts/tune_greedy_weights.py --hands 512 --trials 30 --seed 42 --json-out logs/tuning/greedy/latest.json` — tune greedy heuristics and persist trial metrics.
+- `python scripts/run_web_api.py` — start the local Web UI session API on `http://127.0.0.1:8765`.
 - `cd ui/web && npm install` — install web UI dependencies.
-- `cd ui/web && npm run dev` — run Vite UI locally.
+- `cd ui/web && npm run dev` — run the Vite Web UI locally; live sessions require the Python API above.
 - `cd ui/web && npm run preview` — preview the built web bundle locally.
 - `cd ui/web && npm run test` — run Vitest component tests.
 - `cd ui/web && npm run test:watch` — run Vitest in watch mode during UI iteration.
@@ -52,8 +53,12 @@
   using `scripts/bench_sim.py`, keeping `--json-out` snapshots for before/after comparisons.
 - **Benchmark profiling loop**: run `scripts/bench_sim.py` with fixed `--seed`, explicit
   `--scoring-profile/--rule-profile`, and compare throughput via exported `--json-out` reports.
-- **Web UI loop**: develop in `ui/web` with `npm run dev`, gate with `npm run test` and `npm run lint`, and
-  verify release readiness with `npm run build`.
+- **Live Web UI loop**: start `python scripts/run_web_api.py` from the repo root, then run
+  `cd ui/web && npm run dev` in another shell and open `http://127.0.0.1:5173/` without an
+  `anchor` query string. Vite proxies `/api/*` to `http://127.0.0.1:8765`; if the UI shows a
+  session-load JSON error, verify the Python API is running before debugging React.
+- **Web UI implementation loop**: develop in `ui/web` with `npm run dev`, gate with `npm run test`
+  and `npm run lint`, and verify release readiness with `npm run build`.
 - **Web UI anchor/e2e loop**: use `cd ui/web && npm run test:e2e:ui` for repeatable anchor screenshots and
   state snapshots under `ui/web/artifacts/ui-e2e/latest`; override anchor with `UI_E2E_ANCHOR=<id>` for
   fixture-specific checks. Use `cd ui/web && npm run test:gate` as the full pre-commit gate
