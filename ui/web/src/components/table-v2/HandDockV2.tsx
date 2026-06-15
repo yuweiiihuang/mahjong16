@@ -20,16 +20,18 @@ function regionStyle(region: Region): CSSProperties {
 
 function handTileStyle(index: number): CSSProperties {
   return {
-    left: index * 55,
-    top: 8,
+    left: index * 39,
+    top: 14,
+    transform: 'scale(0.9)',
     zIndex: 20 + index,
   }
 }
 
 function drawnTileStyle(): CSSProperties {
   return {
-    right: 0,
-    top: 8,
+    right: 8,
+    top: 14,
+    transform: 'scale(0.9)',
     zIndex: 45,
   }
 }

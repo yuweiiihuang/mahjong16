@@ -21,10 +21,10 @@ export type TileGridSpec = {
 const RIVER_COLS = 6
 const RIVER_MAX_VISIBLE = 24
 const RIVER_TILE = {
-  width: 34,
-  height: 38,
-  gapX: 6,
-  gapY: 5,
+  width: 28,
+  height: 15,
+  gapX: 8,
+  gapY: 4,
 }
 
 export function buildRegionBox(name: RegionName, region: Region): LayoutBox {

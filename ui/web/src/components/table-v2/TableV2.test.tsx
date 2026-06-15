@@ -76,6 +76,22 @@ describe('TableV2', () => {
     expect(screen.getByRole('button', { name: '槓' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '胡' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '過' })).toBeInTheDocument()
+    expect(screen.queryByText('輪到你，請選擇操作')).not.toBeInTheDocument()
+  })
+
+  it('keeps player panels limited to avatar and score', () => {
+    const table = resolveTableStateFromSearch('?anchor=anchor-v2-stress')
+    render(<TableV2 table={table} />)
+
+    expect(screen.queryByText('Leaf')).not.toBeInTheDocument()
+    expect(screen.queryByText('Space')).not.toBeInTheDocument()
+    expect(screen.queryByText('Moka')).not.toBeInTheDocument()
+    expect(screen.queryByText('You')).not.toBeInTheDocument()
+    expect(screen.queryByText('對家')).not.toBeInTheDocument()
+    expect(screen.queryByText('上家')).not.toBeInTheDocument()
+    expect(screen.queryByText('下家')).not.toBeInTheDocument()
+    expect(screen.queryByText('自己')).not.toBeInTheDocument()
+    expect(screen.getByText('37600')).toBeInTheDocument()
   })
 
   it('keeps self hand click wiring compatible with session actions', () => {

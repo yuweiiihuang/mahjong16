@@ -190,10 +190,10 @@ export const MELD_FLOWER_ZONES: Record<Seat, MeldFlowerZone> = {
 }
 
 export const PLAYER_CARD_ZONES: Record<Seat, Vec2> = {
-  User: { x: 520, y: 910 },
-  Opponent: { x: 620, y: 34 },
-  Left: { x: 18, y: 450 },
-  Right: { x: 1330, y: 450 },
+  User: { x: 260, y: 805 },
+  Opponent: { x: 330, y: 52 },
+  Left: { x: 50, y: 360 },
+  Right: { x: 1470, y: 360 },
 }
 
 export type LayoutBoxKind =

@@ -13,6 +13,7 @@ import { HandDockV2 } from './HandDockV2'
 import { MeldFlowerLayerV2 } from './MeldFlowerLayerV2'
 import { OpponentHandLayerV2 } from './OpponentHandLayerV2'
 import { RiverLayerV2 } from './RiverLayerV2'
+import { TABLE_REGIONS } from './layout/regions'
 import { tableStateToSeatViews } from './tableAdapter'
 import type { SelectedTile, TileSource } from './types'
 
@@ -130,8 +131,16 @@ export function TableV2({ table, selectedTile, onSelectTile }: TableV2Props) {
         </div>
       </div>
 
-      <div className="action-strip-v2" aria-label="table-actions-v2">
-        <div className="action-strip-status-v2">輪到你，請選擇操作</div>
+      <div
+        className="action-strip-v2"
+        aria-label="table-actions-v2"
+        style={{
+          left: TABLE_REGIONS.actionDock.x,
+          top: TABLE_REGIONS.actionDock.y,
+          width: TABLE_REGIONS.actionDock.width,
+          height: TABLE_REGIONS.actionDock.height,
+        }}
+      >
         <div className="action-strip-buttons-v2">
           {ACTION_LABELS.map((label) => (
             <button key={label} type="button" className="action-button-v2" aria-label={label}>
@@ -152,15 +161,8 @@ export function TableV2({ table, selectedTile, onSelectTile }: TableV2Props) {
             style={{ left: position.x, top: position.y }}
             aria-label={`player-panel-${seatView.seat.toLowerCase()}-v2`}
           >
-            <div className="player-panel-v2-avatar">{seatView.player.name.slice(0, 1).toUpperCase()}</div>
-            <div className="player-panel-v2-body">
-              <div className="player-panel-v2-name">{seatView.player.name}</div>
-              <div className="player-panel-v2-seat">
-                {SEAT_LABELS[seatView.seat]} {seatView.player.seatWind ?? ''}
-                {seatView.player.isDealer ? ' 莊' : ''}
-              </div>
-            </div>
-            <div className="player-panel-v2-score">{seatView.player.score.toLocaleString()}</div>
+            <div className="player-panel-v2-avatar" aria-hidden="true" />
+            <div className="player-panel-v2-score">{seatView.player.score.toString()}</div>
           </div>
         )
       })}

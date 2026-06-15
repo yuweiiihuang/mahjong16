@@ -28,17 +28,17 @@ function regionStyle(region: Region): CSSProperties {
 function tileStyle(seat: Seat, index: number): CSSProperties {
   if (seat === 'Left' || seat === 'Right') {
     return {
-      left: 8 + (index % 9) * 20,
-      top: 4 + Math.floor(index / 9) * 22,
-      transform: 'scale(0.48)',
+      left: 40,
+      top: 8 + index * 18,
+      transform: 'rotate(90deg) scale(0.56)',
       zIndex: 20 + index,
     }
   }
 
   return {
-    left: 8 + index * 20,
-    top: 4,
-    transform: 'scale(0.48)',
+    left: 16 + index * 30,
+    top: 10,
+    transform: 'scale(0.56)',
     zIndex: 20 + index,
   }
 }

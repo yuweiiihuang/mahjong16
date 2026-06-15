@@ -6,49 +6,40 @@ export type Region = {
 }
 
 export const TABLE_REGIONS = {
-  playerTop: { x: 610, y: 32, width: 380, height: 78 },
-  playerLeft: { x: 28, y: 420, width: 250, height: 86 },
-  playerRight: { x: 1322, y: 420, width: 250, height: 86 },
-  playerBottom: { x: 520, y: 900, width: 360, height: 86 },
+  playerTop: { x: 330, y: 52, width: 110, height: 120 },
+  playerLeft: { x: 50, y: 360, width: 100, height: 130 },
+  playerRight: { x: 1470, y: 360, width: 100, height: 130 },
+  playerBottom: { x: 260, y: 805, width: 110, height: 120 },
 
-  handTop: { x: 610, y: 112, width: 380, height: 34 },
-  handLeft: { x: 28, y: 520, width: 210, height: 64 },
-  handRight: { x: 1360, y: 520, width: 210, height: 64 },
+  handTop: { x: 470, y: 58, width: 620, height: 78 },
+  handLeft: { x: 175, y: 315, width: 130, height: 325 },
+  handRight: { x: 1305, y: 245, width: 120, height: 335 },
 
-  riverTop: { x: 610, y: 150, width: 380, height: 210 },
-  riverLeft: { x: 330, y: 330, width: 210, height: 360 },
-  riverRight: { x: 1060, y: 330, width: 210, height: 360 },
-  riverBottom: { x: 610, y: 615, width: 380, height: 170 },
+  riverTop: { x: 470, y: 155, width: 500, height: 70 },
+  riverLeft: { x: 350, y: 325, width: 90, height: 315 },
+  riverRight: { x: 1195, y: 245, width: 80, height: 335 },
+  riverBottom: { x: 635, y: 625, width: 490, height: 75 },
 
-  meldTop: { x: 1010, y: 150, width: 260, height: 210 },
-  meldLeft: { x: 255, y: 250, width: 70, height: 430 },
-  meldRight: { x: 1280, y: 250, width: 70, height: 430 },
-  meldBottom: { x: 300, y: 625, width: 280, height: 160 },
+  meldTop: { x: 1110, y: 52, width: 120, height: 120 },
+  meldLeft: { x: 175, y: 225, width: 130, height: 85 },
+  meldRight: { x: 1305, y: 585, width: 120, height: 90 },
+  meldBottom: { x: 380, y: 790, width: 130, height: 90 },
 
-  flowerTop: { x: 330, y: 150, width: 230, height: 120 },
-  flowerLeft: { x: 255, y: 700, width: 180, height: 80 },
-  flowerRight: { x: 1165, y: 700, width: 180, height: 80 },
-  flowerBottom: { x: 1010, y: 625, width: 230, height: 120 },
+  flowerTop: { x: 985, y: 155, width: 100, height: 70 },
+  flowerLeft: { x: 350, y: 225, width: 90, height: 85 },
+  flowerRight: { x: 1195, y: 585, width: 90, height: 70 },
+  flowerBottom: { x: 520, y: 625, width: 95, height: 75 },
 
-  center: { x: 660, y: 405, width: 280, height: 180 },
-  handDock: { x: 300, y: 800, width: 1000, height: 88 },
-  actionDock: { x: 900, y: 900, width: 420, height: 70 },
+  center: { x: 620, y: 345, width: 430, height: 190 },
+  handDock: { x: 530, y: 785, width: 650, height: 105 },
+  actionDock: { x: 600, y: 720, width: 480, height: 55 },
 } as const satisfies Record<string, Region>
 
 export type RegionName = keyof typeof TABLE_REGIONS
 
 export const REGION_NAMES = Object.keys(TABLE_REGIONS) as RegionName[]
 
-export const ALLOWED_REGION_OVERLAPS = [
-  ['playerLeft', 'meldLeft'],
-  ['playerRight', 'meldRight'],
-  ['riverLeft', 'meldBottom'],
-  ['riverRight', 'meldTop'],
-  ['riverRight', 'flowerBottom'],
-  ['meldLeft', 'meldBottom'],
-  ['meldBottom', 'flowerLeft'],
-  ['flowerRight', 'flowerBottom'],
-] as const satisfies ReadonlyArray<readonly [RegionName, RegionName]>
+export const ALLOWED_REGION_OVERLAPS: ReadonlyArray<readonly [RegionName, RegionName]> = []
 
 export function getRegion(name: RegionName): Region {
   return TABLE_REGIONS[name]

@@ -48,14 +48,14 @@ function regionStyle(region: Region): CSSProperties {
 function meldGroupStyle(seat: Seat, index: number): CSSProperties {
   if (seat === 'Left' || seat === 'Right') {
     return {
-      left: 16,
-      top: 26 + index * 78,
+      left: 8 + (index % 2) * 58,
+      top: 28 + Math.floor(index / 2) * 20,
     }
   }
 
   return {
-    left: 6 + (index % 3) * 88,
-    top: 30 + Math.floor(index / 3) * 58,
+    left: 8 + (index % 2) * 58,
+    top: 28 + Math.floor(index / 2) * 24,
   }
 }
 
@@ -63,25 +63,25 @@ function meldTileStyle(seat: Seat, tileIndex: number): CSSProperties {
   const rotation = ROTATION_BY_SEAT[seat]
   if (seat === 'Left' || seat === 'Right') {
     return {
-      left: 0,
-      top: tileIndex * 18,
-      transform: `rotate(${rotation}deg) scale(0.86)`,
+      left: tileIndex * 16,
+      top: 0,
+      transform: `rotate(${rotation}deg) scale(0.64)`,
     }
   }
 
   return {
-    left: tileIndex * 24,
+    left: tileIndex * 16,
     top: 0,
-    transform: `rotate(${rotation}deg) scale(0.86)`,
+    transform: `rotate(${rotation}deg) scale(0.64)`,
   }
 }
 
 function flowerTileStyle(seat: Seat, index: number): CSSProperties {
   const rotation = ROTATION_BY_SEAT[seat]
   return {
-    left: 4 + index * 19,
-    top: seat === 'User' || seat === 'Opponent' ? 42 : 30,
-    transform: `rotate(${rotation}deg) scale(0.78)`,
+    left: 4 + index * 11,
+    top: seat === 'User' || seat === 'Opponent' ? 36 : 34,
+    transform: `rotate(${rotation}deg) scale(0.48)`,
   }
 }
 

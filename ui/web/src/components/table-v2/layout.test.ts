@@ -53,7 +53,7 @@ describe('table-v2 layout', () => {
     expect(right6.x).toBeLessThan(right0.x)
   })
 
-  it('reserves player-card gutter outside felt and away from center console', () => {
+  it('places player cards in their own outer regions away from center console', () => {
     ;(['Left', 'Right'] as Seat[]).forEach((seat) => {
       const zone = PLAYER_CARD_ZONES[seat]
       if (seat === 'Left') {
@@ -64,7 +64,7 @@ describe('table-v2 layout', () => {
     })
 
     expect(PLAYER_CARD_ZONES.Opponent.y).toBeLessThan(FELT.y)
-    expect(PLAYER_CARD_ZONES.User.y).toBeGreaterThan(FELT.y + FELT.height - 20)
+    expect(PLAYER_CARD_ZONES.User.y).toBeGreaterThan(FELT.y + FELT.height - 140)
     expect(CENTER_CONSOLE_ZONE.x).toBeGreaterThan(FELT.x + 400)
     expect(CENTER_CONSOLE_ZONE.x + CENTER_CONSOLE_ZONE.width).toBeLessThan(FELT.x + FELT.width - 400)
   })

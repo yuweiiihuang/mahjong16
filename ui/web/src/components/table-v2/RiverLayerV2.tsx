@@ -45,7 +45,7 @@ function tileStyle(region: Region, box: { x: number; y: number }, rotation: numb
   return {
     left: box.x - region.x,
     top: box.y - region.y,
-    transform: `rotate(${rotation}deg)`,
+    transform: `rotate(${rotation}deg) scale(0.9)`,
   }
 }
 

@@ -837,7 +837,15 @@ body {
   pointer-events: none;
 }
 
-.opponent-hand-region-v2,
+.opponent-hand-region-v2 {
+  position: absolute;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  background: rgba(5, 28, 20, 0.18);
+  border: 1px solid rgba(228, 206, 158, 0.22);
+}
+
 .opponent-hand-tile-slot-v2 {
   position: absolute;
   width: max-content;
@@ -1052,33 +1060,21 @@ body {
 
 .action-strip-v2 {
   position: absolute;
-  left: 810px;
-  top: 910px;
-  width: 500px;
-  min-height: 64px;
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 12px;
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(4, 18, 15, 0.92), rgba(2, 12, 10, 0.82)),
-    radial-gradient(circle at 0% 50%, rgba(245, 201, 75, 0.12), transparent 48%);
-  border: 1px solid rgba(245, 201, 75, 0.18);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+  justify-content: center;
+  pointer-events: none;
 }
 
 .action-strip-status-v2 {
-  min-width: 138px;
-  color: rgba(243, 251, 246, 0.88);
-  font-size: 16px;
-  font-weight: 900;
+  display: none;
 }
 
 .action-strip-buttons-v2 {
   display: flex;
-  gap: 8px;
+  gap: 14px;
+  pointer-events: auto;
 }
 
 .action-button-v2 {
@@ -1112,13 +1108,15 @@ body {
 
 .player-panel-v2 {
   position: absolute;
-  min-width: 250px;
-  min-height: 76px;
+  width: 100px;
+  min-height: 116px;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
   align-items: center;
-  gap: 12px;
-  padding: 11px 16px 11px 12px;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 8px;
   border-radius: 16px;
   color: #f2faf6;
   background:
@@ -1145,33 +1143,36 @@ body {
   font-size: 22px;
 }
 
+.player-panel-v2-avatar::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(232, 244, 238, 0.9);
+  box-shadow: 0 24px 0 9px rgba(232, 244, 238, 0.86);
+}
+
 .player-panel-v2-name {
-  font-size: 20px;
-  font-weight: 900;
-  line-height: 1.1;
+  display: none;
 }
 
 .player-panel-v2-seat {
-  display: inline-flex;
-  margin-top: 5px;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: rgba(28, 110, 147, 0.34);
-  border: 1px solid rgba(76, 195, 241, 0.34);
-  font-size: 15px;
-  font-weight: 800;
+  display: none;
 }
 
 .player-panel-v2-score {
   font-family: 'Orbitron', 'Roboto Mono', monospace;
-  font-size: 22px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(4, 18, 15, 0.52);
+  font-size: 15px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .player-panel-v2-left,
 .player-panel-v2-right {
-  min-width: 230px;
+  width: 100px;
 }
 
 .table-v2-action-overlay {

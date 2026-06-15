@@ -39,15 +39,15 @@ describe('table-v2 layout validation', () => {
 
     expect(regionBox).toMatchObject({
       id: 'region-riverBottom',
-      x: 610,
-      y: 615,
-      width: 380,
-      height: 170,
+      x: 635,
+      y: 625,
+      width: 490,
+      height: 75,
     })
     expect(tileBox).toMatchObject({
       id: 'riverBottom-0',
-      x: 610,
-      y: 615,
+      x: 635,
+      y: 625,
       width: 34,
       height: 44,
     })
