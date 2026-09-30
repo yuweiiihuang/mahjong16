@@ -123,3 +123,21 @@ table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 - 補齊 `scripts/bench_sim.py`、`scripts/eval_league.py` 的實作與效能基準。
 - 擴充更強的策略樣板（MCTS、模擬式搜尋）並串接 `bots/`。
 - 在 `rl/train.py` 實作正式的訓練 loop 與記錄分析管線。
+
+## 電腦網頁牌桌
+
+新增簡約青綠風格的繁體中文單人練習桌，直接使用現有規則引擎與三位 Greedy 電腦玩家。
+
+```bash
+source .venv/bin/activate
+python -m app.web --port 8000
+```
+
+瀏覽器開啟 `http://127.0.0.1:8000`。點選手牌後按「出牌」、雙擊牌面或按 Enter 出牌。
+吃／碰／槓／胡／過依合法操作顯示，支援自動補花、聽牌、對局紀錄、本局結果與重新開局。
+主要布局以電腦為主；手機也採橫向牌桌、單排手牌。直向持機時顯示旋轉提示，
+橫向時隱藏房間側欄並縮減控制列。
+
+此伺服器僅綁定 localhost，使用瀏覽器 cookie 隔離各練習桌，對局儲存在記憶體。
+目前不提供多人連線、帳戶或累積台數與點數結算。字型使用系統字型；牌面以本地 SVG 紋理搭配 Three.js 立體牌體繪製，
+四家共用同一相機、實際尺寸與桌面光影。瀏覽器需支援 WebGL。
