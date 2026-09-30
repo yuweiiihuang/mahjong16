@@ -1,3 +1,4 @@
+import { DEFAULT_ORDER, sortHand } from './hand-sort.mjs';
 import * as THREE from './vendor/three.module.js';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 
@@ -91,7 +92,7 @@ export class MahjongTableView {
       material.polygonOffset=true;material.polygonOffsetFactor=-1;material.polygonOffsetUnits=-1;
       this.faceMaterials.set(id,material);
     }));
-    if(this.snapshot)this.update(this.snapshot,this.selection,this.sorted);
+    if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
   }
 
   makeTile(id, upright=true, action=null, selected=false) {
@@ -116,9 +117,9 @@ export class MahjongTableView {
     group.rotation.y=ANGLES[pid];this.tiles.add(group);return group;
   }
 
-  addConcealed(pid,state,selected,sorted) {
+  addConcealed(pid,state,selected,sortOrder) {
     const group=this.seatGroup(pid);
-    let hand=pid===0?(sorted?[...state.hand].sort((a,b)=>a-b):state.hand):
+    const hand=pid===0?sortHand(state.hand,sortOrder):
       Array.from({length:state.players[pid].count},()=>null);
     // Own melds occupy space beside the hand, using the same physical scale.
     const ownMeldCount=pid===0?state.players[0].melds.reduce((n,m)=>n+m.tiles.length,0):0;
@@ -165,11 +166,11 @@ export class MahjongTableView {
     });
   }
 
-  update(state,selection,sorted=true) {
-    this.snapshot=state;this.selection=selection;this.sorted=sorted;
+  update(state,selection,sortOrder=DEFAULT_ORDER) {
+    this.snapshot=state;this.selection=selection;this.sortOrder=sortOrder;
     this.tiles.clear();this.handObjects=[];
     for(let pid=0;pid<4;pid++){
-      this.addConcealed(pid,state,selection,sorted);
+      this.addConcealed(pid,state,selection,sortOrder);
       this.addRiver(pid,state.rivers[pid],state.last_discard);
     }
     this.draw();
