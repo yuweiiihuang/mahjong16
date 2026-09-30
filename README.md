@@ -34,6 +34,27 @@ pytest -q
 
 亦可使用 `python -m domain.gameplay.game_env` 進行匯入檢查或撰寫最小化實驗。
 
+## 電腦網頁牌桌
+
+本專案的主要 Web UI 為「青禾」桌面：簡約青綠風格的繁體中文單人練習桌，直接使用現有規則引擎與三位 Greedy 電腦玩家。
+
+```bash
+source .venv/bin/activate
+python -m app.web --port 8000
+```
+
+瀏覽器開啟 `http://127.0.0.1:8000`。點選手牌後按「出牌」、雙擊牌面或按 Enter 出牌。
+吃／碰／槓／胡／過依合法操作顯示，支援自動補花、聽牌、對局紀錄、本局結果與重新開局。
+主要布局以電腦為主；手機也採橫向牌桌、單排手牌。直向持機時顯示旋轉提示，
+橫向時隱藏房間側欄並縮減控制列。
+
+此伺服器僅綁定 localhost，使用瀏覽器 cookie 隔離各練習桌，對局儲存在記憶體。
+目前不提供多人連線、帳戶或累積台數與點數結算。字型使用系統字型；牌面以本地 SVG 紋理搭配 Three.js 立體牌體繪製，
+四家共用同一相機、實際尺寸與桌面光影。瀏覽器需支援 WebGL。
+
+後續 Web UI 開發統一沿用 `ui/web/` 的桌面設計與 `app/web.py` 入口，
+不再維護其他並行版型。舊版已封存，詳見 [Web UI 封存紀錄](docs/webui-archive.md)。
+
 ## 專案結構
 
 ```text
@@ -46,11 +67,13 @@ mahjong16/
 │  ├─ rules/            # Ruleset 與胡牌/聽牌判斷
 │  └─ scoring/          # 台數管線（engine/state/rules/tables/...）
 ├─ app/
+│  ├─ web.py            # 青禾網頁牌桌與本地 API
 │  ├─ runtime.py        # Demo 主 loop、UI 更新與結算整合
 │  ├─ table.py          # TableManager：圈風、連莊與多局管理
 │  ├─ strategies.py     # Human / Auto / Greedy 策略橋接 bots
 │  └─ logging.py        # 欄位化手局紀錄（CSV）
 ├─ ui/
+│  ├─ web/              # 主要 Web UI：HTML、CSS、JS、3D 牌面與素材
 │  ├─ console.py        # Rich 互動介面（提示行動、展示河牌/剩餘張數）
 │  └─ rich_helpers.py   # Rich 組件共用工具
 ├─ bots/                # 範例策略（RandomBot、RuleBot、Greedy）
@@ -123,21 +146,3 @@ table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
 - 補齊 `scripts/bench_sim.py`、`scripts/eval_league.py` 的實作與效能基準。
 - 擴充更強的策略樣板（MCTS、模擬式搜尋）並串接 `bots/`。
 - 在 `rl/train.py` 實作正式的訓練 loop 與記錄分析管線。
-
-## 電腦網頁牌桌
-
-新增簡約青綠風格的繁體中文單人練習桌，直接使用現有規則引擎與三位 Greedy 電腦玩家。
-
-```bash
-source .venv/bin/activate
-python -m app.web --port 8000
-```
-
-瀏覽器開啟 `http://127.0.0.1:8000`。點選手牌後按「出牌」、雙擊牌面或按 Enter 出牌。
-吃／碰／槓／胡／過依合法操作顯示，支援自動補花、聽牌、對局紀錄、本局結果與重新開局。
-主要布局以電腦為主；手機也採橫向牌桌、單排手牌。直向持機時顯示旋轉提示，
-橫向時隱藏房間側欄並縮減控制列。
-
-此伺服器僅綁定 localhost，使用瀏覽器 cookie 隔離各練習桌，對局儲存在記憶體。
-目前不提供多人連線、帳戶或累積台數與點數結算。字型使用系統字型；牌面以本地 SVG 紋理搭配 Three.js 立體牌體繪製，
-四家共用同一相機、實際尺寸與桌面光影。瀏覽器需支援 WebGL。

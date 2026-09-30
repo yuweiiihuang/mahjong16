@@ -6,6 +6,12 @@
 - Place autonomous agents in `bots/` and any reinforcement-learning tooling in `rl/`, importing shared logic from `domain/` or `ui/` as needed.
 - Treat `configs/` and `scripts/` as read-only inputs; introduce new runtime behaviour alongside pytest coverage in `tests/`.
 
+## Web UI Baseline
+- Use the Qinghe desktop table in `ui/web/` as the canonical Web UI design.
+- Run its local server through `python -m app.web --port 8000` (`app/web.py`).
+- Extend this design rather than introducing another UI or an `app/web/` package that shadows the entry point.
+- Older UI versions are archived; see `docs/webui-archive.md`.
+
 ## Build, Test, and Development Commands
 - `source .venv/bin/activate` — activate the project environment before installing or running tools.
 - `pip install -r requirements.txt` — sync runtime and test dependencies.

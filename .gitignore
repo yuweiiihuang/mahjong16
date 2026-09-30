@@ -77,3 +77,8 @@ datasets/
 .tmp/
 .cache/
 **/.ipynb_checkpoints/
+
+# Local worktrees and archived UI experiments
+.worktrees/
+.archive/
+.superpowers/
