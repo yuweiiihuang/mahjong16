@@ -207,18 +207,23 @@ export class MahjongTableView {
       const melds=state.players[pid].melds;
       const span=melds.reduce((n,m)=>n+Math.min(3,m.tiles.length)*TILE.pitch,0)+Math.max(0,melds.length-1)*.18;
       let offset=-(span-TILE.pitch)/2;
-      for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.7);
+      for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.0);
     }
-    // A compact flower block stays clear of this meld row and both adjacent seats.
-    const flowers=state.players[pid].flowers;
-    flowers.forEach((id,i)=>{const t=this.makeTile(id,false);
-      t.position.x=3.85+(i%3)*1.05;t.position.z=-3.2-Math.floor(i/3)*1.5;group.add(t);});
+    // Small flowers stay beside their owner's hand, outside the three-row river area.
+    state.players[pid].flowers.forEach((id,i)=>{
+      const tile=this.makeTile(id,false);
+      tile.scale.setScalar(.55);
+      tile.position.y=.13;
+      tile.position.x=-4-(i%4)*.62;
+      tile.position.z=-2.25-Math.floor(i/4)*.85;
+      group.add(tile);
+    });
   }
 
   addRiver(pid,river,last) {
     const seat = this.seatPositions[pid];
     const group=new THREE.Group();group.position.set(RIVERS[seat][0],0,RIVERS[seat][1]);
-    group.rotation.y=ANGLES[seat];this.tiles.add(group);
+    group.rotation.y=ANGLES[seat];group.userData.riverPid=pid;this.tiles.add(group);
     river.forEach((id,i)=>{
       const tile=this.makeTile(id,false);tile.position.x=(i%6-2.5)*1.12;
       tile.position.z=Math.floor(i/6)*1.58;
@@ -228,7 +233,7 @@ export class MahjongTableView {
         outline.position.y=.015;outline.position.x=tile.position.x;outline.position.z=tile.position.z;
         group.add(outline);
       }
-      group.add(tile);
+      tile.userData.riverIndex=i;group.add(tile);
     });
   }
 
@@ -243,6 +248,26 @@ export class MahjongTableView {
       this.addRiver(pid,state.rivers[pid],state.last_discard);
     }
     this.draw();
+  }
+
+  animateDiscard(pid) {
+    const river = this.tiles.children.find(group => group.userData.riverPid === pid);
+    const tile = river?.children.find(child =>
+      child.userData.riverIndex === this.snapshot.rivers[pid].length-1);
+    if (!tile) return Promise.resolve();
+    const end = tile.position.clone(), seat = this.seatPositions[pid];
+    this.scene.updateMatrixWorld(true);
+    const start = river.worldToLocal(new THREE.Vector3(SEATS[seat][0],.8,SEATS[seat][1]));
+    const began = performance.now();
+    return new Promise(resolve => {
+      const tick = now => {
+        const progress = Math.min(1,(now-began)/250);
+        tile.position.lerpVectors(start,end,1-(1-progress)**3);
+        this.draw();
+        if (progress < 1) requestAnimationFrame(tick); else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
   }
 
   project(point) {

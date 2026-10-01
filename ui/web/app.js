@@ -4,9 +4,11 @@ import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 const $ = id => document.getElementById(id);
 const names = ['你', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
-const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓'};
-let state, selected = null, busy = false;
+const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
+let state, selected = null, busy = false, playbackFrame = null;
 let sound = localStorage.getItem('qinghe-sound') === 'true';
+let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
+  ? localStorage.getItem('qinghe-pace') : 'natural';
 let compact = localStorage.getItem('qinghe-flat') === 'true';
 let sortOrder = [...DEFAULT_ORDER];
 try {
@@ -91,6 +93,12 @@ function actionButton(text, action, primary=false) {
 }
 function renderActions(){
   const target=$('actions');target.replaceChildren();
+  if (playbackFrame) {
+    $('hint').textContent = playbackFrame.type === 'THINK'
+      ? `${names[playbackFrame.pid]}正在思考…`
+      : `${names[playbackFrame.pid]} · ${labels[playbackFrame.type] || playbackFrame.type}`;
+    return;
+  }
   if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
   if(state.phase==='TURN'){
     for(const a of state.legal_actions.filter(a=>!['DISCARD','TING'].includes(a.type))) target.append(actionButton(a.type==='HU'&&a.source==='TSUMO'?'自摸':labels[a.type],a,true));
@@ -162,7 +170,7 @@ function render(){
   $('me').replaceChildren(...person(0).childNodes);
   $('flowers').replaceChildren();
   if(state.flowers.length){const label=document.createElement('small');label.textContent='花牌';$('flowers').append(label);for(const id of state.flowers)$('flowers').append(tile(id,true));}
-  $('notice').textContent=state.done?'本局結束':state.phase==='REACTION'?'選擇回應':state.declared_ting?'已聽牌 · 等待好牌':'輪到你出牌';
+  $('notice').textContent=playbackFrame ? `${names[playbackFrame.pid]}${playbackFrame.type === 'THINK' ? '正在思考' : ` · ${labels[playbackFrame.type] || playbackFrame.type}`}` : state.done?'本局結束':state.phase==='REACTION'?'選擇回應':state.declared_ting?'已聽牌 · 等待好牌':'輪到你出牌';
   $('hint').textContent=state.done?'好牌不怕晚，下局再見。':state.phase==='REACTION'?`有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`:'點選手牌，再按「出牌」';
   renderHand();renderActions();
 
@@ -176,15 +184,38 @@ async function request(path,body){
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data=await response.json();if(!response.ok)throw new Error(data.error||'連線失敗');return data;
 }
+async function present(result) {
+  const {playback = [], ...finalState} = result;
+  selected = null;
+  try {
+    for (const frame of playback) {
+      playbackFrame = frame;
+      state = {...frame.state, actor:frame.pid};
+      render();
+      if (['DISCARD','TING'].includes(frame.type)) {
+        beep();
+        await tableView.animateDiscard(frame.pid);
+      } else if (frame.type !== 'THINK') beep();
+      const delay = frame.type === 'THINK' ? 500 + Math.random()*250
+        : frame.state.done ? 1200 : ['DISCARD','TING'].includes(frame.type) ? 450 : 700;
+      await new Promise(resolve => setTimeout(resolve, delay * {fast:.35,natural:1,relaxed:1.6}[pace]));
+    }
+  } finally {
+    playbackFrame = null;
+    state = finalState;
+    render();
+  }
+  if (state.done) showResult();
+}
 async function perform(action){
   if(!action||busy)return;busy=true;renderActions();renderHand();
-  try{state=await request('/api/action',Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index')));selected=null;beep();render();if(state.done)showResult();}
+  try{await present(await request('/api/action',Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'))));}
   catch(e){toast(e.message);try{state=await request('/api/state');selected=null;}catch{}}
   finally{busy=false;render();}
 }
 async function newGame(next = false){
   if(busy)return;busy=true;$('new-game').disabled=true;
-  try{state=await request(next ? '/api/next' : '/api/new',{});selected=null;$('modal').close();render();if(state.done)showResult();else toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
+  try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done)toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = ''){
@@ -283,13 +314,16 @@ $('modal').addEventListener('close', () => {
 
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
-  modal('牌桌設定',`<label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
+  modal('牌桌設定',`<label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label><label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
+  $('pace-setting').value = pace;
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
   $('save-settings').onclick=()=>{
     sortOrder = [...settingsOrder];
     sound = $('sound-setting').checked;
     compact = $('flat-setting').checked;
+    pace = $('pace-setting').value;
+    localStorage.setItem('qinghe-pace', pace);
     localStorage.setItem('qinghe-sort-order', JSON.stringify(sortOrder));
     localStorage.setItem('qinghe-sound', sound);
     localStorage.setItem('qinghe-flat', compact);
@@ -318,7 +352,7 @@ $('new-game').onclick=()=>{if(!state)return;modal('重新開桌？','<p>目前�
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&selected&&!busy){e.preventDefault();perform(selected);}});
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=table-indicator-round-1');
+    const { MahjongTableView } = await import('./table3d.js?v=small-flowers-2');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

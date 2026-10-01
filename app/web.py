@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import secrets
 import threading
@@ -45,20 +46,21 @@ class WebTable:
         self.round = 0
         self.start_hand()
 
-    def start_hand(self) -> None:
+    def start_hand(self, playback: list | None = None) -> None:
         """Deal the next hand using the shared dealer and round-wind manager."""
         self.round += 1
         self.events = []
         self.settlement = None
         self.manager.start_hand(self.env)
-        self.advance()
+        self.advance(playback)
 
     def next_hand(self) -> dict:
         """Continue a completed hand without clearing accumulated points."""
         if not self.env.done:
             raise ValueError('本局尚未結束。')
-        self.start_hand()
-        return self.snapshot()
+        playback = []
+        self.start_hand(playback)
+        return {**self.snapshot(), 'playback': playback}
 
     def settle(self) -> None:
         """Settle a finished hand exactly once, before advancing dealer state."""
@@ -87,32 +89,53 @@ class WebTable:
             return self.env.reaction_queue[self.env.reaction_idx]
         return self.env.turn
 
-    def apply(self, action: dict) -> None:
+    def apply(self, action: dict, playback: list | None = None) -> None:
         """Apply and record an already validated action."""
-        self.events.append({'pid': self.actor(), **action})
+        pid, phase = self.actor(), self.env.phase
+        self.events.append({'pid': pid, **action})
         self.events = self.events[-60:]
-        self.env.step(action)
+        _, _, _, info = self.env.step(action)
+        resolved = info.get('resolved_claim')
+        if resolved:
+            self.record_frame(playback, resolved['pid'], resolved['type'])
+        elif phase == 'TURN':
+            self.record_frame(playback, pid, action['type'])
 
-    def advance(self) -> None:
+    def record_frame(self, playback: list | None, pid: int, action_type: str) -> None:
+        """Capture immutable public states for presentation, without further gameplay."""
+        if playback is not None:
+            state = deepcopy(self.snapshot())
+            state['legal_actions'] = []
+            state['ting_options'] = []
+            playback.append({'state': state, 'pid': pid, 'type': action_type})
+
+    def advance(self, playback: list | None = None) -> None:
         """Play bots until a meaningful human choice or round end."""
         while not self.env.done:
             pid = self.actor()
             actions = self.env.legal_actions(pid)
             if pid == 0:
                 if actions == [{'type': 'PASS'}]:
-                    self.apply(actions[0])
+                    self.apply(actions[0], playback)
                     continue
                 return
-            self.apply(self.bot.choose(self.env._obs(pid)))
+            action = self.bot.choose(self.env._obs(pid))
+            if self.env.phase == 'TURN':
+                self.record_frame(playback, pid, 'THINK')
+            self.apply(action, playback)
+        if playback is not None and (not playback or not playback[-1]['state']['done']):
+            self.record_frame(playback, self.env.winner or 0,
+                              'HU' if self.env.winner is not None else 'DRAW_GAME')
         self.settle()
 
     def act(self, action: dict) -> dict:
         """Reject stale/forged moves before mutating game state."""
         if self.env.done or self.actor() != 0 or action not in self.env.legal_actions(0):
             raise ValueError('這個操作已失效，請重新選牌。')
-        self.apply(action)
-        self.advance()
-        return self.snapshot()
+        playback = []
+        self.apply(action, playback)
+        self.advance(playback)
+        return {**self.snapshot(), 'playback': playback}
 
     def snapshot(self) -> dict:
         """Expose public table state and the human hand, never opponent hands."""
@@ -122,7 +145,7 @@ class WebTable:
             'legal_actions': [] if env.done else env.legal_actions(0),
             'actor': None if env.done else self.actor(), 'done': env.done,
             'winner': env.winner, 'win_source': env.win_source,
-            'dealer': env.dealer_pid, 'events': self.events,
+            'dealer': env.dealer_pid, 'events': deepcopy(self.events),
             'round': self.round, 'quan_feng': env.quan_feng,
             'seat_winds': list(env.seat_winds), 'seating_order': list(env.seating_order),
             'dealer_streak': env.dealer_streak, 'totals': list(self.totals),
@@ -132,6 +155,18 @@ class WebTable:
                          'flowers': list(p.flowers), 'melds': p.melds,
                          'ting': p.declared_ting} for p in env.players],
         })
+        # Playback must not reveal opponents' concealed kongs or declared waits.
+        for event in result['events']:
+            if event['pid'] != 0:
+                event.pop('waits', None)
+                if event['type'] == 'ANGANG':
+                    event.pop('tile', None)
+        for pid, player in enumerate(result['players'][1:], 1):
+            melds = deepcopy(player['melds'])
+            for meld in melds:
+                if meld['type'] == 'ANGANG':
+                    meld['tiles'] = [None] * len(meld['tiles'])
+            player['melds'] = result['melds_all'][pid] = melds
         # Unseen counts use only the human hand and public tiles, never the wall or bots.
         visible = {**result, 'melds_all': [
             [meld for meld in melds if pid == 0 or meld['type'] != 'ANGANG']

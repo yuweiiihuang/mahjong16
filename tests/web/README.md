@@ -6,7 +6,7 @@
 node --test tests/web/test_hand_sort.mjs
 ```
 
-3D 檢查：花牌／副露碰撞、槓牌 3+1 疊放與翻面、中央五區塊指示器及換座後的操作方位高亮：
+3D 檢查：花牌／副露碰撞、四家完整三排牌河與手牌／副露／花牌的碰撞、槓牌 3+1 疊放與翻面、中央五區塊指示器及換座後的操作方位高亮：
 
 ```bash
 node --test tests/web/test_table_layout.mjs

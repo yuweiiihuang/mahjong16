@@ -4,7 +4,7 @@ import * as THREE from '../../ui/web/vendor/three.module.js';
 import { MahjongTableView } from '../../ui/web/table3d.js';
 
 // Exercise the real tile builder and seat transforms without creating a WebGL renderer.
-function layout(meldCount, meldSize, flowerSeat) {
+function layout(meldCount, meldSize, flowerSeat, riverCount = 0) {
   const view = Object.create(MahjongTableView.prototype);
   Object.assign(view, {
     tiles: new THREE.Group(), handObjects: [], seatPositions: [0, 1, 2, 3],
@@ -22,10 +22,15 @@ function layout(meldCount, meldSize, flowerSeat) {
     })),
   };
   for (let pid = 0; pid < 4; pid++) view.addConcealed(pid, state, null, [0,1,2,3]);
+  if (riverCount) for (let pid = 0; pid < 4; pid++) {
+    view.addRiver(pid, Array(riverCount).fill(0), null);
+  }
   view.tiles.updateMatrixWorld(true);
   return view.tiles.children.flatMap((seat, pid) => seat.children
-    .filter(tile => tile.rotation.x !== 0)
-    .map(tile => ({pid, flower:tile.userData.id >= 34, box:new THREE.Box3().setFromObject(tile)})));
+    .filter(tile => riverCount || tile.rotation.x !== 0)
+    .map(tile => ({pid:seat.userData.riverPid ?? pid,
+      river:seat.userData.riverPid !== undefined,
+      flower:tile.userData.id >= 34, box:new THREE.Box3().setFromObject(tile)})));
 }
 
 test('flowers never intersect their own or adjacent exposed melds in any seat', () => {
@@ -111,4 +116,21 @@ test('table indicator has five panels and highlights the actor after seat change
   assert.ok(!text.some(t => t.color === '#102d29'));
   view.updateIndicator(null);
   assert.ok(text.some(t => t.value === '—'));
+});
+
+
+test('three-row rivers clear hands, melds, flowers and other rivers in every seat', () => {
+  for (let flowerSeat = 0; flowerSeat < 4; flowerSeat++) {
+    for (let meldCount = 0; meldCount <= 5; meldCount++) {
+      for (const meldSize of [3, 4]) {
+        const tiles = layout(meldCount, meldSize, flowerSeat, 18);
+        for (const river of tiles.filter(tile => tile.river)) {
+          for (const other of tiles.filter(tile => tile !== river)) {
+            assert.ok(!river.box.intersectsBox(other.box),
+              `river seat ${river.pid} intersects seat ${other.pid}, ${meldCount} melds × ${meldSize}`);
+          }
+        }
+      }
+    }
+  }
 });
