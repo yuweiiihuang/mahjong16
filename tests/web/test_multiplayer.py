@@ -66,6 +66,25 @@ def test_stale_wrong_seat_and_duplicate_actions(room):
         assert room.snapshot('a') == applied
 
 
+def test_reaction_actor_is_private_but_responder_keeps_legal_controls(room):
+    room, _ = room
+    env = room.table.env
+    env.phase = 'REACTION'
+    env.reaction_queue = [1, 2, 3]
+    env.reaction_idx = 1
+    env.last_discard = {'pid': 0, 'tile': 1}
+    env.players[2].hand = [1, 1]
+    for pid, sid in enumerate(('a', 'b', 'c', 'd')):
+        state = room.snapshot(sid)
+        assert state['actor'] is None
+        assert state['last_discard']['pid'] == (0 - pid) % 4
+        if pid == 2:
+            assert {'type': 'PONG'} in state['legal_actions']
+        else:
+            assert state['legal_actions'] == []
+    assert room.table.actor() == 2  # Server still knows who may respond.
+
+
 def test_tentative_and_rejected_claims_never_reveal_hand_tiles(room):
     room, _ = room
     table = room.table

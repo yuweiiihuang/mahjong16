@@ -13,7 +13,8 @@ def test_start_and_advance_to_human():
     assert state['drawn'] is not None
     action = next(a for a in state['legal_actions'] if a['type'] == 'DISCARD')
     result = table.act(action)
-    assert result['done'] or result['actor'] == 0
+    assert result['done'] or table.actor() == 0
+    assert result['actor'] == (None if result['done'] or result['phase'] == 'REACTION' else 0)
     assert result['rivers'][0] or result['players'][1]['melds']
     assert all('hand' not in player for player in result['players'])
 

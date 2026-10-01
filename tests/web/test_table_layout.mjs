@@ -219,6 +219,10 @@ test('table indicator has five panels and highlights the actor after seat change
   state.done = true;
   view.updateIndicator(state);
   assert.ok(!text.some(t => t.color === '#102d29'));
+  state.done = false;
+  state.phase = 'REACTION';
+  view.updateIndicator(state);
+  assert.ok(!text.some(t => t.color === '#102d29'), 'reaction actor never lights a wind');
   view.updateIndicator(null);
   assert.ok(text.some(t => t.value === '—'));
 });

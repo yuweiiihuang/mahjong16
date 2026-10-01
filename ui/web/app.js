@@ -109,13 +109,9 @@ function actionButton(text, action, primary=false) {
 function renderActions(){
   const target=$('actions');target.replaceChildren();
   if (playbackFrame) {
-    $('hint').textContent = playbackFrame.type === 'THINK'
-      ? `${names[playbackFrame.pid]}正在思考…`
-      : `${names[playbackFrame.pid]} · ${labels[playbackFrame.type] || playbackFrame.type}`;
     return;
   }
   if (state.room && !state.room.started) {
-    $('hint').textContent = '分享邀請網址，朋友入座後由房主開局；空位由電腦補上。';
     if (state.room.host) {
       const start = actionButton('開始對局', null, true);
       start.onclick = () => roomCommand('/api/room/start'); target.append(start);
@@ -123,14 +119,10 @@ function renderActions(){
     return;
   }
   if (state.room && state.done && !state.room.host) {
-    $('hint').textContent = '本局結束，等待房主開啟下一局。';
     const result = actionButton('結算明細', null); result.onclick = showResult;
     target.append(result); return;
   }
   if (state.room && !state.done && !state.legal_actions.length) {
-    const event = state.display_event;
-    $('hint').textContent = event ? `${names[event.pid]}${event.type === 'THINK' ? '正在思考…' : ` · ${labels[event.type] || event.type}`}`
-      : `等待${names[state.actor]}操作…`;
     return;
   }
   if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
@@ -150,14 +142,6 @@ function renderActions(){
     hints.onclick = showTing;
     target.prepend(hints);
   }
-  const option = selected && state.ting_options.find(a => a.tile === selected.tile && a.from === selected.from);
-  $('hint').textContent = option ? `打${tileName(option.tile)} → ${waitText(option.waits)}`
-    : state.declared_ting ? waitText(state.ting_waits)
-    : state.phase === 'REACTION' ? `有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`
-    : '點選手牌，再點同一張或按「出牌」';
-}
-function waitText(waits) {
-  return `聽 ${waits.map(w => `${tileName(w.tile)}（未見 ${w.unseen}）`).join('、')}`;
 }
 function showTing() {
   modal('聽牌提示', '<p>未見張數依自己的牌與公開牌估算，包含對手手牌及尾牌，不代表牌牆可摸張數。</p><div id="ting-list"></div>');
@@ -202,18 +186,16 @@ function render(){
     const pid = order[(ownSeat + seat) % 4];
     const el = document.querySelector(selector);
     el.textContent = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-    el.classList.toggle('active', !state.done && pid === state.actor);
+    el.classList.toggle('active', !state.done && state.phase !== 'REACTION' && pid === state.actor);
   });
   document.querySelector('.compass').setAttribute('aria-label',
     state.room && !state.room.started ? '等待朋友入座' :
-      `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
+      `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : state.phase === 'REACTION' || state.actor === null ? '等待回應' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
   $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
   $('me').replaceChildren(...person(0).childNodes);
   $('flowers').replaceChildren();
   if(state.flowers.length){const label=document.createElement('small');label.textContent='花牌';$('flowers').append(label);for(const id of state.flowers)$('flowers').append(tile(id,true));}
-  $('notice').textContent=playbackFrame ? `${names[playbackFrame.pid]}${playbackFrame.type === 'THINK' ? '正在思考' : ` · ${labels[playbackFrame.type] || playbackFrame.type}`}` : state.done?'本局結束':state.phase==='REACTION'?'選擇回應':state.declared_ting?'已聽牌 · 等待好牌':'輪到你出牌';
-  $('hint').textContent=state.done?'好牌不怕晚，下局再見。':state.phase==='REACTION'?`有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`:'點選手牌，再點同一張或按「出牌」';
   renderHand();renderActions();
 
 }
@@ -485,7 +467,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=discard-bipyramid-land-2');
+    const { MahjongTableView } = await import('./table3d.js?v=private-reactions-1');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
@@ -502,7 +484,6 @@ $('multiplayer').onclick = () => {
     render();
     if (state.done) showResult();
   } catch (e) {
-    $('notice').textContent = '牌桌載入失敗';
     toast('無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
     console.error(e);
   }

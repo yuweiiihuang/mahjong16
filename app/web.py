@@ -153,7 +153,9 @@ class WebTable:
         result.update({
             'legal_actions': (env.legal_actions(viewer)
                               if not env.done and self.actor() == viewer else []),
-            'actor': None if env.done else self.actor(), 'done': env.done,
+            # Reaction eligibility is private; only normal turn actors are public.
+            'actor': None if env.done or env.phase == 'REACTION' else self.actor(),
+            'done': env.done,
             'winner': env.winner, 'win_source': env.win_source,
             'dealer': env.dealer_pid, 'events': deepcopy(self.events),
             'round': self.round, 'quan_feng': env.quan_feng,

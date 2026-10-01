@@ -107,7 +107,7 @@ export class MahjongTableView {
       const pid = order[(ownSeat+seat)%4];
       const wind = state?.seat_winds[pid] || ['E','S','W','N'][pid];
       const color = colors[wind];
-      const active = state && !state.done && state.actor === pid;
+      const active = state && !state.done && state.phase !== 'REACTION' && state.actor === pid;
       const start = angle-Math.PI/4+.045, end = angle+Math.PI/4-.045;
       ctx.shadowColor=color; ctx.shadowBlur=active?18:0;
       ctx.fillStyle=active?color:`${color}88`;
