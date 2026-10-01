@@ -228,24 +228,80 @@ export class MahjongTableView {
       const tile=this.makeTile(id,false);tile.position.x=(i%6-2.5)*1.12;
       tile.position.z=Math.floor(i/6)*1.58;
       if(last?.pid===pid&&i===river.length-1){
-        const outline=new THREE.Mesh(this.latestGeometry ||= new THREE.BoxGeometry(1.065,.025,1.465),
-          this.latestMaterial ||= new THREE.MeshBasicMaterial({color:0xd6dcb0}));
-        outline.position.y=.015;outline.position.x=tile.position.x;outline.position.z=tile.position.z;
-        group.add(outline);
+        this.markLatest(tile);
       }
       tile.userData.riverIndex=i;group.add(tile);
     });
   }
 
+  markLatest(tile) {
+    if (!this.latestOutlineGeometry) {
+      const shape = new THREE.Shape();
+      shape.moveTo(-.555,-.755); shape.lineTo(.555,-.755);
+      shape.lineTo(.555,.755); shape.lineTo(-.555,.755); shape.closePath();
+      const hole = new THREE.Path();
+      hole.moveTo(-.495,-.695); hole.lineTo(-.495,.695);
+      hole.lineTo(.495,.695); hole.lineTo(.495,-.695); hole.closePath();
+      shape.holes.push(hole);
+      this.latestOutlineGeometry = new THREE.ShapeGeometry(shape);
+    }
+    const outline = new THREE.Mesh(this.latestOutlineGeometry,
+      this.latestOutlineMaterial ||= new THREE.MeshBasicMaterial({color:0xb94037,
+        side:THREE.DoubleSide, toneMapped:false, depthWrite:false}));
+    outline.position.z = -.2;
+    tile.add(outline);
+    const pointer = new THREE.Group();
+    const geometry = this.latestPointerGeometry ||= new THREE.ConeGeometry(.325,.468,3,1,true);
+    const material = this.latestPointerMaterial ||= new THREE.MeshStandardMaterial({
+      color:0xb94037, roughness:.65, metalness:.08, flatShading:true});
+    const upper = new THREE.Mesh(geometry,material);
+    upper.position.y = .234;
+    upper.castShadow = true;
+    const lower = new THREE.Mesh(geometry,material);
+    lower.rotation.z = Math.PI;
+    lower.position.y = -.234;
+    lower.castShadow = true;
+    pointer.add(upper,lower);
+    pointer.rotation.x = Math.PI / 2;
+    pointer.rotation.y = .35;
+    pointer.position.z = 1.05;
+    tile.add(pointer);
+    tile.userData.latestMarkers = [outline,pointer];
+    this.latestPointer = pointer;
+    this.rotateLatest();
+  }
+
+  rotateLatest() {
+    if (this.latestAnimation || typeof requestAnimationFrame !== 'function' ||
+        (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    const tick = now => {
+      this.latestAnimation = null;
+      if (!this.latestPointer) return;
+      this.latestPointer.rotation.y = .35 + now * Math.PI / 5000;
+      // Only the pointer moves: do not rebuild hand hit targets each animation frame.
+      if (this.width && this.height) this.renderer.render(this.scene,this.camera);
+      this.latestAnimation = requestAnimationFrame(tick);
+    };
+    this.latestAnimation = requestAnimationFrame(tick);
+  }
+
   update(state,selection,sortOrder=DEFAULT_ORDER) {
+    if (this.discardAnimating) {
+      this.pendingUpdate = [state,selection,sortOrder];
+      return;
+    }
     this.snapshot=state;this.selection=selection;this.sortOrder=sortOrder;
     this.seatPositions = state.players.map((_, pid) =>
       (state.seating_order.indexOf(pid) - state.seating_order.indexOf(0) + 4) % 4);
     this.updateIndicator(state);
+    this.latestPointer = null;
     this.tiles.clear();this.handObjects=[];
+    const event = state.events?.at(-1);
+    const latest = state.last_discard ||
+      (event && ['DISCARD','TING'].includes(event.type) ? event : null);
     for(let pid=0;pid<4;pid++){
       this.addConcealed(pid,state,selection,sortOrder);
-      this.addRiver(pid,state.rivers[pid],state.last_discard);
+      this.addRiver(pid,state.rivers[pid],latest);
     }
     this.draw();
   }
@@ -258,13 +314,27 @@ export class MahjongTableView {
     const end = tile.position.clone(), seat = this.seatPositions[pid];
     this.scene.updateMatrixWorld(true);
     const start = river.worldToLocal(new THREE.Vector3(SEATS[seat][0],.8,SEATS[seat][1]));
+    const markers = tile.userData.latestMarkers || [];
+    this.discardAnimating = true;
+    for (const marker of markers) marker.visible = false;
+    tile.position.copy(start);
+    this.draw();
     const began = performance.now();
     return new Promise(resolve => {
       const tick = now => {
         const progress = Math.min(1,(now-began)/250);
         tile.position.lerpVectors(start,end,1-(1-progress)**3);
-        this.draw();
-        if (progress < 1) requestAnimationFrame(tick); else resolve();
+        if (progress < 1) {
+          this.draw();
+          requestAnimationFrame(tick);
+        } else {
+          for (const marker of markers) marker.visible = true;
+          this.discardAnimating = false;
+          const pending = this.pendingUpdate;
+          this.pendingUpdate = null;
+          if (pending) this.update(...pending); else this.draw();
+          resolve();
+        }
       };
       requestAnimationFrame(tick);
     });

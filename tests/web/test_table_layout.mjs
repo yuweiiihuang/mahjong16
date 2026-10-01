@@ -3,6 +3,111 @@ import assert from 'node:assert/strict';
 import * as THREE from '../../ui/web/vendor/three.module.js';
 import { MahjongTableView } from '../../ui/web/table3d.js';
 
+test('thin discard frame and triangular bipyramid follow the tile without lifting it', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  const tile = new THREE.Group();
+  tile.rotation.x = -Math.PI / 2;
+  tile.position.y = .235;
+  view.markLatest(tile);
+  assert.equal(tile.position.y, .235);
+  const [outline,pointer] = tile.children;
+  outline.geometry.computeBoundingBox();
+  assert.ok(outline.geometry.boundingBox.max.x < .56, 'frame stays close to tile edges');
+  assert.equal(pointer.children.length, 2);
+  assert.equal(pointer.children[0].geometry.parameters.radialSegments, 3);
+  assert.equal(pointer.children[0].geometry.parameters.openEnded, true);
+  assert.equal(pointer.children[1].rotation.z, Math.PI);
+  tile.updateMatrixWorld(true);
+  assert.ok(new THREE.Box3().setFromObject(pointer).min.y > .6,
+    'pointer is suspended above the face');
+  const next = new THREE.Group();
+  view.markLatest(next);
+  assert.equal(next.children[0].geometry, outline.geometry);
+  assert.equal(next.children[1].children[0].material, pointer.children[0].material);
+});
+
+test('pointer rotates slowly with one animation loop and stops when no discard remains', () => {
+  const original = globalThis.requestAnimationFrame;
+  const callbacks = [];
+  globalThis.requestAnimationFrame = callback => { callbacks.push(callback); return callbacks.length; };
+  try {
+    const view = Object.create(MahjongTableView.prototype);
+    let renders = 0;
+    Object.assign(view,{latestPointer:new THREE.Group(),width:800,height:500,
+      renderer:{render() { renders++; }},scene:{},camera:{}});
+    view.rotateLatest(); view.rotateLatest();
+    assert.equal(callbacks.length,1, 'redraws must not start duplicate animation loops');
+    callbacks[0](2500);
+    assert.ok(Math.abs(view.latestPointer.rotation.y - (.35 + Math.PI / 2)) < 1e-9);
+    assert.equal(renders,1);
+    const replacement = new THREE.Group();
+    view.latestPointer = replacement;
+    callbacks[1](5000);
+    assert.ok(Math.abs(replacement.rotation.y - (.35 + Math.PI)) < 1e-9);
+    view.latestPointer = null;
+    callbacks[2](6000);
+    assert.equal(callbacks.length,3, 'no pointer means no further frames');
+    assert.equal(view.latestAnimation,null);
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
+test('latest marker survives the next draw and disappears after a resolved claim', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  let latest;
+  Object.assign(view,{tiles:new THREE.Group(),updateIndicator() {},addConcealed() {},
+    addRiver(pid,river,last) { latest = last; },draw() {}});
+  const discard = {pid:3,type:'DISCARD',tile:12};
+  const state = {players:[{},{},{},{}],seating_order:[0,1,2,3],
+    rivers:[[],[],[],[12]],last_discard:null,events:[discard]};
+  view.update(state,null);
+  assert.equal(latest,discard);
+  state.events.push({pid:0,type:'PONG',tile:12,from_pid:3});
+  view.update(state,null);
+  assert.equal(latest,null);
+});
+
+test('discard frame and pointer appear only after the flying tile lands', async () => {
+  const original = globalThis.requestAnimationFrame;
+  const callbacks = [];
+  globalThis.requestAnimationFrame = callback => { callbacks.push(callback); return callbacks.length; };
+  try {
+    const view = Object.create(MahjongTableView.prototype);
+    const scene = new THREE.Scene(), tiles = new THREE.Group();
+    scene.add(tiles);
+    const river = new THREE.Group(), tile = new THREE.Group();
+    river.userData.riverPid = 0;
+    tile.userData.riverIndex = 0;
+    tile.position.set(2,.235,1.58);
+    const markers = [new THREE.Group(),new THREE.Group()];
+    tile.add(...markers); tile.userData.latestMarkers = markers;
+    river.add(tile); tiles.add(river);
+    Object.assign(view,{scene,tiles,seatPositions:[0,1,2,3],snapshot:{rivers:[[0]]},
+      draw() {}});
+    const destination = tile.position.clone();
+    const motion = view.animateDiscard(0);
+    assert.ok(markers.every(marker => !marker.visible));
+    let rebuilt = false;
+    view.updateIndicator = () => { rebuilt = true; };
+    view.addConcealed = () => {};
+    view.addRiver = () => {};
+    const nextState = {players:[{},{},{},{}],seating_order:[0,1,2,3],rivers:[[0],[],[],[]],
+      last_discard:{pid:0,tile:0},events:[]};
+    view.update(nextState,{tile:5,from:'hand',index:0});
+    assert.equal(rebuilt,false, 'selection redraw waits while the tile is in flight');
+    assert.equal(river.children[0],tile, 'keep the animated tile instead of rebuilding it');
+    assert.ok(markers.every(marker => !marker.visible));
+    callbacks.shift()(performance.now());
+    assert.ok(markers.every(marker => !marker.visible), 'in-flight frame stays unmarked');
+    callbacks.shift()(performance.now() + 251);
+    await motion;
+    assert.ok(markers.every(marker => marker.visible));
+    assert.ok(tile.position.distanceTo(destination) < 1e-9);
+    assert.equal(rebuilt,true);
+    assert.equal(view.selection.tile,5, 'latest selection is applied after landing');
+    assert.equal(view.pendingUpdate,null);
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
 // Exercise the real tile builder and seat transforms without creating a WebGL renderer.
 function layout(meldCount, meldSize, flowerSeat, riverCount = 0) {
   const view = Object.create(MahjongTableView.prototype);
