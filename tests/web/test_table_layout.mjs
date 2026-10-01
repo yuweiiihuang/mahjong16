@@ -79,3 +79,36 @@ test('kongs use three base tiles and one centered top tile with correct visibili
     }
   }
 });
+
+test('table indicator has five panels and highlights the actor after seat changes', () => {
+  const text = [], arcs = [];
+  const ctx = {
+    clearRect() { text.length = 0; arcs.length = 0; },
+    fillRect() {}, beginPath() {}, fill() {}, stroke() {},
+    arc(...args) { arcs.push(args); }, closePath() {},
+    fillText(value, x, y) { text.push({value,x,y,color:this.fillStyle}); },
+  };
+  const view = Object.create(MahjongTableView.prototype);
+  Object.assign(view, {indicatorContext:ctx, indicatorTexture:{}});
+  const state = {
+    seating_order:[2,3,0,1], seat_winds:['W','N','E','S'],
+    remaining:28, actor:0, done:false,
+  };
+  for (let actor = 0; actor < 4; actor++) {
+    state.actor = actor;
+    view.updateIndicator(state);
+    assert.equal(arcs.length, 10, 'four ring segments plus outer and center circles');
+    assert.deepEqual(arcs.slice(1,9).map(a => a[2]), [238,132,238,132,238,132,238,132]);
+    assert.ok(text.some(t => t.value === '28'));
+    const lamps = text.filter(t => ['東','南','西','北'].includes(t.value));
+    const lit = lamps.filter(t => t.color === '#102d29');
+    assert.equal(lit.length, 1);
+    assert.equal(lit[0].value, ['西','北','東','南'][actor]);
+    assert.deepEqual(lamps.map(t => t.value), ['西','北','東','南']);
+  }
+  state.done = true;
+  view.updateIndicator(state);
+  assert.ok(!text.some(t => t.color === '#102d29'));
+  view.updateIndicator(null);
+  assert.ok(text.some(t => t.value === '—'));
+});

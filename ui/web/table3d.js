@@ -73,9 +73,59 @@ export class MahjongTableView {
     const border = new THREE.Mesh(new RoundedBoxGeometry(30.1,.38,24.6,3,.2),
       new THREE.MeshStandardMaterial({color:0x133e31,roughness:.7}));
     border.position.y=-.53; this.scene.add(border);
-    const center = new THREE.Mesh(new RoundedBoxGeometry(2.65,.08,2.65,3,.11),
-      new THREE.MeshStandardMaterial({color:0x153e33,roughness:.65}));
-    center.position.y=.015; center.receiveShadow=true;this.scene.add(center);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(2.08,2.08,.08,96),
+      new THREE.MeshStandardMaterial({color:0xd3cbb5,roughness:.5}));
+    rim.position.y=.04; rim.castShadow=true; rim.receiveShadow=true; this.scene.add(rim);
+    const center = new THREE.Mesh(new THREE.CylinderGeometry(2.04,2.08,.25,96),
+      this.ivory);
+    center.position.y=.175; center.castShadow=true; center.receiveShadow=true; this.scene.add(center);
+    this.indicatorCanvas = document.createElement('canvas');
+    this.indicatorCanvas.width = this.indicatorCanvas.height = 1024;
+    this.indicatorContext = this.indicatorCanvas.getContext('2d');
+    this.indicatorContext.scale(2,2);
+    this.indicatorTexture = new THREE.CanvasTexture(this.indicatorCanvas);
+    this.indicatorTexture.colorSpace = THREE.SRGBColorSpace;
+    this.indicatorTexture.anisotropy = Math.min(16,this.renderer.capabilities.getMaxAnisotropy());
+    const display = new THREE.Mesh(new THREE.PlaneGeometry(4.08,4.08),
+      new THREE.MeshBasicMaterial({map:this.indicatorTexture,toneMapped:false,transparent:true}));
+    display.rotation.x=-Math.PI/2; display.position.y=.302; this.scene.add(display);
+    this.updateIndicator(null);
+  }
+
+  updateIndicator(state) {
+    const ctx = this.indicatorContext;
+    const colors = {E:'#efbd62', S:'#ed8690', W:'#76cbd8', N:'#b9a0e6'};
+    const labels = {E:'東', S:'南', W:'西', N:'北'};
+    ctx.clearRect(0,0,512,512);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle='#f3efdf';
+    ctx.beginPath(); ctx.arc(256,256,256,0,Math.PI*2); ctx.fill();
+    const order = state?.seating_order || [0,1,2,3];
+    const ownSeat = order.indexOf(0);
+    const angles = [Math.PI/2,0,-Math.PI/2,Math.PI];
+    angles.forEach((angle, seat) => {
+      const pid = order[(ownSeat+seat)%4];
+      const wind = state?.seat_winds[pid] || ['E','S','W','N'][pid];
+      const color = colors[wind];
+      const active = state && !state.done && state.actor === pid;
+      const start = angle-Math.PI/4+.045, end = angle+Math.PI/4-.045;
+      ctx.shadowColor=color; ctx.shadowBlur=active?18:0;
+      ctx.fillStyle=active?color:`${color}88`;
+      ctx.beginPath();
+      ctx.arc(256,256,238,start,end);
+      ctx.arc(256,256,132,end,start,true);
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur=0; ctx.strokeStyle='#d1c8b5'; ctx.lineWidth=2; ctx.stroke();
+      ctx.font=`${active?'700':'500'} 64px "PingFang TC",sans-serif`;
+      ctx.fillStyle=active?'#102d29':'#536960';
+      ctx.fillText(labels[wind],256+Math.cos(angle)*184,256+Math.sin(angle)*184);
+    });
+    ctx.fillStyle='#faf6e8';
+    ctx.beginPath(); ctx.arc(256,256,120,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#d1c8b5'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#153e32'; ctx.font='600 136px ui-monospace,"SFMono-Regular",monospace';
+    ctx.fillText(state ? String(state.remaining) : '—',256,256);
+    this.indicatorTexture.needsUpdate=true;
   }
 
   async loadFaces() {
@@ -186,6 +236,7 @@ export class MahjongTableView {
     this.snapshot=state;this.selection=selection;this.sortOrder=sortOrder;
     this.seatPositions = state.players.map((_, pid) =>
       (state.seating_order.indexOf(pid) - state.seating_order.indexOf(0) + 4) % 4);
+    this.updateIndicator(state);
     this.tiles.clear();this.handObjects=[];
     for(let pid=0;pid<4;pid++){
       this.addConcealed(pid,state,selection,sortOrder);

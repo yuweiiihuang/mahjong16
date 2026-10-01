@@ -41,3 +41,5 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 .result-dialog .result-hand{margin:12px 0}.result-dialog .result-hand .tile{width:30px;height:42px;padding:2px}
 .result-dialog .score-row{padding:5px 0;font-size:12px}.result-dialog .settlement-table{margin-top:12px;font-size:12px}
 .result-dialog .settlement-table th,.result-dialog .settlement-table td{padding:7px 4px}.result-dialog .modal-primary{margin-top:12px;padding:10px 24px}
+/* The indicator is rendered on the tabletop; retain its text for screen readers. */
+.compass{width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%)}

@@ -6,7 +6,7 @@
 node --test tests/web/test_hand_sort.mjs
 ```
 
-3D 擺放檢查：四座位的花牌／副露碰撞，以及明槓、加槓、暗槓的 3+1 疊放與翻面：
+3D 檢查：花牌／副露碰撞、槓牌 3+1 疊放與翻面、中央五區塊指示器及換座後的操作方位高亮：
 
 ```bash
 node --test tests/web/test_table_layout.mjs

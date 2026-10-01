@@ -76,9 +76,6 @@ function syncProjection(view) {
     if (hand.children[position] !== button) hand.insertBefore(button, hand.children[position] || null);
   });
   for (const button of existing.values()) button.remove();
-  const center = view.project([0,.1,0]);
-  const compass = document.querySelector('.compass');
-  compass.style.left = `${center.x}px`; compass.style.top = `${center.y}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
   const order = state.seating_order;
   for (const pid of [1,2,3]) {
@@ -156,8 +153,10 @@ function render(){
     const pid = order[(ownSeat + seat) % 4];
     const el = document.querySelector(selector);
     el.textContent = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-    el.classList.toggle('active', pid === state.dealer);
+    el.classList.toggle('active', !state.done && pid === state.actor);
   });
+  document.querySelector('.compass').setAttribute('aria-label',
+    `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
   $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
   $('me').replaceChildren(...person(0).childNodes);
@@ -319,7 +318,7 @@ $('new-game').onclick=()=>{if(!state)return;modal('重新開桌？','<p>目前�
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&selected&&!busy){e.preventDefault();perform(selected);}});
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=kong-stack-3');
+    const { MahjongTableView } = await import('./table3d.js?v=table-indicator-round-1');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
