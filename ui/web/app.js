@@ -1,3 +1,4 @@
+import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 
 const $ = id => document.getElementById(id);
@@ -151,86 +152,89 @@ $('sound').onclick=()=>{sound=!sound;localStorage.setItem('qinghe-sound',sound);
 function updateSound(){$('sound').innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/>${sound?'<path d="M16 8q4 4 0 8M19 5q7 7 0 14"/>':'<path d="m17 9 5 6m0-6-5 6"/>'}</svg>`;$('sound').setAttribute('aria-label',sound?'關閉音效':'開啟音效');$('sound').setAttribute('aria-pressed',String(sound));}
 updateSound();
 const sortNames = ['萬', '筒', '條', '字'];
-function setSortOrder(order) {
+let settingsOrder, settingsSortable;
+function setSettingsOrder(order) {
   if (!validOrder(order)) return;
-  sortOrder = [...order];
-  localStorage.setItem('qinghe-sort-order', JSON.stringify(sortOrder));
-  selected = null;
-  renderHand();
-  if (state) renderActions();
+  settingsOrder = [...order];
   renderSortSettings();
 }
 function moveSortGroup(group, position) {
-  const order = sortOrder.filter(value => value !== group);
+  const order = settingsOrder.filter(value => value !== group);
   order.splice(position, 0, group);
-  setSortOrder(order);
+  setSettingsOrder(order);
   $(`sort-group-${group}`).focus();
+}
+function syncSortSettings() {
+  const list = $('sort-order');
+  const value = settingsOrder.join(',');
+  $('sort-preset').value = [...$('sort-preset').options].some(o => o.value === value)
+    ? value : 'custom';
+  [...list.children].forEach((button, position) => {
+    button.setAttribute('aria-label', `${sortNames[Number(button.dataset.group)]}，第 ${position + 1} 位`);
+  });
 }
 function renderSortSettings() {
   const list = $('sort-order');
-  const value = sortOrder.join(',');
-  $('sort-preset').value = [...$('sort-preset').options].some(o => o.value === value)
-    ? value : 'custom';
-  $('sort-status').textContent = `目前順序：${sortOrder.map(g => sortNames[g]).join(' → ')}`;
+  settingsSortable?.destroy();
   list.replaceChildren();
-  sortOrder.forEach((group, position) => {
+  settingsOrder.forEach(group => {
     const button = document.createElement('button');
     button.id = `sort-group-${group}`;
     button.className = 'sort-group';
     button.type = 'button';
     button.dataset.group = group;
-    button.setAttribute('aria-label', `${sortNames[group]}，第 ${position + 1} 位`);
     button.append(tile([0, 9, 18, 27][group]));
-    const label = document.createElement('span');
-    label.textContent = sortNames[group];
-    button.append(label);
     button.onkeydown = event => {
       const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
       if (!step) return;
       event.preventDefault();
-      const next = position + step;
+      const next = settingsOrder.indexOf(group) + step;
       if (next >= 0 && next < 4) moveSortGroup(group, next);
     };
-    let dragX = 0, pitch = 0, preview = sortOrder;
-    button.onpointerdown = event => {
-      if (event.button !== 0) return;
-      dragX = event.clientX;
-      const cards = [...list.children];
-      pitch = cards[1].offsetLeft - cards[0].offsetLeft;
-      preview = [...sortOrder];
-      button.setPointerCapture(event.pointerId);
-      button.classList.add('dragging');
-    };
-    button.onpointermove = event => {
-      if (!button.hasPointerCapture(event.pointerId)) return;
-      const delta = Math.max(-position * pitch,
-        Math.min((3 - position) * pitch, event.clientX - dragX));
-      const next = Math.max(0, Math.min(3, Math.round(position + delta / pitch)));
-      preview = sortOrder.filter(value => value !== group);
-      preview.splice(next, 0, group);
-      [...list.children].forEach((card, index) => {
-        const shift = card === button ? delta :
-          (preview.indexOf(Number(card.dataset.group)) - index) * pitch;
-        card.style.transform = `translateX(${shift}px)`;
-      });
-      $('sort-status').textContent = `目前順序：${preview.map(g => sortNames[g]).join(' → ')}`;
-    };
-    button.onpointerup = event => {
-      if (!button.hasPointerCapture(event.pointerId)) return;
-      button.releasePointerCapture(event.pointerId);
-      setSortOrder(preview);
-      $(`sort-group-${group}`).focus();
-    };
-    button.onpointercancel = () => renderSortSettings();
     list.append(button);
   });
+  syncSortSettings();
+  settingsSortable = Sortable.create(list, {
+    direction: 'horizontal',
+    draggable: '.sort-group',
+    animation: 0, // Keep slot geometry stable when the next drag starts immediately.
+    forceFallback: true,
+    fallbackTolerance: 4,
+    ghostClass: 'sort-placeholder',
+    fallbackClass: 'sort-floating',
+    onEnd: event => {
+      settingsOrder = [...list.children].map(button => Number(button.dataset.group));
+      syncSortSettings();
+      event.item.focus({ preventScroll: true });
+    }
+  });
 }
+$('modal').addEventListener('close', () => {
+  settingsSortable?.destroy();
+  settingsSortable = null;
+});
+
 $('settings').onclick=()=>{
-  modal('牌桌設定',`<label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。各類依點數由小到大，字牌依東南西北中發白；摸牌另放右側。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div><p id="sort-status" role="status" aria-live="polite"></p></section><p>設定會儲存在這個瀏覽器。對局依台灣十六張規則進行，花牌自動補花。</p>`);
+  settingsOrder = [...sortOrder];
+  modal('牌桌設定',`<label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
   renderSortSettings();
-  $('sort-preset').onchange=e=>setSortOrder(e.target.value.split(',').map(Number));
-  $('sound-setting').onchange=e=>{sound=e.target.checked;localStorage.setItem('qinghe-sound',sound);updateSound();};
-  $('flat-setting').onchange=e=>{compact=e.target.checked;localStorage.setItem('qinghe-flat',compact);document.body.classList.toggle('compact',compact);if(tableView){tableView.renderer.shadowMap.enabled=!compact;tableView.draw();}};
+  $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
+  $('save-settings').onclick=()=>{
+    sortOrder = [...settingsOrder];
+    sound = $('sound-setting').checked;
+    compact = $('flat-setting').checked;
+    localStorage.setItem('qinghe-sort-order', JSON.stringify(sortOrder));
+    localStorage.setItem('qinghe-sound', sound);
+    localStorage.setItem('qinghe-flat', compact);
+    updateSound();
+    document.body.classList.toggle('compact', compact);
+    selected = null;
+    if (tableView) tableView.renderer.shadowMap.enabled = !compact;
+    renderHand();
+    if (state) renderActions();
+    $('modal').close();
+    toast('設定已儲存');
+  };
 };
 $('history').onclick=()=>{
   modal('對局紀錄','<div class="history-scroll" id="history-list"></div>');

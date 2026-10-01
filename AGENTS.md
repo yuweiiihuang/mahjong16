@@ -11,6 +11,7 @@
 - Run its local server through `python -m app.web --port 8000` (`app/web.py`).
 - Extend this design rather than introducing another UI or an `app/web/` package that shadows the entry point.
 - Older UI versions are archived; see `docs/webui-archive.md`.
+- For UI changes, let the user test locally and explicitly approve before pushing.
 
 ## Build, Test, and Development Commands
 - `source .venv/bin/activate` — activate the project environment before installing or running tools.
