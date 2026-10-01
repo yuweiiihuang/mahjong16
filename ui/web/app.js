@@ -22,6 +22,17 @@ function tileName(id) {
   if (id < 27) return `${id % 9 + 1}${['萬','筒','條'][Math.floor(id/9)]}`;
   return ['東','南','西','北','中','發','白','春','夏','秋','冬','梅','蘭','竹','菊'][id - 27];
 }
+function selectHandTile(action) {
+  if (busy) return;
+  if (selected?.tile === action.tile && selected?.from === action.from &&
+      selected?.index === action.index) {
+    perform(action);
+    return;
+  }
+  selected = action;
+  renderHand();
+  renderActions();
+}
 function tile(id, small = false, action = null) {
   const el = document.createElement(action ? 'button' : 'span');
   el.className = `tile${small?' small flat':''}${id===31?' red':''}${id===32?' green':''}`;
@@ -37,8 +48,7 @@ function tile(id, small = false, action = null) {
     el.disabled=busy;
     el.setAttribute('aria-pressed', String(selected?.tile===id && selected?.from===action.from));
     if(selected?.tile===id && selected?.from===action.from) el.classList.add('selected');
-    el.onclick=()=>{selected=action;renderHand();renderActions();};
-    el.ondblclick=()=>perform(action);
+    el.onclick=()=>selectHandTile(action);
   }
   return el;
 }
@@ -78,8 +88,7 @@ function syncProjection(view) {
     button.classList.add('tile-hit');
     button.disabled = busy;
     button.setAttribute('aria-pressed', String(box.selected));
-    button.onclick = () => { selected=action; renderHand(); renderActions(); };
-    button.ondblclick = () => perform(action);
+    button.onclick = () => selectHandTile(action);
     button.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
     if (hand.children[position] !== button) hand.insertBefore(button, hand.children[position] || null);
   });
@@ -145,7 +154,7 @@ function renderActions(){
   $('hint').textContent = option ? `打${tileName(option.tile)} → ${waitText(option.waits)}`
     : state.declared_ting ? waitText(state.ting_waits)
     : state.phase === 'REACTION' ? `有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`
-    : '點選手牌，再按「出牌」';
+    : '點選手牌，再點同一張或按「出牌」';
 }
 function waitText(waits) {
   return `聽 ${waits.map(w => `${tileName(w.tile)}（未見 ${w.unseen}）`).join('、')}`;
@@ -204,7 +213,7 @@ function render(){
   $('flowers').replaceChildren();
   if(state.flowers.length){const label=document.createElement('small');label.textContent='花牌';$('flowers').append(label);for(const id of state.flowers)$('flowers').append(tile(id,true));}
   $('notice').textContent=playbackFrame ? `${names[playbackFrame.pid]}${playbackFrame.type === 'THINK' ? '正在思考' : ` · ${labels[playbackFrame.type] || playbackFrame.type}`}` : state.done?'本局結束':state.phase==='REACTION'?'選擇回應':state.declared_ting?'已聽牌 · 等待好牌':'輪到你出牌';
-  $('hint').textContent=state.done?'好牌不怕晚，下局再見。':state.phase==='REACTION'?`有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`:'點選手牌，再按「出牌」';
+  $('hint').textContent=state.done?'好牌不怕晚，下局再見。':state.phase==='REACTION'?`有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`:'點選手牌，再點同一張或按「出牌」';
   renderHand();renderActions();
 
 }
@@ -290,7 +299,7 @@ function showResult(){
   if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick=()=>newGame(true);
 }
-$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以雙擊牌面或按 Enter 確認。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
+$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
 $('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
@@ -399,7 +408,6 @@ $('history').onclick=()=>{
   }
 };
 $('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手。本局開始後無法重新加入。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
-document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&selected&&!busy){e.preventDefault();perform(selected);}});
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
   sessionStorage.setItem('qinghe-room', result.room.code);
