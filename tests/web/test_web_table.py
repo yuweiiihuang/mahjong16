@@ -63,7 +63,7 @@ def test_playback_is_ordered_immutable_and_does_not_change_gameplay():
             saved = json.dumps(frames)
             table.snapshot()['players'][0]['melds'].append({'type': 'PONG', 'tiles': [0, 0, 0]})
             assert json.dumps(frames) == saved
-            table.env.players[0].melds.pop()
+            assert table.env.players[0].melds == control.env.players[0].melds
 
 
 def test_playback_redacts_concealed_kongs_and_bot_waits_without_mutating_engine():

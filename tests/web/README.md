@@ -1,5 +1,15 @@
 # Web UI 回歸
 
+多人房間、手牌隔離、重送／過期操作與重連：
+
+```bash
+pytest -q tests/web/test_multiplayer.py
+```
+
+包含真實本機 HTTP 測試，需要允許程式監聽本機連接埠。
+加入、重新整理與兩位真人輪流出牌仍需瀏覽器驗收；部署與限制見
+`docs/multiplayer.md`。
+
 排序邏輯：
 
 ```bash

@@ -2,7 +2,7 @@ import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 
 const $ = id => document.getElementById(id);
-const names = ['你', '陳予安', '林小滿', '周子墨'];
+let names = ['你', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
 let state, selected = null, busy = false, playbackFrame = null;
@@ -16,6 +16,7 @@ try {
   if (validOrder(saved)) sortOrder = saved;
 } catch {} // Ignore invalid saved preferences and use the default order.
 let audio, tableView;
+let roomMode = false, pollGeneration = 0;
 document.body.classList.toggle('compact', compact);
 function tileName(id) {
   if (id < 27) return `${id % 9 + 1}${['萬','筒','條'][Math.floor(id/9)]}`;
@@ -45,6 +46,11 @@ function person(pid, sidebar = false) {
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
   const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
   wrap.innerHTML=`<div class="avatar a${pid}">${pid===0?'禾':names[pid][0]}</div><div class="player-info"><strong>${names[pid]}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
+  if (state.room) {
+    const member = state.room.members[pid];
+    const detail = wrap.querySelector('small');
+    detail.textContent += member.human ? (member.connected ? ' · 真人' : ' · 暫時離線') : ' · 電腦';
+  }
   return wrap;
 }
 function melds(pid, target, small = true) {
@@ -97,6 +103,25 @@ function renderActions(){
     $('hint').textContent = playbackFrame.type === 'THINK'
       ? `${names[playbackFrame.pid]}正在思考…`
       : `${names[playbackFrame.pid]} · ${labels[playbackFrame.type] || playbackFrame.type}`;
+    return;
+  }
+  if (state.room && !state.room.started) {
+    $('hint').textContent = '分享邀請網址，朋友入座後由房主開局；空位由電腦補上。';
+    if (state.room.host) {
+      const start = actionButton('開始對局', null, true);
+      start.onclick = () => roomCommand('/api/room/start'); target.append(start);
+    }
+    return;
+  }
+  if (state.room && state.done && !state.room.host) {
+    $('hint').textContent = '本局結束，等待房主開啟下一局。';
+    const result = actionButton('結算明細', null); result.onclick = showResult;
+    target.append(result); return;
+  }
+  if (state.room && !state.done && !state.legal_actions.length) {
+    const event = state.display_event;
+    $('hint').textContent = event ? `${names[event.pid]}${event.type === 'THINK' ? '正在思考…' : ` · ${labels[event.type] || event.type}`}`
+      : `等待${names[state.actor]}操作…`;
     return;
   }
   if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
@@ -152,6 +177,13 @@ function showTing() {
   }
 }
 function render(){
+  names = state.room ? state.room.members.map(member => member.name) : ['你', '陳予安', '林小滿', '周子墨'];
+  $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
+  $('table-title').textContent = state.room ? (state.room.started ? '朋友牌桌' : '等待朋友入座') : '練習牌桌';
+  $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
+  $('table-caption').textContent = state.room ? '台灣十六張 · 朋友連線' : '台灣十六張 · 單人練習';
+  $('connection-status').textContent = state.room ? '房間已連線' : '練習模式';
+  $('new-game').textContent = state.room ? '離開房間' : '↻　重新開桌';
   $('remaining').textContent=state.remaining;
   $('round').textContent=`第 ${state.round} 局`;
   $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
@@ -164,7 +196,8 @@ function render(){
     el.classList.toggle('active', !state.done && pid === state.actor);
   });
   document.querySelector('.compass').setAttribute('aria-label',
-    `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
+    state.room && !state.room.started ? '等待朋友入座' :
+      `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
   $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
   $('me').replaceChildren(...person(0).childNodes);
@@ -182,7 +215,9 @@ function beep(){
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');setTimeout(()=>$('toast').classList.remove('visible'),3500);}
 async function request(path,body){
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const data=await response.json();if(!response.ok)throw new Error(data.error||'連線失敗');return data;
+  const data=await response.json();
+  if(!response.ok){const error=new Error(data.error||'連線失敗');error.status=response.status;throw error;}
+  return data;
 }
 async function present(result) {
   const {playback = [], ...finalState} = result;
@@ -209,11 +244,22 @@ async function present(result) {
 }
 async function perform(action){
   if(!action||busy)return;busy=true;renderActions();renderHand();
-  try{await present(await request('/api/action',Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'))));}
-  catch(e){toast(e.message);try{state=await request('/api/state');selected=null;}catch{}}
-  finally{busy=false;render();}
+  try{
+    const move = Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'));
+    if (roomMode) {
+      state = await request('/api/room/action', {action:move, version:state.version, request_id:crypto.randomUUID()});
+      selected = null;
+      render();
+      if (['DISCARD','TING'].includes(state.display_event?.type)) {
+        beep(); await tableView.animateDiscard(state.display_event.pid);
+      }
+    } else await present(await request('/api/action', move));
+  }
+  catch(e){toast(e.message);try{state=await request(roomMode ? '/api/room/state' : '/api/state');selected=null;}catch{}}
+  finally{busy=false;render();if(roomMode && state.done)showResult();}
 }
 async function newGame(next = false){
+  if (roomMode) return roomCommand('/api/room/next');
   if(busy)return;busy=true;$('new-game').disabled=true;
   try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done)toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
@@ -240,9 +286,11 @@ function showResult(){
     }
     $('score-players').append(row);
   });
+  $('result-new').disabled = !!state.room && !state.room.host;
+  if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick=()=>newGame(true);
 }
-$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>與三位電腦玩家一起練習台灣十六張麻將。</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以雙擊牌面或按 Enter 確認。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。這是單人練習桌，不含帳戶與金流。</p>`);
+$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以雙擊牌面或按 Enter 確認。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
 $('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
@@ -316,6 +364,8 @@ $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
   modal('牌桌設定',`<label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label><label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
   $('pace-setting').value = pace;
+  $('pace-setting').disabled = roomMode;
+  if (roomMode) $('pace-setting').title = '連線桌由伺服器統一安排自然節奏';
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
   $('save-settings').onclick=()=>{
@@ -348,8 +398,83 @@ $('history').onclick=()=>{
     for(const id of event.use||[])row.append(tile(id,true));$('history-list').append(row);
   }
 };
-$('new-game').onclick=()=>{if(!state)return;modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
+$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手。本局開始後無法重新加入。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&selected&&!busy){e.preventDefault();perform(selected);}});
+function acceptRoom(result) {
+  roomMode = true; state = result; selected = null;
+  sessionStorage.setItem('qinghe-room', result.room.code);
+  const url = new URL(location.href); url.searchParams.set('room', result.room.code);
+  history.replaceState(null, '', url);
+  const generation = ++pollGeneration;
+  pollRoom(generation);
+}
+async function pollRoom(generation) {
+  while (roomMode && generation === pollGeneration) {
+    if (busy) { await new Promise(resolve => setTimeout(resolve, 100)); continue; }
+    try {
+      const result = await request(`/api/room/state?after=${state.version}`);
+      if (generation !== pollGeneration || !roomMode) return;
+      if (!busy && result.version >= state.version) {
+        const old = state; state = result;
+        if (old.version !== result.version) selected = null;
+        render();
+        if (state.done && (!old.done || old.room.host !== state.room.host)) showResult();
+        else if (old.done && !state.done) $('modal').close();
+        const event = state.display_event;
+        if (old.version !== state.version && event && ['DISCARD','TING'].includes(event.type)) {
+          beep(); await tableView.animateDiscard(event.pid);
+        }
+      }
+    } catch (error) {
+      if (!roomMode || generation !== pollGeneration) return;
+      if (error.status === 400) { toast(error.message); await leaveRoom(); return; }
+      $('connection-status').textContent = '重新連線中…';
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+}
+async function roomCommand(path, body = {}) {
+  if (busy || !tableView) return;
+  busy = true;
+  try {
+    const result = await request(path, body);
+    $('modal').close();
+    if (!roomMode) acceptRoom(result);
+    else state = result;
+    selected = null; render();
+  } catch (error) { toast(error.message); }
+  finally { busy = false; if (state) render(); }
+}
+async function leaveRoom() {
+  if (busy) return;
+  busy = true;
+  try {
+    await request('/api/room/leave', {});
+    roomMode = false; ++pollGeneration;
+    sessionStorage.removeItem('qinghe-room');
+    const url = new URL(location.href); url.searchParams.delete('room');
+    history.replaceState(null, '', url);
+    state = await request('/api/state'); selected = null;
+    $('modal').close(); render();
+  } catch (error) { toast(error.message); }
+  finally { busy = false; if (state) render(); }
+}
+$('multiplayer').onclick = () => {
+  if (roomMode) {
+    modal('邀請朋友', '<p>將這個網址傳給朋友，開局前即可加入。</p><label class="setting-row">邀請網址<input id="invite-url" readonly></label><button class="modal-primary" id="copy-invite">複製邀請網址</button>');
+    $('invite-url').value = location.href;
+    $('copy-invite').onclick = async () => {
+      try { await navigator.clipboard.writeText(location.href); toast('邀請網址已複製'); }
+      catch { $('invite-url').select(); toast('請複製已選取的邀請網址'); }
+    };
+  } else {
+    modal('與朋友同桌', '<p>建立房間後分享邀請網址，最多四人，空位由電腦補上。</p><button class="modal-primary" id="create-room">建立房間</button><form id="join-room"><label class="setting-row">房號<input id="room-code" required minlength="8" maxlength="8" pattern="[a-fA-F0-9]{8}" autocomplete="off" placeholder="八碼房號"></label><button class="outline" type="submit">加入房間</button></form>');
+    $('create-room').onclick = () => roomCommand('/api/rooms');
+    $('join-room').onsubmit = event => {
+      event.preventDefault(); roomCommand('/api/room/join', {code:$('room-code').value.trim()});
+    };
+  }
+};
 (async()=>{
   try {
     const { MahjongTableView } = await import('./table3d.js?v=small-flowers-2');
@@ -357,7 +482,16 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&se
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
     await tableView.ready;
-    state = await request('/api/state'); render();
+    const code = new URL(location.href).searchParams.get('room');
+    if (code) {
+      try { acceptRoom(await request('/api/room/join', {code})); }
+      catch (error) { toast(error.message); state = await request('/api/state'); }
+    } else if (sessionStorage.getItem('qinghe-room')) {
+      try { acceptRoom(await request('/api/room/state')); }
+      catch { sessionStorage.removeItem('qinghe-room'); state = await request('/api/state'); }
+    } else state = await request('/api/state');
+    if (state.room && !roomMode) acceptRoom(state);
+    render();
     if (state.done) showResult();
   } catch (e) {
     $('notice').textContent = '牌桌載入失敗';
