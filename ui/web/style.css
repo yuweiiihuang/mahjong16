@@ -29,3 +29,15 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 .sort-placeholder{opacity:.2}.sort-floating{opacity:1!important;cursor:grabbing}
 .sort-group .tile{pointer-events:none}
 .settings-footer{display:flex;justify-content:flex-end}
+.score-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #dde2d5;font-size:13px}
+.settlement-table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
+.settlement-table th,.settlement-table td{padding:10px 4px;text-align:right;border-bottom:1px solid #dde2d5}
+.settlement-table th:first-child,.settlement-table td:first-child{text-align:left}
+.ting-row{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid #dde2d5;font-size:13px}
+.ting-pick,.wait-tiles{display:flex;align-items:center;gap:8px}.ting-pick{padding:6px;border-radius:6px;background:#e6eddf}
+.wait-tiles{flex-wrap:wrap}.wait-tile{display:flex;flex-direction:column;align-items:center;gap:4px}.wait-tile small{font-size:10px;color:#697c6b}
+#hint{max-width:45%;line-height:1.5}dialog{max-height:85dvh;overflow-y:auto}
+.result-dialog{padding:24px}.result-dialog h2{margin-bottom:14px}.result-dialog p{margin:10px 0;font-size:12px;line-height:1.5}
+.result-dialog .result-hand{margin:12px 0}.result-dialog .result-hand .tile{width:30px;height:42px;padding:2px}
+.result-dialog .score-row{padding:5px 0;font-size:12px}.result-dialog .settlement-table{margin-top:12px;font-size:12px}
+.result-dialog .settlement-table th,.result-dialog .settlement-table td{padding:7px 4px}.result-dialog .modal-primary{margin-top:12px;padding:10px 24px}

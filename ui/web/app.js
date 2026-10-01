@@ -5,7 +5,7 @@ const $ = id => document.getElementById(id);
 const names = ['你', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓'};
-let state, selected = null, busy = false, round = 1;
+let state, selected = null, busy = false;
 let sound = localStorage.getItem('qinghe-sound') === 'true';
 let compact = localStorage.getItem('qinghe-flat') === 'true';
 let sortOrder = [...DEFAULT_ORDER];
@@ -41,7 +41,8 @@ function tile(id, small = false, action = null) {
 }
 function person(pid, sidebar = false) {
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
-  wrap.innerHTML=`<div class="avatar a${pid}">${pid===0?'禾':names[pid][0]}</div><div class="player-info"><strong>${names[pid]}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${winds[pid]}家${pid===0?' · 你': ' · 電腦'}${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
+  const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
+  wrap.innerHTML=`<div class="avatar a${pid}">${pid===0?'禾':names[pid][0]}</div><div class="player-info"><strong>${names[pid]}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
   return wrap;
 }
 function melds(pid, target, small = true) {
@@ -54,6 +55,7 @@ function renderHand() {
   if (tableView && state) tableView.update(state, selected, sortOrder);
 }
 function syncProjection(view) {
+  if (!state) return;
   $('hand').setAttribute('aria-label', `手牌：${state ? sortHand(state.hand, sortOrder).map(tileName).join('、') : ''}`);
   const hand = $('hand');
   const existing = new Map([...hand.children].map(button => [button.dataset.slot, button]));
@@ -78,8 +80,10 @@ function syncProjection(view) {
   const compass = document.querySelector('.compass');
   compass.style.left = `${center.x}px`; compass.style.top = `${center.y}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
-  for (const [pid, point] of Object.entries(positions)) {
-    const p=view.project(point); const el=$(`seat-${pid}`);
+  const order = state.seating_order;
+  for (const pid of [1,2,3]) {
+    const seat = (order.indexOf(pid) - order.indexOf(0) + 4) % 4;
+    const p=view.project(positions[seat]); const el=$(`seat-${pid}`);
     el.style.left=`${p.x}px`;el.style.top=`${p.y}px`;
   }
 }
@@ -90,7 +94,7 @@ function actionButton(text, action, primary=false) {
 }
 function renderActions(){
   const target=$('actions');target.replaceChildren();
-  if(state.done){const b=actionButton('再來一局',null,true);b.onclick=()=>newGame();target.append(b);return;}
+  if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
   if(state.phase==='TURN'){
     for(const a of state.legal_actions.filter(a=>!['DISCARD','TING'].includes(a.type))) target.append(actionButton(a.type==='HU'&&a.source==='TSUMO'?'自摸':labels[a.type],a,true));
     const ting=selected && state.legal_actions.find(a=>a.type==='TING'&&a.tile===selected.tile&&a.from===selected.from);
@@ -102,10 +106,58 @@ function renderActions(){
       target.append(actionButton(text,a,a.type!=='PASS'));
     }
   }
+  if (state.ting_options.length || state.ting_waits.length) {
+    const hints = actionButton('聽牌提示', null);
+    hints.onclick = showTing;
+    target.prepend(hints);
+  }
+  const option = selected && state.ting_options.find(a => a.tile === selected.tile && a.from === selected.from);
+  $('hint').textContent = option ? `打${tileName(option.tile)} → ${waitText(option.waits)}`
+    : state.declared_ting ? waitText(state.ting_waits)
+    : state.phase === 'REACTION' ? `有人打出「${tileName(state.last_discard.tile)}」，是否要接牌？`
+    : '點選手牌，再按「出牌」';
+}
+function waitText(waits) {
+  return `聽 ${waits.map(w => `${tileName(w.tile)}（未見 ${w.unseen}）`).join('、')}`;
+}
+function showTing() {
+  modal('聽牌提示', '<p>未見張數依自己的牌與公開牌估算，包含對手手牌及尾牌，不代表牌牆可摸張數。</p><div id="ting-list"></div>');
+  const options = state.ting_options.length ? state.ting_options : [{waits:state.ting_waits}];
+  for (const option of options) {
+    const row = document.createElement('div'); row.className = 'ting-row';
+    if (option.tile !== undefined) {
+      const pick = document.createElement('button'); pick.className = 'ting-pick';
+      pick.setAttribute('aria-label', `選擇打${tileName(option.tile)}${option.from === 'drawn' ? '（摸牌）' : ''}`);
+      const label = document.createElement('span'); label.textContent = option.from === 'drawn' ? '打摸牌' : '打';
+      pick.append(label, tile(option.tile, true));
+      pick.onclick = () => {
+        selected = state.legal_actions.find(a => a.type === 'DISCARD' && a.tile === option.tile && a.from === option.from);
+        $('modal').close(); renderHand(); renderActions();
+      };
+      row.append(pick);
+    }
+    const label = document.createElement('span'); label.textContent = '聽'; row.append(label);
+    const waits = document.createElement('div'); waits.className = 'wait-tiles';
+    for (const wait of option.waits) {
+      const item = document.createElement('span'); item.className = 'wait-tile';
+      const count = document.createElement('small'); count.textContent = `未見 ${wait.unseen}`;
+      item.append(tile(wait.tile, true), count); waits.append(item);
+    }
+    row.append(waits); $('ting-list').append(row);
+  }
 }
 function render(){
   $('remaining').textContent=state.remaining;
-  $('round').textContent=`第 ${round} 局`;
+  $('round').textContent=`第 ${state.round} 局`;
+  $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
+  $('dealer-status').textContent=`${names[state.dealer]}${state.dealer_streak ? ` · 連莊 ${state.dealer_streak}` : ' · 起莊'}`;
+  const order = state.seating_order, ownSeat = order.indexOf(0);
+  ['.wind-bottom','.wind-right','.wind-top','.wind-left'].forEach((selector, seat) => {
+    const pid = order[(ownSeat + seat) % 4];
+    const el = document.querySelector(selector);
+    el.textContent = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
+    el.classList.toggle('active', pid === state.dealer);
+  });
   $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
   $('me').replaceChildren(...person(0).childNodes);
@@ -131,20 +183,36 @@ async function perform(action){
   catch(e){toast(e.message);try{state=await request('/api/state');selected=null;}catch{}}
   finally{busy=false;render();}
 }
-async function newGame(){
+async function newGame(next = false){
   if(busy)return;busy=true;$('new-game').disabled=true;
-  try{state=await request('/api/new',{});round++;selected=null;$('modal').close();render();toast('新局開始，祝你手氣順心。');}
+  try{state=await request(next ? '/api/next' : '/api/new',{});selected=null;$('modal').close();render();if(state.done)showResult();else toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
-function modal(title, content){$('modal-content').innerHTML=`<h2>${title}</h2>${content}`;if(!$('modal').open)$('modal').showModal();}
+function modal(title, content, className = ''){
+  $('modal').className = className;$('modal-content').innerHTML=`<h2>${title}</h2>${content}`;if(!$('modal').open)$('modal').showModal();}
 function showResult(){
   const winner=state.winner;
-  modal(winner===null?'本局流局':`${names[winner]}${state.win_source==='TSUMO'?'自摸':'胡牌'}`,`<p>${winner===null?'可摸牌已用盡，這一局沒有贏家。':'本局結束，看看贏家的牌型，準備下一場。'}</p><div class="result-hand" id="result-hand"></div><button class="modal-primary" id="result-new">再來一局　→</button>`);
+  const result = state.settlement;
+  const flower = {qi_qiang_yi:'七搶一', ba_xian:'八仙過海'}[result.flower_win_type];
+  modal(winner===null?'本局流局':`${names[winner]}${flower || (state.win_source==='TSUMO'?'自摸':'胡牌')}`,`<p>${winner===null?'本局無輸贏，莊家續莊。':`${result.tai} 台 · 底 ${result.base_points} 點／每台 ${result.tai_points} 點${result.payer!==null?` · ${names[result.payer]} 放銃`:''}`}</p><div class="result-hand" id="result-hand"></div><div id="score-breakdown"></div><table class="settlement-table"><thead><tr><th>玩家</th><th>本局</th><th>累積點數</th></tr></thead><tbody id="score-players"></tbody></table><p>莊家付款可能另含莊家台。</p><button class="modal-primary" id="result-new">下一局　→</button>`, 'result-dialog');
   for(const id of state.winning_hand||[])$('result-hand').append(tile(id));
-  if(winner!==null)melds(winner,$('result-hand'));
-  $('result-new').onclick=newGame;
+  if(winner!==null && !result.flower_win_type)melds(winner,$('result-hand'));
+  for (const item of result.breakdown) {
+    const row = document.createElement('div'); row.className = 'score-row';
+    const label = document.createElement('span'); label.textContent = item.label;
+    const count = document.createElement('strong'); count.textContent = `${item.points} 台`;
+    row.append(label, count); $('score-breakdown').append(row);
+  }
+  names.forEach((name, pid) => {
+    const row = document.createElement('tr');
+    for (const text of [name, `${result.payments[pid] > 0 ? '+' : ''}${result.payments[pid]}`, state.totals[pid]]) {
+      const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
+    }
+    $('score-players').append(row);
+  });
+  $('result-new').onclick=()=>newGame(true);
 }
-$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>與三位電腦玩家一起練習台灣十六張麻將。</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以雙擊牌面或按 Enter 確認。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>這是單人練習桌，目前顯示本局結果，不含帳戶、金流與累積台數結算。</p>`);
+$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>與三位電腦玩家一起練習台灣十六張麻將。</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以雙擊牌面或按 Enter 確認。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。這是單人練習桌，不含帳戶與金流。</p>`);
 $('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
@@ -243,15 +311,15 @@ $('history').onclick=()=>{
     if(event.type==='PASS')continue;
     const row=document.createElement('div');row.className='history-row';
     const label=document.createElement('span');label.textContent=`${names[event.pid]} · ${labels[event.type]||event.type}`;row.append(label);
-    if(event.tile!==undefined)row.append(tile(event.tile,true));
+    if(event.tile!==undefined && !(event.pid!==0 && event.type==='ANGANG'))row.append(tile(event.tile,true));
     for(const id of event.use||[])row.append(tile(id,true));$('history-list').append(row);
   }
 };
-$('new-game').onclick=()=>{if(!state||state.done||!state.events.length){newGame();return;}modal('重新開局？','<p>目前的對局會結束，重新發牌開始一局。</p><button class="modal-primary" id="confirm-new">重新開局</button>');$('confirm-new').onclick=newGame;};
+$('new-game').onclick=()=>{if(!state)return;modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!$('modal').open&&selected&&!busy){e.preventDefault();perform(selected);}});
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js');
+    const { MahjongTableView } = await import('./table3d.js?v=kong-stack-3');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

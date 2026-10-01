@@ -113,8 +113,24 @@ export class MahjongTableView {
   }
 
   seatGroup(pid) {
-    const group=new THREE.Group();group.position.set(SEATS[pid][0],0,SEATS[pid][1]);
-    group.rotation.y=ANGLES[pid];this.tiles.add(group);return group;
+    const seat = this.seatPositions[pid];
+    const group=new THREE.Group();group.position.set(SEATS[seat][0],0,SEATS[seat][1]);
+    group.rotation.y=ANGLES[seat];this.tiles.add(group);return group;
+  }
+
+  addMeld(pid, meld, group, x, z) {
+    meld.tiles.forEach((id, i) => {
+      const top = meld.tiles.length === 4 && i === 3;
+      const faceDown = meld.type === 'ANGANG' && (pid !== 0 || !top);
+      const tile = this.makeTile(faceDown ? null : id, false);
+      if (faceDown) tile.rotation.x = Math.PI / 2;
+      tile.position.x = x + (top ? 1 : i) * TILE.pitch;
+      tile.position.z = z;
+      // The full ivory body and green back span .44; .46 clears either orientation.
+      if (top) tile.position.y += .46;
+      group.add(tile);
+    });
+    return x + Math.min(3, meld.tiles.length) * TILE.pitch + .18;
   }
 
   addConcealed(pid,state,selected,sortOrder) {
@@ -122,13 +138,12 @@ export class MahjongTableView {
     const hand=pid===0?sortHand(state.hand,sortOrder):
       Array.from({length:state.players[pid].count},()=>null);
     // Own melds occupy space beside the hand, using the same physical scale.
-    const ownMeldCount=pid===0?state.players[0].melds.reduce((n,m)=>n+m.tiles.length,0):0;
+    const ownMeldSlots=pid===0?state.players[0].melds.reduce((n,m)=>n+Math.min(3,m.tiles.length)+.18/TILE.pitch,0):0;
     const drawn=pid===0&&state.drawn!==null&&state.drawn!==undefined;
-    const total=hand.length+ownMeldCount+(drawn?1.7:0);
+    const total=hand.length+ownMeldSlots+(drawn?1.7:0);
     let x=-(total-1)*TILE.pitch/2;
     if(pid===0)for(const meld of state.players[0].melds){
-      for(const id of meld.tiles){const t=this.makeTile(id,false);t.position.x=x;
-        t.position.z=.1;group.add(t);x+=TILE.pitch;}x+=.18;
+      x=this.addMeld(pid,meld,group,x,.1);
     }
     hand.forEach((id,index)=>{
       const action=pid===0?state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand'):null;
@@ -139,20 +154,21 @@ export class MahjongTableView {
     if(drawn){x+=.55;const action=state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
       const t=this.makeTile(state.drawn,true,action,selected?.from==='drawn');t.position.x=x;group.add(t);}
     if(pid!==0){
-      let offset=-(state.players[pid].melds.reduce((n,m)=>n+m.tiles.length,0)-1)*TILE.pitch/2;
-      for(const meld of state.players[pid].melds){for(const id of meld.tiles){
-        const t=this.makeTile(id,false);t.position.x=offset;t.position.z=-1.9;group.add(t);offset+=TILE.pitch;
-      }offset+=.2;}
+      const melds=state.players[pid].melds;
+      const span=melds.reduce((n,m)=>n+Math.min(3,m.tiles.length)*TILE.pitch,0)+Math.max(0,melds.length-1)*.18;
+      let offset=-(span-TILE.pitch)/2;
+      for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.7);
     }
-    // Flower tiles are public and lie flat on the same tabletop.
+    // A compact flower block stays clear of this meld row and both adjacent seats.
     const flowers=state.players[pid].flowers;
     flowers.forEach((id,i)=>{const t=this.makeTile(id,false);
-      t.position.x=4.1+(i%4)*1.08;t.position.z=-3.0-Math.floor(i/4)*1.58;group.add(t);});
+      t.position.x=3.85+(i%3)*1.05;t.position.z=-3.2-Math.floor(i/3)*1.5;group.add(t);});
   }
 
   addRiver(pid,river,last) {
-    const group=new THREE.Group();group.position.set(RIVERS[pid][0],0,RIVERS[pid][1]);
-    group.rotation.y=ANGLES[pid];this.tiles.add(group);
+    const seat = this.seatPositions[pid];
+    const group=new THREE.Group();group.position.set(RIVERS[seat][0],0,RIVERS[seat][1]);
+    group.rotation.y=ANGLES[seat];this.tiles.add(group);
     river.forEach((id,i)=>{
       const tile=this.makeTile(id,false);tile.position.x=(i%6-2.5)*1.12;
       tile.position.z=Math.floor(i/6)*1.58;
@@ -168,6 +184,8 @@ export class MahjongTableView {
 
   update(state,selection,sortOrder=DEFAULT_ORDER) {
     this.snapshot=state;this.selection=selection;this.sortOrder=sortOrder;
+    this.seatPositions = state.players.map((_, pid) =>
+      (state.seating_order.indexOf(pid) - state.seating_order.indexOf(0) + 4) % 4);
     this.tiles.clear();this.handObjects=[];
     for(let pid=0;pid<4;pid++){
       this.addConcealed(pid,state,selection,sortOrder);

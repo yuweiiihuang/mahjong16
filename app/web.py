@@ -12,6 +12,12 @@ from pathlib import Path
 from domain.gameplay.game_env import Mahjong16Env
 from domain.rules.ruleset import Ruleset
 from bots.greedy import GreedyBotStrategy
+from app.table import TableManager, TableState
+from domain.analysis import visible_count_global
+from domain.rules.hands import waits_for_hand_16
+from domain.scoring.engine import compute_payments, score_with_breakdown
+from domain.scoring.lookup import load_scoring_assets
+from domain.scoring.score_types import ScoringContext
 
 WEB_ROOT = Path(__file__).resolve().parents[1] / 'ui' / 'web'
 
@@ -24,8 +30,56 @@ class WebTable:
         self.bot = GreedyBotStrategy()
         self.events: list[dict] = []
         self.lock = threading.Lock()
-        self.env.reset()
+        self.scoring = load_scoring_assets(
+            self.env.rules.scoring_profile, self.env.rules.scoring_overrides_path
+        )
+        self.new_table()
+
+    def new_table(self) -> None:
+        """Start a fresh practice table with fixed initial seats and 1,000 points each."""
+        self.manager = TableManager(self.env.rules, seed=self.env.reset_rng_seed)
+        self.manager.state = TableState(
+            seat_winds=['E', 'S', 'W', 'N'], seating_order=[0, 1, 2, 3]
+        )
+        self.totals = [1000] * self.env.rules.n_players
+        self.round = 0
+        self.start_hand()
+
+    def start_hand(self) -> None:
+        """Deal the next hand using the shared dealer and round-wind manager."""
+        self.round += 1
+        self.events = []
+        self.settlement = None
+        self.manager.start_hand(self.env)
         self.advance()
+
+    def next_hand(self) -> dict:
+        """Continue a completed hand without clearing accumulated points."""
+        if not self.env.done:
+            raise ValueError('本局尚未結束。')
+        self.start_hand()
+        return self.snapshot()
+
+    def settle(self) -> None:
+        """Settle a finished hand exactly once, before advancing dealer state."""
+        if not self.env.done or self.settlement is not None:
+            return
+        ctx = ScoringContext.from_env(self.env, self.scoring)
+        rewards, breakdown = score_with_breakdown(ctx)
+        payments, _ = compute_payments(
+            ctx, self.env.rules.base_points, self.env.rules.tai_points,
+            rewards=rewards, breakdown=breakdown,
+        )
+        self.totals = [total + delta for total, delta in zip(self.totals, payments)]
+        self.settlement = {
+            'tai': rewards[self.env.winner] if self.env.winner is not None else 0,
+            'breakdown': breakdown.get(self.env.winner, []),
+            'payments': payments, 'base_points': self.env.rules.base_points,
+            'tai_points': self.env.rules.tai_points,
+            'payer': self.env.turn_at_win if self.env.win_source == 'RON' else None,
+            'flower_win_type': self.env.flower_win_type,
+        }
+        self.manager.finish_hand(self.env)
 
     def actor(self) -> int:
         """Return the actual actor for a turn or sequential reaction window."""
@@ -50,6 +104,7 @@ class WebTable:
                     continue
                 return
             self.apply(self.bot.choose(self.env._obs(pid)))
+        self.settle()
 
     def act(self, action: dict) -> dict:
         """Reject stale/forged moves before mutating game state."""
@@ -68,15 +123,42 @@ class WebTable:
             'actor': None if env.done else self.actor(), 'done': env.done,
             'winner': env.winner, 'win_source': env.win_source,
             'dealer': env.dealer_pid, 'events': self.events,
+            'round': self.round, 'quan_feng': env.quan_feng,
+            'seat_winds': list(env.seat_winds), 'seating_order': list(env.seating_order),
+            'dealer_streak': env.dealer_streak, 'totals': list(self.totals),
+            'settlement': self.settlement,
             'remaining': max(0, len(env.wall) - env._dead_wall_reserved()),
             'players': [{'count': len(p.hand) + int(p.drawn is not None),
                          'flowers': list(p.flowers), 'melds': p.melds,
                          'ting': p.declared_ting} for p in env.players],
         })
+        # Unseen counts use only the human hand and public tiles, never the wall or bots.
+        visible = {**result, 'melds_all': [
+            [meld for meld in melds if pid == 0 or meld['type'] != 'ANGANG']
+            for pid, melds in enumerate(result['melds_all'])
+        ]}
+
+        def wait_details(waits: list[int]) -> list[dict]:
+            return [{'tile': tile, 'unseen': max(
+                0, 4 - visible_count_global(tile, visible) - int(result['drawn'] == tile)
+            )} for tile in waits]
+
+        result['ting_options'] = [
+            {'tile': a['tile'], 'from': a['from'], 'waits': wait_details(a['waits'])}
+            for a in result['legal_actions'] if a['type'] == 'TING'
+        ]
+        result['ting_waits'] = wait_details(waits_for_hand_16(
+            result['hand'], result['melds'], env.rules
+        )) if result['declared_ting'] and not env.done else []
         if env.done and env.winner is not None:
             winner = env.players[env.winner]
-            result['winning_hand'] = sorted(winner.hand) + (
-                [env.win_tile] if env.win_tile is not None else [])
+            if env.flower_win_type:
+                result['winning_hand'] = sorted(winner.flowers)
+                if env.win_tile is not None and env.win_tile not in winner.flowers:
+                    result['winning_hand'].append(env.win_tile)
+            else:
+                result['winning_hand'] = sorted(winner.hand) + (
+                    [env.win_tile] if env.win_tile is not None else [])
         return result
 
 
@@ -118,7 +200,7 @@ class WebHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self) -> None:
-        if self.path not in ('/api/action', '/api/new'):
+        if self.path not in ('/api/action', '/api/new', '/api/next'):
             self.send_error(404)
             return
         sid, table = self.table()
@@ -129,10 +211,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             with table.lock:
                 if self.path == '/api/new':
-                    table.env.reset()
-                    table.events = []
-                    table.advance()
+                    table.new_table()
                     data = table.snapshot()
+                elif self.path == '/api/next':
+                    data = table.next_hand()
                 else:
                     data = table.act(body)
                 self.respond(data, sid)

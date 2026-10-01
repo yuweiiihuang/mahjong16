@@ -6,6 +6,14 @@
 node --test tests/web/test_hand_sort.mjs
 ```
 
+3D 擺放檢查：四座位的花牌／副露碰撞，以及明槓、加槓、暗槓的 3+1 疊放與翻面：
+
+```bash
+node --test tests/web/test_table_layout.mjs
+```
+
+使用實際牌體建立與座位旋轉邏輯檢查包圍盒，不需要 WebGL；視覺排版仍需瀏覽器驗收。
+
 真實拖拉（Codex CUA REPL；先啟動 `python -m app.web --port 8000`）：
 
 ```javascript
