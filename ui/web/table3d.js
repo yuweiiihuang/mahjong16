@@ -169,7 +169,11 @@ export class MahjongTableView {
   }
 
   addMeld(pid, meld, group, x, z) {
-    meld.tiles.forEach((id, i) => {
+    // CHI stores the claimed discard last; display it between the sorted hand tiles.
+    const tiles = meld.type === 'CHI'
+      ? [Math.min(...meld.tiles.slice(0, 2)), meld.tiles[2], Math.max(...meld.tiles.slice(0, 2))]
+      : meld.tiles;
+    tiles.forEach((id, i) => {
       const top = meld.tiles.length === 4 && i === 3;
       const faceDown = meld.type === 'ANGANG' && (pid !== 0 || !top);
       const tile = this.makeTile(faceDown ? null : id, false);

@@ -154,6 +154,28 @@ test('flowers never intersect their own or adjacent exposed melds in any seat', 
   }
 });
 
+test('chi places the claimed discard between the sorted hand tiles in every seat', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  view.makeTile = id => {
+    const tile = new THREE.Group();
+    tile.userData.id = id;
+    return tile;
+  };
+  for (let pid = 0; pid < 4; pid++) {
+    for (const [claimed, hand] of [[0, [2, 1]], [1, [2, 0]], [2, [1, 0]]]) {
+      const meld = {type:'CHI', tiles:[...hand, claimed]};
+      const original = [...meld.tiles];
+      const group = new THREE.Group();
+      view.addMeld(pid, meld, group, 0, 0);
+      assert.deepEqual(group.children.map(tile => tile.userData.id),
+        [Math.min(...hand), claimed, Math.max(...hand)]);
+      assert.ok(group.children[0].position.x < group.children[1].position.x);
+      assert.ok(group.children[1].position.x < group.children[2].position.x);
+      assert.deepEqual(meld.tiles, original, 'display must not reorder engine data');
+    }
+  }
+});
+
 test('kongs use three base tiles and one centered top tile with correct visibility', () => {
   for (const type of ['GANG', 'KAKAN', 'ANGANG']) {
     for (let pid = 0; pid < 4; pid++) {
