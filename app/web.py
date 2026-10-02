@@ -164,6 +164,7 @@ class WebTable:
             'settlement': self.settlement,
             'remaining': max(0, len(env.wall) - env._dead_wall_reserved()),
             'players': [{'count': len(p.hand) + int(p.drawn is not None),
+                         'has_drawn': p.drawn is not None,
                          'flowers': list(p.flowers), 'melds': deepcopy(p.melds),
                          'ting': p.declared_ting} for p in env.players],
         })

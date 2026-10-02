@@ -93,6 +93,7 @@ function syncProjection(view) {
     if (hand.children[position] !== button) hand.insertBefore(button, hand.children[position] || null);
   });
   for (const button of existing.values()) button.remove();
+  document.querySelector('.action-bar').style.top = `${view.project([0,.5,9.4]).y}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
   const order = state.seating_order;
   for (const pid of [1,2,3]) {
@@ -467,7 +468,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=opposite-faces-1');
+    const { MahjongTableView } = await import('./table3d.js?v=centered-fixed-hand-1');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

@@ -11,6 +11,8 @@ def test_start_and_advance_to_human():
     assert state['actor'] == 0
     assert len(state['hand']) == 16
     assert state['drawn'] is not None
+    assert all(player['has_drawn'] == (table.env.players[pid].drawn is not None)
+               for pid, player in enumerate(state['players']))
     action = next(a for a in state['legal_actions'] if a['type'] == 'DISCARD')
     result = table.act(action)
     assert result['done'] or table.actor() == 0

@@ -4,6 +4,11 @@ import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 
 // All seats share these physical dimensions, this table, and this camera.
 const TILE = { width: 1, height: 1.4, depth: .42, pitch: 1.045 };
+const MELD_START = -7.84;
+const OWN_MELD_START = -9;
+const HAND_END = 15 * TILE.pitch / 2;
+const DRAWN_X = HAND_END + TILE.pitch + .55;
+const OWN_HAND_Z = 1.8;
 const ANGLES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
 const SEATS = [[0, 9.1], [10.3, 0], [0, -9.1], [-10.3, 0]];
 const RIVERS = [[0, 3.3], [4.45, 0], [0, -3.3], [-4.45, 0]];
@@ -190,28 +195,30 @@ export class MahjongTableView {
 
   addConcealed(pid,state,selected,sortOrder) {
     const group=this.seatGroup(pid);
+    const drawn=pid===0?state.drawn!==null&&state.drawn!==undefined:
+      Boolean(state.players[pid].has_drawn);
     const hand=pid===0?sortHand(state.hand,sortOrder):
-      Array.from({length:state.players[pid].count},()=>null);
-    // Own melds occupy space beside the hand, using the same physical scale.
-    const ownMeldSlots=pid===0?state.players[0].melds.reduce((n,m)=>n+Math.min(3,m.tiles.length)+.18/TILE.pitch,0):0;
-    const drawn=pid===0&&state.drawn!==null&&state.drawn!==undefined;
-    const total=hand.length+ownMeldSlots+(drawn?1.7:0);
-    let x=-(total-1)*TILE.pitch/2;
+      Array.from({length:state.players[pid].count-Number(drawn)},()=>null);
+    // Hands fill fixed slots from the right; drawn tiles have a separate fixed slot.
+    let x=HAND_END-(hand.length-1)*TILE.pitch;
+    let offset=pid===0?OWN_MELD_START:MELD_START;
     if(pid===0)for(const meld of state.players[0].melds){
-      x=this.addMeld(pid,meld,group,x,.1);
+      offset=this.addMeld(pid,meld,group,offset,.1+OWN_HAND_Z);
     }
     hand.forEach((id,index)=>{
       const action=pid===0?state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand'):null;
       const chosen=pid===0&&selected?.tile===id&&selected?.from==='hand'&&(selected.index===undefined||selected.index===index);
       const tile=this.makeTile(id,true,action,chosen);tile.position.x=x;group.add(tile);x+=TILE.pitch;
+      if (pid === 0) tile.position.z = OWN_HAND_Z;
       tile.userData.index=index;
     });
-    if(drawn){x+=.55;const action=state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
-      const t=this.makeTile(state.drawn,true,action,selected?.from==='drawn');t.position.x=x;group.add(t);}
+    if(drawn){const action=state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
+      const t=this.makeTile(pid===0?state.drawn:null,true,pid===0?action:null,
+        pid===0&&selected?.from==='drawn');t.position.x=DRAWN_X;
+      if (pid === 0) t.position.z = OWN_HAND_Z;
+      group.add(t);}
     if(pid!==0){
       const melds=state.players[pid].melds;
-      const span=melds.reduce((n,m)=>n+Math.min(3,m.tiles.length)*TILE.pitch,0)+Math.max(0,melds.length-1)*.18;
-      let offset=-(span-TILE.pitch)/2;
       for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.0);
     }
     // Small flowers stay beside their owner's hand, outside the three-row river area.
@@ -222,6 +229,7 @@ export class MahjongTableView {
       tile.position.y=.13;
       tile.position.x=-4-(i%4)*.62;
       tile.position.z=-2.25-Math.floor(i/4)*.85;
+      if (pid === 0) tile.position.z += OWN_HAND_Z;
       group.add(tile);
     });
   }
@@ -320,7 +328,8 @@ export class MahjongTableView {
     if (!tile) return Promise.resolve();
     const end = tile.position.clone(), seat = this.seatPositions[pid];
     this.scene.updateMatrixWorld(true);
-    const start = river.worldToLocal(new THREE.Vector3(SEATS[seat][0],.8,SEATS[seat][1]));
+    const start = river.worldToLocal(new THREE.Vector3(SEATS[seat][0],.8,
+      SEATS[seat][1]+(seat===0?OWN_HAND_Z:0)));
     const markers = tile.userData.latestMarkers || [];
     this.discardAnimating = true;
     for (const marker of markers) marker.visible = false;
@@ -382,7 +391,9 @@ export class MahjongTableView {
         const y=this.project([0,.77,9.1]).y/this.height;
         if(y>.79)low=focus;else high=focus;
       }
-      const span=(this.project([9.3,.77,9.1]).x-this.project([-9.3,.77,9.1]).x)/this.width;
+      const handZ=SEATS[0][1]+OWN_HAND_Z;
+      const span=(this.project([DRAWN_X+.55,.77,handZ]).x-
+        this.project([OWN_MELD_START-.55,.77,handZ]).x)/this.width;
       const farY=this.project([0,1.75,-9.1]).y/this.height;
       if(span>.8 || farY<.14)near=scale;else far=scale;
     }

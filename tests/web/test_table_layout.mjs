@@ -212,6 +212,83 @@ test('opposite exposed tiles face the viewer after seat rotation', () => {
   }
 });
 
+test('melds stay anchored as concealed counts, draws and exposed groups change', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  view.tiles = new THREE.Group();
+  view.seatPositions = [0, 2, 3, 1];
+  view.makeTile = (id, upright) => {
+    const tile = new THREE.Group();
+    tile.userData.id = id;
+    tile.rotation.x = upright ? 0 : -Math.PI/2;
+    return tile;
+  };
+  for (let pid = 0; pid < 4; pid++) {
+    let previous = [];
+    for (let count = 1; count <= 5; count++) {
+      for (const drawn of [null, 8]) {
+        const melds = Array.from({length:count}, (_, i) => ({
+          type:i % 2 ? 'GANG' : 'PONG', tiles:Array(i % 2 ? 4 : 3).fill(i),
+        }));
+        const state = {
+          hand:Array(16-3*count).fill(8), drawn, legal_actions:[],
+          players:Array.from({length:4}, () => ({count:16-3*count, flowers:[], melds})),
+        };
+        view.tiles.clear();
+        view.addConcealed(pid, state, null, [0,1,2,3]);
+        view.tiles.updateMatrixWorld(true);
+        const group = view.tiles.children[0];
+        assert.equal(group.position.x, [0,10.3,0,-10.3][view.seatPositions[pid]]);
+        const exposed = group.children.filter(tile => tile.rotation.x !== 0);
+        const positions = exposed.map(tile => tile.getWorldPosition(new THREE.Vector3()).toArray());
+        assert.deepEqual(positions.slice(0, previous.length), previous,
+          'existing meld tiles must not move when another meld or drawn tile appears');
+        assert.equal(exposed[0].position.x, pid === 0 ? -9 : -7.84);
+        assert.ok(Math.abs(exposed[0].position.z - (pid === 0 ? 1.9 : -1)) < 1e-9);
+        previous = positions;
+      }
+    }
+  }
+});
+
+test('concealed slots and drawn tile stay fixed for zero through five melds', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  view.tiles = new THREE.Group();
+  view.seatPositions = [0,1,2,3];
+  view.makeTile = (id, upright) => {
+    const tile = new THREE.Group();
+    tile.rotation.x = upright ? 0 : -Math.PI/2;
+    return tile;
+  };
+  for (let count = 0; count <= 5; count++) {
+    for (const drawn of [null, 8]) {
+      const size = 16-3*count;
+      const state = {
+        hand:Array(size).fill(8), drawn, legal_actions:[],
+        players:Array.from({length:4}, () => ({count:size+Number(drawn!==null),
+          has_drawn:drawn!==null, flowers:[],
+          melds:Array.from({length:count}, () => ({type:'PONG',tiles:[0,0,0]}))})),
+      };
+      for (let pid = 0; pid < 4; pid++) {
+        view.tiles.clear();
+        view.addConcealed(pid, state, null, [0,1,2,3]);
+        const hand = view.tiles.children[0].children.filter(tile => tile.rotation.x === 0);
+        assert.equal(hand.length, size + Number(drawn !== null));
+        assert.ok(hand.every(tile => tile.position.z === (pid === 0 ? 1.8 : 0)),
+          'only the local hand and drawn tile move toward the viewer');
+        assert.ok(Math.abs(hand[size-1].position.x - 15*1.045/2) < 1e-9);
+        if (count === 0) assert.ok(Math.abs(hand[0].position.x + hand[15].position.x) < 1e-9,
+          'the full concealed hand is centered');
+        if (pid === 0 && count > 0) {
+          const melds = view.tiles.children[0].children.filter(tile => tile.rotation.x !== 0);
+          assert.ok(Math.max(...melds.map(tile => tile.position.x)) + .5 < hand[0].position.x - .5,
+            'local melds leave clearance before the concealed hand');
+        }
+        if (drawn !== null) assert.equal(hand.at(-1).position.x, 15*1.045/2+1.045+.55);
+      }
+    }
+  }
+});
+
 test('kongs use three base tiles and one centered top tile with correct visibility', () => {
   for (const type of ['GANG', 'KAKAN', 'ANGANG']) {
     for (let pid = 0; pid < 4; pid++) {
