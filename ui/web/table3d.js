@@ -5,7 +5,8 @@ import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 // All seats share these physical dimensions, this table, and this camera.
 const TILE = { width: 1, height: 1.4, depth: .42, pitch: 1.045 };
 const MELD_START = -7.84;
-const OWN_MELD_START = -9;
+// Reserve one extra concealed slot between a claim and its following discard.
+const OWN_MELD_START = -9 - TILE.pitch;
 const HAND_END = 15 * TILE.pitch / 2;
 const DRAWN_X = HAND_END + TILE.pitch + .55;
 const OWN_HAND_Z = 1.8;

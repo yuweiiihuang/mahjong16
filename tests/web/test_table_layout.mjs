@@ -242,7 +242,7 @@ test('melds stay anchored as concealed counts, draws and exposed groups change',
         const positions = exposed.map(tile => tile.getWorldPosition(new THREE.Vector3()).toArray());
         assert.deepEqual(positions.slice(0, previous.length), previous,
           'existing meld tiles must not move when another meld or drawn tile appears');
-        assert.equal(exposed[0].position.x, pid === 0 ? -9 : -7.84);
+        assert.equal(exposed[0].position.x, pid === 0 ? -9 - 1.045 : -7.84);
         assert.ok(Math.abs(exposed[0].position.z - (pid === 0 ? 1.9 : -1)) < 1e-9);
         previous = positions;
       }
@@ -260,8 +260,10 @@ test('concealed slots and drawn tile stay fixed for zero through five melds', ()
     return tile;
   };
   for (let count = 0; count <= 5; count++) {
-    for (const drawn of [null, 8]) {
-      const size = 16-3*count;
+    for (const stage of ['rest', 'draw', 'claim']) {
+      if (count === 0 && stage === 'claim') continue;
+      const drawn = stage === 'draw' ? 8 : null;
+      const size = 16-3*count+Number(stage === 'claim');
       const state = {
         hand:Array(size).fill(8), drawn, legal_actions:[],
         players:Array.from({length:4}, () => ({count:size+Number(drawn!==null),

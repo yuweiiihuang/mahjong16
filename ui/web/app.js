@@ -468,7 +468,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=centered-fixed-hand-1');
+    const { MahjongTableView } = await import('./table3d.js?v=claim-clearance-1');
     tableView = new MahjongTableView(document.querySelector('.table'));
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
