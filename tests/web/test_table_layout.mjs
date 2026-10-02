@@ -156,6 +156,7 @@ test('flowers never intersect their own or adjacent exposed melds in any seat', 
 
 test('chi places the claimed discard between the sorted hand tiles in every seat', () => {
   const view = Object.create(MahjongTableView.prototype);
+  view.seatPositions = [0, 1, 2, 3];
   view.makeTile = id => {
     const tile = new THREE.Group();
     tile.userData.id = id;
@@ -172,6 +173,41 @@ test('chi places the claimed discard between the sorted hand tiles in every seat
       assert.ok(group.children[0].position.x < group.children[1].position.x);
       assert.ok(group.children[1].position.x < group.children[2].position.x);
       assert.deepEqual(meld.tiles, original, 'display must not reorder engine data');
+    }
+  }
+});
+
+test('opposite exposed tiles face the viewer after seat rotation', () => {
+  for (const seats of [[0, 1, 2, 3], [0, 2, 3, 1]]) {
+    const view = Object.create(MahjongTableView.prototype);
+    Object.assign(view, {
+      tiles:new THREE.Group(), handObjects:[], seatPositions:seats,
+      bodyGeometry:new THREE.BoxGeometry(1,1.4,.34),
+      backGeometry:new THREE.BoxGeometry(1,1.4,.12),
+      faceGeometry:new THREE.PlaneGeometry(.9,1.26),
+      ivory:new THREE.MeshBasicMaterial(), jade:new THREE.MeshBasicMaterial(),
+      faceMaterials:new Map([0, 34].map(id => [id, new THREE.MeshBasicMaterial()])),
+    });
+    const state = {
+      hand:[], drawn:null, legal_actions:[],
+      players:Array.from({length:4}, () => ({
+        count:0, flowers:[34], melds:[{type:'PONG', tiles:[0,0,0]}],
+      })),
+    };
+    for (let pid = 0; pid < 4; pid++) {
+      view.addConcealed(pid, state, null, [0,1,2,3]);
+      view.addRiver(pid, [0], null);
+    }
+    view.tiles.updateMatrixWorld(true);
+    for (const group of view.tiles.children) {
+      for (const tile of group.children) {
+        const up = new THREE.Vector3(0,1,0).transformDirection(tile.matrixWorld);
+        if (Math.abs(group.rotation.y - Math.PI) < 1e-6 || group.rotation.y === 0) {
+          assert.ok(up.z < -.99, 'own and opposite faces point toward the viewer');
+        } else {
+          assert.equal(tile.rotation.z, 0, 'side seats retain their orientation');
+        }
+      }
     }
   }
 });

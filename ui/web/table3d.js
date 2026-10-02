@@ -177,6 +177,7 @@ export class MahjongTableView {
       const top = meld.tiles.length === 4 && i === 3;
       const faceDown = meld.type === 'ANGANG' && (pid !== 0 || !top);
       const tile = this.makeTile(faceDown ? null : id, false);
+      if (this.seatPositions[pid] === 2) tile.rotation.z = Math.PI;
       if (faceDown) tile.rotation.x = Math.PI / 2;
       tile.position.x = x + (top ? 1 : i) * TILE.pitch;
       tile.position.z = z;
@@ -216,6 +217,7 @@ export class MahjongTableView {
     // Small flowers stay beside their owner's hand, outside the three-row river area.
     state.players[pid].flowers.forEach((id,i)=>{
       const tile=this.makeTile(id,false);
+      if (this.seatPositions[pid] === 2) tile.rotation.z = Math.PI;
       tile.scale.setScalar(.55);
       tile.position.y=.13;
       tile.position.x=-4-(i%4)*.62;
@@ -230,6 +232,7 @@ export class MahjongTableView {
     group.rotation.y=ANGLES[seat];group.userData.riverPid=pid;this.tiles.add(group);
     river.forEach((id,i)=>{
       const tile=this.makeTile(id,false);tile.position.x=(i%6-2.5)*1.12;
+      if (seat === 2) tile.rotation.z = Math.PI;
       tile.position.z=Math.floor(i/6)*1.58;
       if(last?.pid===pid&&i===river.length-1){
         this.markLatest(tile);
