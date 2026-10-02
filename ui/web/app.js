@@ -1,6 +1,6 @@
 import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
-import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs';
+import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 
 const $ = id => document.getElementById(id);
 let names = ['你', '陳予安', '林小滿', '周子墨'];
@@ -325,7 +325,9 @@ function renderSortSettings() {
     button.className = 'sort-group';
     button.type = 'button';
     button.dataset.group = group;
-    button.append(tile([0, 9, 18, 27][group]));
+    const face = tile([0, 9, 18, 27][group]);
+    face.querySelector('img').src = tileAsset([0, 9, 18, 27][group], $('tile-font-setting').value);
+    button.append(face);
     button.onkeydown = event => {
       const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
       if (!step) return;
@@ -358,17 +360,63 @@ $('modal').addEventListener('close', () => {
 
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
-  modal('牌桌設定',`<label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label><label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="tile-font-settings" aria-labelledby="tile-font-heading"><h3 id="tile-font-heading">萬字牌字體</h3><label class="setting-row">字體<select id="tile-font-setting">${TILE_FONTS.map(font=>`<option value="${font.id}">${font.name}</option>`).join('')}</select></label><div id="tile-font-preview" class="tile-font-preview" role="group" aria-label="萬字牌字體預覽"></div><p>數字與「萬」同字級。儲存後套用到牌桌，下次開啟會保留選擇。</p></section><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
+  modal('牌桌設定',`
+    <section class="settings-section" aria-labelledby="play-settings-heading">
+      <h3 id="play-settings-heading">對局與顯示</h3>
+      <label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label>
+      <div class="settings-toggles">
+        <label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label>
+        <label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label>
+      </div>
+    </section>
+    <section class="settings-section" aria-labelledby="tile-font-heading">
+      <h3 id="tile-font-heading">牌面與排列</h3>
+      <label class="setting-row">樣式<select id="tile-font-setting">${TILE_FONTS.map(font=>`<option value="${font.id}">${font.name}</option>`).join('')}</select></label>
+      <label class="setting-row">排列<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label>
+      <div class="settings-tile-row">
+        <div id="sort-order" class="sort-order" role="group" aria-label="牌種排序與樣式預覽" aria-describedby="sort-help"></div>
+        <div id="fixed-face-preview" class="fixed-face-preview" role="group" aria-label="白板與花牌樣式預覽"></div>
+      </div>
+      <p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p>
+      <details id="tile-face-details"><summary>查看完整牌面</summary><div id="tile-font-preview" class="full-face-preview"></div></details>
+    </section>
+    <div class="settings-footer"><p>儲存後套用，下次開啟會保留。<br>牌面來源：<a href="https://github.com/SyaoranHinata/I.Mahjong" target="_blank" rel="noopener">I.Mahjong</a></p><button class="modal-primary" id="save-settings">儲存</button></div>
+  `,'settings-dialog');
   $('tile-font-setting').value = tileFont;
   const previewFont = () => {
     const font = $('tile-font-setting').value;
-    $('tile-font-preview').replaceChildren(...[0,4,8].map(id => {
+    $('fixed-face-preview').replaceChildren(...[33,34].map(id => {
       const el = tile(id);
       el.querySelector('img').src = tileAsset(id,font);
       return el;
     }));
+    if (!$('tile-face-details').open) return;
+    $('tile-font-preview').replaceChildren(...[
+      ['萬',0,9], ['筒',9,18], ['條',18,27], ['字',27,34], ['花',34,42],
+    ].map(([label,start,end]) => {
+      const row = document.createElement('div');
+      row.className = 'full-face-row';
+      row.setAttribute('role','group');
+      row.setAttribute('aria-label',`${label}牌`);
+      const name = document.createElement('span');
+      name.className = 'full-face-label';
+      name.textContent = label;
+      row.append(name);
+      for (let id=start;id<end;id++) {
+        const el = tile(id);
+        el.querySelector('img').src = tileAsset(id,font);
+        row.append(el);
+      }
+      return row;
+    }));
   };
-  $('tile-font-setting').onchange = previewFont;
+  $('tile-face-details').ontoggle = previewFont;
+  $('tile-font-setting').onchange = () => {
+    previewFont();
+    $('sort-order').querySelectorAll('img').forEach(img => {
+      img.src = tileAsset(Number(img.dataset.tileId), $('tile-font-setting').value);
+    });
+  };
   previewFont();
   $('pace-setting').value = pace;
   $('pace-setting').disabled = roomMode;
@@ -410,7 +458,7 @@ $('settings').onclick=()=>{
     if (tableView) tableView.renderer.shadowMap.enabled = !compact;
     renderHand();
     if (state) renderActions();
-    $('modal').close();
+    if ($('save-settings') === button) $('modal').close();
     toast('設定已儲存');
   };
 };
@@ -503,7 +551,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=tile-fonts-2');
+    const { MahjongTableView } = await import('./table3d.js?v=settings-faces-release-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

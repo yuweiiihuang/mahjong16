@@ -22,8 +22,6 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 
 .compass{width:56px;height:56px}.remaining strong{font-size:18px}.wind{font-size:10px}.wind-top{top:2px}.wind-bottom{bottom:2px}.wind-left{left:3px}.wind-right{right:3px}@media(max-width:950px) and (orientation:landscape){.compass{width:34px;height:34px}.remaining strong{font-size:12px}.wind{font-size:7px}.wind-top{top:1px}.wind-bottom{bottom:1px}.wind-left{left:1px}.wind-right{right:1px}}
 
-.sort-settings h3{font-size:14px;color:var(--ink);margin:24px 0 0}
-.sort-settings select{max-width:70%;font:inherit;color:inherit;background:var(--paper);border:1px solid #ccd2c2;border-radius:6px;padding:7px}
 .sort-order{display:flex;gap:12px;justify-content:center;padding:12px 0}
 .sort-group{padding:0;background:none;cursor:grab;touch-action:none;user-select:none}
 .sort-placeholder{opacity:.2}.sort-floating{opacity:1!important;cursor:grabbing}
@@ -49,4 +47,34 @@ dialog{max-height:85dvh;overflow-y:auto}
 /* Controls sit toward the table center, ahead of the near-side hand. */
 .action-bar{bottom:auto;left:35%;right:20%;justify-content:flex-end;transform:translateY(-100%)}
 #actions{flex-direction:row-reverse;justify-content:flex-start}
-.tile-font-settings h3{font-size:14px;color:var(--ink);margin:20px 0 0}.tile-font-settings select{max-width:70%;font:inherit;color:inherit;background:var(--paper);border:1px solid #ccd2c2;border-radius:6px;padding:7px}.tile-font-preview{display:flex;justify-content:center;gap:14px;padding:18px;background:#285747;border-radius:10px;margin-top:12px}.tile-font-settings p{font-size:12px;margin:8px 0}.tile-font-preview .tile{width:56px;height:78px}.settings-footer button:disabled{opacity:.6;cursor:wait}
+/* All settings share the same controls, spacing and tabletop previews. */
+.settings-dialog{width:min(680px,92vw);padding:26px 30px;max-height:92dvh}
+.settings-dialog h2{font-size:22px;margin:0 0 12px}
+.settings-section{padding:10px 0;border-top:1px solid #dce2d4}
+.settings-section h3{font-size:14px;font-weight:600;color:var(--ink);letter-spacing:.5px;margin:0 0 4px}
+.settings-dialog .setting-row{padding:6px 0;border:0;gap:16px;font-size:13px;min-height:36px}
+.settings-dialog select{max-width:70%;font:inherit;color:inherit;background:#faf9f0;border:1px solid #ccd2c2;border-radius:8px;padding:8px 10px;min-height:36px}
+.settings-toggles{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.settings-dialog input[type=checkbox]{appearance:none;position:relative;width:36px;height:22px;flex-shrink:0;border:1px solid #b8c2b3;border-radius:20px;background:#dce2d4;cursor:pointer}
+.settings-dialog input[type=checkbox]::before{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#faf9f0;transition:transform .15s}
+.settings-dialog input[type=checkbox]:checked{background:#285747;border-color:#285747}
+.settings-dialog input[type=checkbox]:checked::before{transform:translateX(14px)}
+.settings-dialog :is(select,input,button):focus-visible{outline:2px solid #759b74;outline-offset:3px}
+.settings-tile-row{display:flex;align-items:center;justify-content:center;gap:18px;padding:16px 0;margin:6px 0}
+.settings-dialog .sort-order,.fixed-face-preview{display:flex;align-items:center;gap:14px;padding:0;margin:0}
+.fixed-face-preview{padding-left:18px;border-left:1px solid #dce2d4}
+.settings-tile-row .tile{width:48px;height:67px;padding:2px;border:1px solid #dad8c6;box-shadow:0 2px 0 #bdc9b8}
+.settings-dialog p{font-size:11px;line-height:1.6;margin:6px 0 10px}
+.settings-footer{gap:18px;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid #dce2d4}
+.settings-footer p{margin:0}.settings-footer a{color:#52765a;text-underline-offset:3px}
+.settings-footer .modal-primary{margin:0;padding:10px 28px;font-size:13px}
+.settings-footer button:disabled{opacity:.6;cursor:wait}
+@media(max-width:540px){.settings-dialog{padding:22px 18px}.settings-toggles{gap:14px}.settings-dialog select{font-size:12px}.settings-tile-row{gap:10px}.settings-dialog .sort-order,.fixed-face-preview{gap:8px}.fixed-face-preview{padding-left:10px}.settings-tile-row .tile{width:40px;height:56px}}
+
+.settings-dialog details{margin-top:10px}
+.settings-dialog summary{width:fit-content;color:#52765a;font-size:12px;cursor:pointer;padding:6px 0;border-radius:3px}
+.settings-dialog summary:focus-visible{outline:2px solid #759b74;outline-offset:3px}
+.full-face-preview{padding:8px 0;margin:8px 0}
+.full-face-row{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:8px 0}
+.full-face-row .tile{width:38px;height:53px;padding:1px;border:1px solid #dad8c6;box-shadow:0 2px 0 #bdc9b8}
+.full-face-label{width:20px;color:var(--ink);font-size:12px}

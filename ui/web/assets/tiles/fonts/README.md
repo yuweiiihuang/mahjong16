@@ -1,11 +1,9 @@
-# 萬字牌字體
+# 牌面 SVG 來源
 
-- `serif`: accepted option A, Noto Serif CJK TC Bold. See `../FONT-LICENSE.txt`.
-- `wenkai`: LXGW WenKai TC Regular, https://github.com/lxgw/LxgwWenkaiTC (SIL OFL, `WENKAI-OFL.txt`).
-- `brush`: Yuji Syuku Regular, https://github.com/google/fonts/tree/main/ofl/yujisyuku (SIL OFL, `YUJI-OFL.txt`). Japanese brush lettering; 萬 uses this font's traditional glyph.
-- `iansui`: Iansui Regular, https://github.com/google/fonts/tree/main/ofl/iansui (SIL OFL, `IANSUI-OFL.txt`).
-- `klee`: Klee One SemiBold, https://github.com/google/fonts/tree/main/ofl/kleeone (SIL OFL, `KLEE-OFL.txt`).
+部署完整臺灣與日式牌面，不依賴使用者裝置的字型。
 
-Every face is outlined SVG; no runtime font download or embedded raster image.
-Numerals and 萬 share the same scale and 58×58 character box.
-The tile body uses the existing game geometry for every font.
+- `mahjong-tw`（預設）、`mahjong-jp`：內木一郎的 I.Mahjong-TW / JP，取自 https://github.com/SyaoranHinata/I.Mahjong 。依 M+ 字型授權使用；全文見 `I-MAHJONG-LICENSE.txt`。移除字型自帶牌框，保留字形輪廓與比例，上方數字使用深綠、下方萬字使用朱紅。臺灣版五萬採用原字型的「伍」。
+
+筒、條、字牌與八張花牌也使用 I.Mahjong-TW 的向量輪廓，保留牌桌原有的紅、綠、藍配色。所有牌面均移除字型自帶牌框，沿用現有立體牌身。
+
+日式選項的所有 42 種牌面均使用 I.Mahjong-JP；日式白板依原設計完全留白。

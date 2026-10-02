@@ -1,5 +1,5 @@
 import { DEFAULT_ORDER, sortHand } from './hand-sort.mjs';
-import { DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs';
+import { DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 import * as THREE from './vendor/three.module.js';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 
@@ -143,7 +143,7 @@ export class MahjongTableView {
       this.faceMaterials.set(id, await this.loadFaceMaterial(tileAsset(id,this.faceFont)));
     }));
     this.fontMaterials.set(this.faceFont, Promise.resolve(new Map(
-      [...this.faceMaterials].filter(([id]) => id < 9))));
+      this.faceMaterials)));
     if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
   }
 
@@ -152,7 +152,7 @@ export class MahjongTableView {
     const image = await loader.loadAsync(url);
     const canvas=document.createElement('canvas');canvas.width=384;canvas.height=538;
     const ctx=canvas.getContext('2d');ctx.fillStyle='#f7f6ef';ctx.fillRect(0,0,384,538);
-    ctx.drawImage(image,40,52,304,434);
+    ctx.drawImage(image,12,17,360,504);
     const texture=new THREE.CanvasTexture(canvas);
     texture.colorSpace=THREE.SRGBColorSpace;
     texture.anisotropy=Math.min(4,this.renderer.capabilities.getMaxAnisotropy());
@@ -166,7 +166,7 @@ export class MahjongTableView {
     const request = ++this.fontRequest;
     await this.ready;
     if (!this.fontMaterials.has(font)) {
-      const loading = Promise.all(Array.from({length:9}, async(_,id) =>
+      const loading = Promise.all(Array.from({length:42}, async(_,id) =>
         [id, await this.loadFaceMaterial(tileAsset(id,font))])).then(entries => new Map(entries));
       this.fontMaterials.set(font,loading);
       loading.catch(() => this.fontMaterials.delete(font));
