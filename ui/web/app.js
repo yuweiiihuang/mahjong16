@@ -1,5 +1,6 @@
 import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
+import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs';
 
 const $ = id => document.getElementById(id);
 let names = ['你', '陳予安', '林小滿', '周子墨'];
@@ -10,6 +11,8 @@ let sound = localStorage.getItem('qinghe-sound') === 'true';
 let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
   ? localStorage.getItem('qinghe-pace') : 'natural';
 let compact = localStorage.getItem('qinghe-flat') === 'true';
+const savedTileFont = localStorage.getItem('qinghe-tile-font');
+let tileFont = validTileFont(savedTileFont) ? savedTileFont : DEFAULT_TILE_FONT;
 let sortOrder = [...DEFAULT_ORDER];
 try {
   const saved = JSON.parse(localStorage.getItem('qinghe-sort-order'));
@@ -40,7 +43,8 @@ function tile(id, small = false, action = null) {
   el.title = tileName(id);
   const face = document.createElement('img');
   face.className = 'tile-face';
-  face.src = `assets/tiles/${id}.svg`;
+  face.src = tileAsset(id,tileFont);
+  face.dataset.tileId = id;
   face.alt = '';
   face.draggable = false;
   el.append(face);
@@ -354,17 +358,48 @@ $('modal').addEventListener('close', () => {
 
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
-  modal('牌桌設定',`<label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label><label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
+  modal('牌桌設定',`<label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label><label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label><label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label><section class="tile-font-settings" aria-labelledby="tile-font-heading"><h3 id="tile-font-heading">萬字牌字體</h3><label class="setting-row">字體<select id="tile-font-setting">${TILE_FONTS.map(font=>`<option value="${font.id}">${font.name}</option>`).join('')}</select></label><div id="tile-font-preview" class="tile-font-preview" role="group" aria-label="萬字牌字體預覽"></div><p>數字與「萬」同字級。儲存後套用到牌桌，下次開啟會保留選擇。</p></section><section class="sort-settings" aria-labelledby="sort-heading"><h3 id="sort-heading">手牌排序</h3><label class="setting-row">常用順序<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label><p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p><div id="sort-order" class="sort-order" role="group" aria-label="牌種排序" aria-describedby="sort-help"></div></section><div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>`);
+  $('tile-font-setting').value = tileFont;
+  const previewFont = () => {
+    const font = $('tile-font-setting').value;
+    $('tile-font-preview').replaceChildren(...[0,4,8].map(id => {
+      const el = tile(id);
+      el.querySelector('img').src = tileAsset(id,font);
+      return el;
+    }));
+  };
+  $('tile-font-setting').onchange = previewFont;
+  previewFont();
   $('pace-setting').value = pace;
   $('pace-setting').disabled = roomMode;
   if (roomMode) $('pace-setting').title = '連線桌由伺服器統一安排自然節奏';
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
-  $('save-settings').onclick=()=>{
-    sortOrder = [...settingsOrder];
-    sound = $('sound-setting').checked;
-    compact = $('flat-setting').checked;
-    pace = $('pace-setting').value;
+  $('save-settings').onclick=async()=>{
+    const button = $('save-settings');
+    if (button.disabled) return;
+    const next = {font:$('tile-font-setting').value, order:[...settingsOrder],
+      sound:$('sound-setting').checked, compact:$('flat-setting').checked,
+      pace:$('pace-setting').value};
+    button.disabled = true;
+    button.textContent = '儲存中…';
+    try {
+      if (tableView) await tableView.setFaceFont(next.font);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = '儲存';
+      toast('字體載入失敗，請再試一次');
+      return;
+    }
+    tileFont = next.font;
+    sortOrder = next.order;
+    sound = next.sound;
+    compact = next.compact;
+    pace = next.pace;
+    localStorage.setItem('qinghe-tile-font',tileFont);
+    document.querySelectorAll('img[data-tile-id]').forEach(img => {
+      img.src = tileAsset(Number(img.dataset.tileId),tileFont);
+    });
     localStorage.setItem('qinghe-pace', pace);
     localStorage.setItem('qinghe-sort-order', JSON.stringify(sortOrder));
     localStorage.setItem('qinghe-sound', sound);
@@ -468,8 +503,8 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=claim-clearance-1');
-    tableView = new MahjongTableView(document.querySelector('.table'));
+    const { MahjongTableView } = await import('./table3d.js?v=tile-fonts-2');
+    tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
     await tableView.ready;

@@ -1,4 +1,5 @@
 import { DEFAULT_ORDER, sortHand } from './hand-sort.mjs';
+import { DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs';
 import * as THREE from './vendor/three.module.js';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
 
@@ -15,7 +16,7 @@ const SEATS = [[0, 9.1], [10.3, 0], [0, -9.1], [-10.3, 0]];
 const RIVERS = [[0, 3.3], [4.45, 0], [0, -3.3], [-4.45, 0]];
 
 export class MahjongTableView {
-  constructor(container, onPick) {
+  constructor(container, onPick, faceFont = DEFAULT_TILE_FONT) {
     this.container = container;
     this.onPick = onPick;
     this.scene = new THREE.Scene();
@@ -53,6 +54,9 @@ export class MahjongTableView {
     this.backGeometry = new RoundedBoxGeometry(TILE.width, TILE.height, .12, 3, .045);
     this.faceGeometry = new THREE.PlaneGeometry(.9,1.26);
     this.faceMaterials = new Map();
+    this.faceFont = validTileFont(faceFont) ? faceFont : DEFAULT_TILE_FONT;
+    this.fontMaterials = new Map();
+    this.fontRequest = 0;
     this.tiles = new THREE.Group(); this.scene.add(this.tiles);
     this.handObjects = [];
     this.makeTable();
@@ -135,19 +139,42 @@ export class MahjongTableView {
   }
 
   async loadFaces() {
-    const loader = new THREE.ImageLoader();
     await Promise.all(Array.from({length:42},async(_,id)=>{
-      const image = await loader.loadAsync(`assets/tiles/${id}.svg`);
-      const canvas=document.createElement('canvas');canvas.width=384;canvas.height=538;
-      const ctx=canvas.getContext('2d');ctx.fillStyle='#f7f6ef';ctx.fillRect(0,0,384,538);
-      ctx.drawImage(image,40,52,304,434);
-      const texture=new THREE.CanvasTexture(canvas);
-      texture.colorSpace=THREE.SRGBColorSpace;
-      texture.anisotropy=Math.min(4,this.renderer.capabilities.getMaxAnisotropy());
-      const material=new THREE.MeshBasicMaterial({map:texture,toneMapped:false});
-      material.polygonOffset=true;material.polygonOffsetFactor=-1;material.polygonOffsetUnits=-1;
-      this.faceMaterials.set(id,material);
+      this.faceMaterials.set(id, await this.loadFaceMaterial(tileAsset(id,this.faceFont)));
     }));
+    this.fontMaterials.set(this.faceFont, Promise.resolve(new Map(
+      [...this.faceMaterials].filter(([id]) => id < 9))));
+    if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
+  }
+
+  async loadFaceMaterial(url) {
+    const loader = new THREE.ImageLoader();
+    const image = await loader.loadAsync(url);
+    const canvas=document.createElement('canvas');canvas.width=384;canvas.height=538;
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#f7f6ef';ctx.fillRect(0,0,384,538);
+    ctx.drawImage(image,40,52,304,434);
+    const texture=new THREE.CanvasTexture(canvas);
+    texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(4,this.renderer.capabilities.getMaxAnisotropy());
+    const material=new THREE.MeshBasicMaterial({map:texture,toneMapped:false});
+    material.polygonOffset=true;material.polygonOffsetFactor=-1;material.polygonOffsetUnits=-1;
+    return material;
+  }
+
+  async setFaceFont(font) {
+    if (!validTileFont(font)) throw new Error('無效的牌面字體');
+    const request = ++this.fontRequest;
+    await this.ready;
+    if (!this.fontMaterials.has(font)) {
+      const loading = Promise.all(Array.from({length:9}, async(_,id) =>
+        [id, await this.loadFaceMaterial(tileAsset(id,font))])).then(entries => new Map(entries));
+      this.fontMaterials.set(font,loading);
+      loading.catch(() => this.fontMaterials.delete(font));
+    }
+    const materials = await this.fontMaterials.get(font);
+    if (request !== this.fontRequest) return;
+    for (const [id,material] of materials) this.faceMaterials.set(id,material);
+    this.faceFont = font;
     if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
   }
 

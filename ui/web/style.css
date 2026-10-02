@@ -49,3 +49,4 @@ dialog{max-height:85dvh;overflow-y:auto}
 /* Controls sit toward the table center, ahead of the near-side hand. */
 .action-bar{bottom:auto;left:35%;right:20%;justify-content:flex-end;transform:translateY(-100%)}
 #actions{flex-direction:row-reverse;justify-content:flex-start}
+.tile-font-settings h3{font-size:14px;color:var(--ink);margin:20px 0 0}.tile-font-settings select{max-width:70%;font:inherit;color:inherit;background:var(--paper);border:1px solid #ccd2c2;border-radius:6px;padding:7px}.tile-font-preview{display:flex;justify-content:center;gap:14px;padding:18px;background:#285747;border-radius:10px;margin-top:12px}.tile-font-settings p{font-size:12px;margin:8px 0}.tile-font-preview .tile{width:56px;height:78px}.settings-footer button:disabled{opacity:.6;cursor:wait}
