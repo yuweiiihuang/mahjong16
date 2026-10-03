@@ -2,6 +2,7 @@ import { DEFAULT_ORDER, sortHand } from './hand-sort.mjs';
 import { DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 import * as THREE from './vendor/three.module.js';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
+import { loadTileImage } from './tile-images.mjs';
 
 // All seats share these physical dimensions, this table, and this camera.
 const TILE = { width: 1, height: 1.4, depth: .42, pitch: 1.045 };
@@ -139,17 +140,14 @@ export class MahjongTableView {
   }
 
   async loadFaces() {
-    await Promise.all(Array.from({length:42},async(_,id)=>{
-      this.faceMaterials.set(id, await this.loadFaceMaterial(tileAsset(id,this.faceFont)));
-    }));
+    this.faceMaterials = await this.loadFontMaterials(this.faceFont);
     this.fontMaterials.set(this.faceFont, Promise.resolve(new Map(
       this.faceMaterials)));
     if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
   }
 
   async loadFaceMaterial(url) {
-    const loader = new THREE.ImageLoader();
-    const image = await loader.loadAsync(url);
+    const image = await loadTileImage(url);
     const canvas=document.createElement('canvas');canvas.width=384;canvas.height=538;
     const ctx=canvas.getContext('2d');ctx.fillStyle='#f7f6ef';ctx.fillRect(0,0,384,538);
     ctx.drawImage(image,12,17,360,504);
@@ -161,13 +159,25 @@ export class MahjongTableView {
     return material;
   }
 
+  async loadFontMaterials(font) {
+    const materials = new Map();
+    let next = 0;
+    // Leave room for settings previews and gameplay requests on mobile connections.
+    await Promise.all(Array.from({length:4}, async () => {
+      while (next < 42) {
+        const id = next++;
+        materials.set(id, await this.loadFaceMaterial(tileAsset(id,font)));
+      }
+    }));
+    return materials;
+  }
+
   async setFaceFont(font) {
     if (!validTileFont(font)) throw new Error('無效的牌面字體');
     const request = ++this.fontRequest;
     await this.ready;
     if (!this.fontMaterials.has(font)) {
-      const loading = Promise.all(Array.from({length:42}, async(_,id) =>
-        [id, await this.loadFaceMaterial(tileAsset(id,font))])).then(entries => new Map(entries));
+      const loading = this.loadFontMaterials(font);
       this.fontMaterials.set(font,loading);
       loading.catch(() => this.fontMaterials.delete(font));
     }

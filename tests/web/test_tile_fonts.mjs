@@ -21,7 +21,7 @@ test('unknown stored font falls back to Taiwan tiles and Japanese style covers a
 
 test('a slow earlier switch cannot replace the latest chosen font', async () => {
   const pending = [];
-  const table = view(url => url.includes('/mahjong-tw/')
+  const table = view(url => url === tileAsset(0,'mahjong-tw')
     ? new Promise(resolve => pending.push(() => resolve(url))) : Promise.resolve(url));
   const slow = table.setFaceFont('mahjong-tw');
   await Promise.resolve();
@@ -31,6 +31,24 @@ test('a slow earlier switch cannot replace the latest chosen font', async () => 
   assert.equal(table.faceFont,'mahjong-jp');
   assert.equal(table.faceMaterials.get(0),'assets/tiles/fonts/mahjong-jp/0.svg');
   assert.equal(table.faceMaterials.get(9),'assets/tiles/fonts/mahjong-jp/9.svg?v=imahjong-jp-1');
+});
+
+test('initial and switched styles limit concurrent face loads on mobile', async () => {
+  let active = 0, peak = 0, loads = 0;
+  const table = view(async url => {
+    active++;
+    peak = Math.max(peak,active);
+    loads++;
+    await new Promise(resolve => setTimeout(resolve,0));
+    active--;
+    return url;
+  });
+  await table.loadFaces();
+  assert.equal(table.faceMaterials.size,42);
+  await table.setFaceFont('mahjong-jp');
+  assert.equal(table.faceMaterials.size,42);
+  assert.equal(loads,84);
+  assert.equal(peak,4);
 });
 
 test('failed font load leaves faces intact and can be retried, then reused', async () => {

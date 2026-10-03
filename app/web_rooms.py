@@ -11,15 +11,26 @@ if TYPE_CHECKING:
     from app.web import WebTable
 
 
+def player_name(value: str) -> str:
+    """Validate a display name before changing a room or reserving a seat."""
+    if not isinstance(value, str):
+        raise ValueError('玩家名稱必須是文字。')
+    name = value.strip()
+    if len(name) > 20 or any(ord(char) < 32 or ord(char) == 127 for char in name):
+        raise ValueError('玩家名稱最多 20 個字，不能包含換行或控制字元。')
+    return name
+
+
 class WebRoom:
     """One table with private seats, revision checks and bounded reconnect grace."""
 
     RECONNECT_SECONDS = 90
 
-    def __init__(self, code: str, owner: str, table: WebTable) -> None:
+    def __init__(self, code: str, owner: str, table: WebTable, name: str = '') -> None:
         self.code = code
         self.table = table
         self.seats: list[str | None] = [owner, None, None, None]
+        self.names = {owner: player_name(name) or '玩家 1'}
         self.seen = {owner: time.monotonic()}
         self.owner = owner
         self.started = False
@@ -36,14 +47,17 @@ class WebRoom:
         self.version += 1
         self.changed.notify_all()
 
-    def join(self, sid: str) -> None:
+    def join(self, sid: str, name: str = '') -> None:
         """Reserve a lobby seat, or reconnect to an already reserved seat."""
+        name = player_name(name)
         if sid not in self.seats:
             if self.started:
                 raise ValueError('本桌已開局，請等下一桌再加入。')
             if None not in self.seats:
                 raise ValueError('房間已滿。')
-            self.seats[self.seats.index(None)] = sid
+            seat = self.seats.index(None)
+            self.seats[seat] = sid
+            self.names[sid] = name or f'玩家 {seat + 1}'
             self.publish()
         self.touch(sid)
 
@@ -89,9 +103,8 @@ class WebRoom:
         state['room'] = {
             'code': self.code, 'started': self.started, 'host': sid == self.owner,
             'members': [
-                {'name': '你' if pid == viewer else (
-                    f'玩家 {pid + 1}' if self.seats[pid] else ['電腦玩家', '陳予安', '林小滿',
-                                                        '周子墨'][pid]),
+                {'name': (self.names[self.seats[pid]] if self.seats[pid] else
+                          ['電腦玩家', '陳予安', '林小滿', '周子墨'][pid]),
                  'human': self.seats[pid] is not None,
                  'connected': (self.seats[pid] is not None and
                                now - self.seen.get(self.seats[pid], 0) < 30)}
@@ -193,8 +206,10 @@ class RoomRegistry:
         self.memberships: dict[str, str] = {}
         self.lock = threading.Lock()
 
-    def create(self, sid: str, table_factory: Callable[..., WebTable]) -> WebRoom:
+    def create(self, sid: str, table_factory: Callable[..., WebTable],
+               name: str = '') -> WebRoom:
         """Create one invitation-only room for an identity without a current room."""
+        name = player_name(name)
         with self.lock:
             if sid in self.memberships:
                 raise ValueError('請先離開目前房間。')
@@ -203,12 +218,12 @@ class RoomRegistry:
             code = secrets.token_hex(4).upper()
             while code in self.rooms:
                 code = secrets.token_hex(4).upper()
-            room = WebRoom(code, sid, table_factory(human_pids={0, 1, 2, 3}))
+            room = WebRoom(code, sid, table_factory(human_pids={0, 1, 2, 3}), name)
             self.rooms[code] = room
             self.memberships[sid] = code
             return room
 
-    def join(self, sid: str, code: str) -> WebRoom:
+    def join(self, sid: str, code: str, name: str = '') -> WebRoom:
         """Join an existing lobby without assigning one identity to multiple rooms."""
         with self.lock:
             room = self.rooms.get(code)
@@ -217,7 +232,7 @@ class RoomRegistry:
             if sid in self.memberships and self.memberships[sid] != code:
                 raise ValueError('請先離開目前房間。')
             with room.changed:
-                room.join(sid)
+                room.join(sid, name)
             self.memberships[sid] = code
             return room
 
@@ -237,6 +252,7 @@ class RoomRegistry:
                 with room.changed:
                     room.seats[room.seats.index(sid)] = None
                     room.seen.pop(sid, None)
+                    room.names.pop(sid, None)
                     if room.owner == sid:
                         room.owner = next((s for s in room.seats if s), '')
                     room.publish()

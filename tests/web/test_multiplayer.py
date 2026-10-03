@@ -203,7 +203,7 @@ def test_registry_room_capacity_join_lock_and_host_transfer():
     registry.leave('a')
     assert room.owner == 'c'
     names = [member['name'] for member in room.snapshot('c')['room']['members']]
-    assert names.count('你') == 1 and '電腦玩家' in names
+    assert '你' not in names and '玩家 3' in names and '電腦玩家' in names
     with pytest.raises(ValueError):
         registry.get('a')
 
@@ -268,27 +268,40 @@ def test_http_invites_cookie_seat_auth_and_long_poll(online_server):
         connection.request('GET' if body is None else 'POST', path,
                            None if body is None else json.dumps(body), headers)
         response = connection.getresponse()
-        result = json.loads(response.read())
+        payload = response.read()
+        result = (json.loads(payload) if response.getheader('Content-Type', '').startswith(
+            'application/json') else None)
         new_cookie = response.getheader('Set-Cookie', cookie).split(';')[0]
         status = response.status
         connection.close()
         return status, result, new_cookie
 
-    status, state, host = request('/api/rooms', {})
+    status, state, host = request('/api/rooms', {'name': '麻雀雖小'})
     assert status == 200 and state['room']['host']
+    assert state['room']['members'][0]['name'] == '麻雀雖小'
     assert state['hand'] == [] and state['drawn'] is None
     code = state['room']['code']
     cookies = [host]
-    for _ in range(3):
-        status, guest, cookie = request('/api/room/join', {'code': code})
+    for index in range(3):
+        status, guest, cookie = request('/api/room/join',
+                                       {'code': code, 'name': f'碰碰胡椒粉{index}'})
         assert status == 200 and not guest['room']['host']
+        assert guest['room']['members'][0]['name'] == f'碰碰胡椒粉{index}'
         cookies.append(cookie)
     assert len(set(cookies)) == 4
     assert len(handler.sessions) == 4
     assert host.startswith(f'qinghe_{address[1]}=')
+    assert request('/api/room/name', {'name': '海底撈月餅'}, cookies[1])[0] == 404
+    resumed = request('/api/room/join', {'code': code, 'name': '改名'}, cookies[1])[1]
+    assert resumed['room']['members'][0]['name'] == '碰碰胡椒粉0'
+    host_state = request('/api/room/state', cookie=host)[1]
+    assert host_state['room']['members'][1]['name'] == '碰碰胡椒粉0'
+    assert host_state['room']['members'][0]['name'] == '麻雀雖小'
+    assert request('/api/room/name', {'name': '冒名'}, 'forged=seat')[0] == 404
     assert request('/api/room/start', {}, cookies[1])[0] == 400
     assert request('/api/room/start', {}, host, 'https://evil.example')[0] == 400
     assert request('/api/room/start', {}, host)[0] == 200
+    assert request('/api/room/name', {'name': '改名'}, host)[0] == 404
     status, state, _ = request('/api/room/state', cookie=host)
     assert status == 200
     # Scheduler publishes when the opening delay ends, waking the pending request.
@@ -307,3 +320,39 @@ def test_http_invites_cookie_seat_auth_and_long_poll(online_server):
         status, state, _ = request('/api/room/state', cookie=cookie)
         assert status == 200 and state['player'] == 0
     assert request('/api/room/leave', {}, cookies[3])[0] == 200
+
+
+def test_names_are_consistent_across_viewers_and_reconnects():
+    registry = RoomRegistry()
+    room = registry.create('host', WebTable, ' 麻雀雖小 ')
+    registry.join('guest', room.code, '海底撈月餅')
+    assert room.snapshot('host')['room']['members'][1]['name'] == '海底撈月餅'
+    assert room.snapshot('guest')['room']['members'][0]['name'] == '海底撈月餅'
+    registry.join('guest', room.code, '改名')
+    assert room.seats.count('guest') == 1
+    assert room.names['guest'] == '海底撈月餅'
+    with room.changed:
+        assert room.names['host'] == '麻雀雖小'
+        room.start('host')
+        version = room.version
+        room.join('guest', '重新改名')
+        assert room.version == version
+        assert room.snapshot('host')['room']['members'][1]['name'] == '海底撈月餅'
+    registry.leave('guest')
+    assert 'guest' not in room.names
+
+
+@pytest.mark.parametrize('name', [None, [], 1, '字' * 21, '玩家\n名稱', '玩家\x00'])
+def test_invalid_names_do_not_reserve_seats_or_replace_existing_names(name):
+    registry = RoomRegistry()
+    with pytest.raises(ValueError):
+        registry.create('invalid', WebTable, name)
+    assert not registry.rooms and not registry.memberships
+    room = registry.create('host', WebTable, '麻雀雖小')
+    with pytest.raises(ValueError):
+        registry.join('guest', room.code, name)
+    assert room.seats == ['host', None, None, None]
+    assert 'guest' not in registry.memberships
+    with pytest.raises(ValueError):
+        registry.join('host', room.code, name)
+    assert room.names['host'] == '麻雀雖小'

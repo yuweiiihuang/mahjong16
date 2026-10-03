@@ -1,9 +1,12 @@
 import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
+import { loadTileImage } from './tile-images.mjs';
+import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
 
 const $ = id => document.getElementById(id);
-let names = ['你', '陳予安', '林小滿', '周子墨'];
+let playerName = localStorage.getItem('qinghe-player-name') || '';
+let names = [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
 let state, selected = null, busy = false, playbackFrame = null;
@@ -21,6 +24,11 @@ try {
 let audio, tableView;
 let roomMode = false, pollGeneration = 0;
 document.body.classList.toggle('compact', compact);
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
+  }[char]));
+}
 function tileName(id) {
   if (id < 27) return `${id % 9 + 1}${['萬','筒','條'][Math.floor(id/9)]}`;
   return ['東','南','西','北','中','發','白','春','夏','秋','冬','梅','蘭','竹','菊'][id - 27];
@@ -36,18 +44,40 @@ function selectHandTile(action) {
   renderHand();
   renderActions();
 }
-function tile(id, small = false, action = null) {
+function setTileFace(face, id, font) {
+  const url = tileAsset(id,font);
+  face.dataset.source = url;
+  face.hidden = true;
+  face.removeAttribute('src');
+  const tile = face.parentElement;
+  tile.title = tileName(id);
+  tile.dataset.faceStatus = 'loading';
+  tile.dataset.faceText = '載入中';
+  loadTileImage(url).then(image => {
+    if (face.dataset.source !== url) return;
+    face.src = image.src;
+    face.hidden = false;
+    delete tile.dataset.faceStatus;
+  }).catch(() => {
+    if (face.dataset.source !== url || !face.isConnected) return;
+    tile.dataset.faceStatus = 'error';
+    tile.dataset.faceText = tileName(id);
+    tile.title = `${tileName(id)}：載入失敗，請重新選擇牌面重試`;
+    if ($('modal').open) toast('部分牌面載入失敗，請重新選擇牌面重試');
+  });
+}
+function tile(id, small = false, action = null, font = tileFont) {
   const el = document.createElement(action ? 'button' : 'span');
   el.className = `tile${small?' small flat':''}${id===31?' red':''}${id===32?' green':''}`;
   el.setAttribute('aria-label',tileName(id));
   el.title = tileName(id);
   const face = document.createElement('img');
   face.className = 'tile-face';
-  face.src = tileAsset(id,tileFont);
   face.dataset.tileId = id;
   face.alt = '';
   face.draggable = false;
   el.append(face);
+  setTileFace(face,id,font);
   if(action){
     el.disabled=busy;
     el.setAttribute('aria-pressed', String(selected?.tile===id && selected?.from===action.from));
@@ -59,7 +89,7 @@ function tile(id, small = false, action = null) {
 function person(pid, sidebar = false) {
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
   const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-  wrap.innerHTML=`<div class="avatar a${pid}">${pid===0?'禾':names[pid][0]}</div><div class="player-info"><strong>${names[pid]}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
+  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong>${escapeHtml(names[pid])}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
   if (state.room) {
     const member = state.room.members[pid];
     const detail = wrap.querySelector('small');
@@ -175,7 +205,12 @@ function showTing() {
   }
 }
 function render(){
-  names = state.room ? state.room.members.map(member => member.name) : ['你', '陳予安', '林小滿', '周子墨'];
+  const waiting = state.room && !state.room.started;
+  const humans = waiting ? state.room.members.filter(member => member.human).length : 0;
+  setTableStatus(waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
+    ? '邀請朋友加入後，按「開始對局」。空位由電腦補上。' : '等待房主開始對局。'}` : '');
+  names = state.room ? state.room.members.map(member => member.name)
+    : [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
   $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
   $('table-title').textContent = state.room ? (state.room.started ? '朋友牌桌' : '等待朋友入座') : '練習牌桌';
   $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
@@ -208,7 +243,22 @@ function beep(){
   if(!sound)return;
   try{audio??=new AudioContext();audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type='sine';o.frequency.setValueAtTime(660,audio.currentTime);g.gain.setValueAtTime(.05,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.12);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.12);}catch{}
 }
-function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');setTimeout(()=>$('toast').classList.remove('visible'),3500);}
+let toastTimer;
+function toast(message) {
+  if ($('modal').open && $('modal-status')) {
+    $('modal-status').textContent = message;
+    $('modal-status').hidden = false;
+    return;
+  }
+  clearTimeout(toastTimer);
+  $('toast').textContent=message;
+  $('toast').classList.add('visible');
+  toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);
+}
+function setTableStatus(message) {
+  $('table-status').textContent = message;
+  $('table-status').hidden = !message;
+}
 async function request(path,body){
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const data=await response.json();
@@ -261,12 +311,15 @@ async function newGame(next = false){
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = ''){
-  $('modal').className = className;$('modal-content').innerHTML=`<h2>${title}</h2>${content}`;if(!$('modal').open)$('modal').showModal();}
+  $('toast').classList.remove('visible');
+  $('modal').className = className;
+  $('modal-content').innerHTML=`<h2>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
+  if(!$('modal').open)$('modal').showModal();}
 function showResult(){
   const winner=state.winner;
   const result = state.settlement;
   const flower = {qi_qiang_yi:'七搶一', ba_xian:'八仙過海'}[result.flower_win_type];
-  modal(winner===null?'本局流局':`${names[winner]}${flower || (state.win_source==='TSUMO'?'自摸':'胡牌')}`,`<p>${winner===null?'本局無輸贏，莊家續莊。':`${result.tai} 台 · 底 ${result.base_points} 點／每台 ${result.tai_points} 點${result.payer!==null?` · ${names[result.payer]} 放銃`:''}`}</p><div class="result-hand" id="result-hand"></div><div id="score-breakdown"></div><table class="settlement-table"><thead><tr><th>玩家</th><th>本局</th><th>累積點數</th></tr></thead><tbody id="score-players"></tbody></table><p>莊家付款可能另含莊家台。</p><button class="modal-primary" id="result-new">下一局　→</button>`, 'result-dialog');
+  modal(winner===null?'本局流局':`${names[winner]}${flower || (state.win_source==='TSUMO'?'自摸':'胡牌')}`,`<p>${winner===null?'本局無輸贏，莊家續莊。':`${result.tai} 台 · 底 ${result.base_points} 點／每台 ${result.tai_points} 點${result.payer!==null?` · ${escapeHtml(names[result.payer])} 放銃`:''}`}</p><div class="result-hand" id="result-hand"></div><div id="score-breakdown"></div><table class="settlement-table"><thead><tr><th>玩家</th><th>本局</th><th>累積點數</th></tr></thead><tbody id="score-players"></tbody></table><p>莊家付款可能另含莊家台。</p><button class="modal-primary" id="result-new">下一局　→</button>`, 'result-dialog');
   for(const id of state.winning_hand||[])$('result-hand').append(tile(id));
   if(winner!==null && !result.flower_win_type)melds(winner,$('result-hand'));
   for (const item of result.breakdown) {
@@ -286,7 +339,7 @@ function showResult(){
   if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick=()=>newGame(true);
 }
-$('help').onclick=()=>modal('台灣十六張，從容開局',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
+$('help').onclick=()=>modal('遊戲說明',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
 $('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
@@ -325,8 +378,7 @@ function renderSortSettings() {
     button.className = 'sort-group';
     button.type = 'button';
     button.dataset.group = group;
-    const face = tile([0, 9, 18, 27][group]);
-    face.querySelector('img').src = tileAsset([0, 9, 18, 27][group], $('tile-font-setting').value);
+    const face = tile([0, 9, 18, 27][group],false,null,$('tile-font-setting').value);
     button.append(face);
     button.onkeydown = event => {
       const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
@@ -363,7 +415,7 @@ $('settings').onclick=()=>{
   modal('牌桌設定',`
     <section class="settings-section" aria-labelledby="play-settings-heading">
       <h3 id="play-settings-heading">對局與顯示</h3>
-      <label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">自然（預設）</option><option value="relaxed">悠閒</option></select></label>
+      <label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option></select></label>
       <div class="settings-toggles">
         <label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label>
         <label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label>
@@ -386,9 +438,7 @@ $('settings').onclick=()=>{
   const previewFont = () => {
     const font = $('tile-font-setting').value;
     $('fixed-face-preview').replaceChildren(...[33,34].map(id => {
-      const el = tile(id);
-      el.querySelector('img').src = tileAsset(id,font);
-      return el;
+      return tile(id,false,null,font);
     }));
     if (!$('tile-face-details').open) return;
     $('tile-font-preview').replaceChildren(...[
@@ -403,24 +453,24 @@ $('settings').onclick=()=>{
       name.textContent = label;
       row.append(name);
       for (let id=start;id<end;id++) {
-        const el = tile(id);
-        el.querySelector('img').src = tileAsset(id,font);
-        row.append(el);
+        row.append(tile(id,false,null,font));
       }
       return row;
     }));
   };
   $('tile-face-details').ontoggle = previewFont;
   $('tile-font-setting').onchange = () => {
+    $('modal-status').hidden = true;
+    $('modal-status').textContent = '';
     previewFont();
     $('sort-order').querySelectorAll('img').forEach(img => {
-      img.src = tileAsset(Number(img.dataset.tileId), $('tile-font-setting').value);
+      setTileFace(img,Number(img.dataset.tileId),$('tile-font-setting').value);
     });
   };
   previewFont();
   $('pace-setting').value = pace;
   $('pace-setting').disabled = roomMode;
-  if (roomMode) $('pace-setting').title = '連線桌由伺服器統一安排自然節奏';
+  if (roomMode) $('pace-setting').title = '連線桌由伺服器統一安排節奏';
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
   $('save-settings').onclick=async()=>{
@@ -436,7 +486,7 @@ $('settings').onclick=()=>{
     } catch (error) {
       button.disabled = false;
       button.textContent = '儲存';
-      toast('字體載入失敗，請再試一次');
+      toast('牌面載入失敗，請再試一次');
       return;
     }
     tileFont = next.font;
@@ -446,7 +496,7 @@ $('settings').onclick=()=>{
     pace = next.pace;
     localStorage.setItem('qinghe-tile-font',tileFont);
     document.querySelectorAll('img[data-tile-id]').forEach(img => {
-      img.src = tileAsset(Number(img.dataset.tileId),tileFont);
+      setTileFace(img,Number(img.dataset.tileId),tileFont);
     });
     localStorage.setItem('qinghe-pace', pace);
     localStorage.setItem('qinghe-sort-order', JSON.stringify(sortOrder));
@@ -476,6 +526,7 @@ $('history').onclick=()=>{
 $('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手。本局開始後無法重新加入。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
+  rememberPlayerName(result.room.members[0].name);
   sessionStorage.setItem('qinghe-room', result.room.code);
   const url = new URL(location.href); url.searchParams.set('room', result.room.code);
   history.replaceState(null, '', url);
@@ -515,9 +566,40 @@ async function roomCommand(path, body = {}) {
     $('modal').close();
     if (!roomMode) acceptRoom(result);
     else state = result;
+    rememberPlayerName(result.room.members[0].name);
     selected = null; render();
   } catch (error) { toast(error.message); }
   finally { busy = false; if (state) render(); }
+}
+function rememberPlayerName(name) {
+  playerName = name;
+  localStorage.setItem('qinghe-player-name',name);
+}
+function nameField() {
+  return '<label class="setting-row player-name-row" for="player-name">玩家名稱（可選）<span><input id="player-name" maxlength="20" autocomplete="nickname" placeholder="留空使用預設名稱"><button id="random-name" class="name-random" type="button">隨機</button></span></label>';
+}
+function setupNameField(name = playerName) {
+  $('player-name').value = name;
+  $('random-name').onclick = () => {
+    $('player-name').value = randomPlayerName($('player-name').value);
+  };
+}
+function showJoinRoom(code) {
+  modal('加入房間',`<p>按下「加入房間」後才會佔用座位。</p><form id="confirm-join"><label class="setting-row" for="invite-code">房號<input id="invite-code" readonly></label>${nameField()}<div class="join-buttons"><button class="modal-primary" type="submit">加入房間</button><button class="name-random" id="cancel-join" type="button">先不加入</button></div></form>`);
+  $('invite-code').value = code.toUpperCase();
+  setupNameField();
+  $('confirm-join').onsubmit = event => {
+    event.preventDefault();
+    roomCommand('/api/room/join',{code:$('invite-code').value,name:$('player-name').value});
+  };
+  $('cancel-join').onclick = () => {
+    $('modal').close();
+    if (!roomMode) {
+      const url = new URL(location.href);
+      url.searchParams.delete('room');
+      history.replaceState(null,'',url);
+    }
+  };
 }
 async function leaveRoom() {
   if (busy) return;
@@ -535,39 +617,53 @@ async function leaveRoom() {
 }
 $('multiplayer').onclick = () => {
   if (roomMode) {
-    modal('邀請朋友', '<p>將這個網址傳給朋友，開局前即可加入。</p><label class="setting-row">邀請網址<input id="invite-url" readonly></label><button class="modal-primary" id="copy-invite">複製邀請網址</button>');
+    modal('邀請朋友', '<p>將網址傳給朋友，對方確認加入後才會佔位。開局前皆可加入。</p><label class="setting-row">邀請網址<input id="invite-url" readonly></label><button class="modal-primary" id="copy-invite" aria-live="polite">複製邀請網址</button>');
     $('invite-url').value = location.href;
     $('copy-invite').onclick = async () => {
-      try { await navigator.clipboard.writeText(location.href); toast('邀請網址已複製'); }
-      catch { $('invite-url').select(); toast('請複製已選取的邀請網址'); }
+      const button = $('copy-invite');
+      const input = $('invite-url');
+      button.disabled = true;
+      button.textContent = '複製中…';
+      delete button.dataset.copyState;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        button.textContent = '已複製';
+        button.dataset.copyState = 'copied';
+      } catch {
+        input.focus();
+        input.select();
+        input.setSelectionRange(0,input.value.length);
+        button.textContent = '請長按網址複製';
+        button.dataset.copyState = 'failed';
+      } finally { button.disabled = false; }
     };
   } else {
-    modal('與朋友同桌', '<p>建立房間後分享邀請網址，最多四人，空位由電腦補上。</p><button class="modal-primary" id="create-room">建立房間</button><form id="join-room"><label class="setting-row">房號<input id="room-code" required minlength="8" maxlength="8" pattern="[a-fA-F0-9]{8}" autocomplete="off" placeholder="八碼房號"></label><button class="outline" type="submit">加入房間</button></form>');
-    $('create-room').onclick = () => roomCommand('/api/rooms');
+    modal('與朋友同桌', `<p>建立房間後分享邀請網址，最多四人，空位由電腦補上。</p>${nameField()}<button class="modal-primary" id="create-room">建立房間</button><form id="join-room"><label class="setting-row">房號<input id="room-code" required minlength="8" maxlength="8" pattern="[a-fA-F0-9]{8}" autocomplete="off" placeholder="八碼房號"></label><button class="outline" type="submit">加入房間</button></form>`);
+    setupNameField();
+    $('create-room').onclick = () => roomCommand('/api/rooms',{name:$('player-name').value});
     $('join-room').onsubmit = event => {
-      event.preventDefault(); roomCommand('/api/room/join', {code:$('room-code').value.trim()});
+      event.preventDefault(); roomCommand('/api/room/join', {code:$('room-code').value.trim(),name:$('player-name').value});
     };
   }
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=settings-faces-release-1');
+    const { MahjongTableView } = await import('./table3d.js?v=mobile-feedback-2');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
+    setTableStatus('正在載入牌面…');
     await tableView.ready;
+    setTableStatus('正在連線…');
     const code = new URL(location.href).searchParams.get('room');
-    if (code) {
-      try { acceptRoom(await request('/api/room/join', {code})); }
-      catch (error) { toast(error.message); state = await request('/api/state'); }
-    } else if (sessionStorage.getItem('qinghe-room')) {
-      try { acceptRoom(await request('/api/room/state')); }
-      catch { sessionStorage.removeItem('qinghe-room'); state = await request('/api/state'); }
-    } else state = await request('/api/state');
+    state = await request('/api/state');
+    if (!state.room) sessionStorage.removeItem('qinghe-room');
     if (state.room && !roomMode) acceptRoom(state);
     render();
-    if (state.done) showResult();
+    if (code && (!state.room || state.room.code !== code.toUpperCase())) showJoinRoom(code);
+    else if (state.done) showResult();
   } catch (e) {
+    setTableStatus('牌桌載入失敗，請重新整理重試。');
     toast('無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
     console.error(e);
   }

@@ -328,12 +328,12 @@ class WebHandler(SimpleHTTPRequestHandler):
             if self.path.startswith('/api/room'):
                 sid = self.identity()
                 if self.path == '/api/rooms':
-                    room = self.rooms.create(sid, WebTable)
+                    room = self.rooms.create(sid, WebTable, body.get('name', ''))
                 elif self.path == '/api/room/join':
                     code = body.get('code')
                     if not isinstance(code, str) or len(code) != 8:
                         raise ValueError('請輸入八碼房號。')
-                    room = self.rooms.join(sid, code.upper())
+                    room = self.rooms.join(sid, code.upper(), body.get('name', ''))
                 elif self.path == '/api/room/leave':
                     self.rooms.leave(sid)
                     self.respond({'left': True}, sid)
