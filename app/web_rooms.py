@@ -167,7 +167,8 @@ class WebRoom:
         pid = self.table.actor() if pid is None else pid
         frames = []
         self.table.apply(action, frames, pid=pid)
-        self.table.advance(frames)  # Skip forced PASS and settle, but never run a bot here.
+        # Automatic ting discards run in tick, preserving the shared action delay.
+        self.table.advance(frames, auto_discard_ting=False)
         if collecting and self.table.env.phase == 'REACTION':
             # A private reply does not change the shared revision or wake other seats.
             # Other replies based on this same discard remain valid.
@@ -192,6 +193,10 @@ class WebRoom:
             self.event = None
             self.publish()
         pid = self.table.actor()
+        ting_discard = self.table.ting_discard()
+        if ting_discard is not None:
+            self.apply(ting_discard, pid=pid)
+            return
         if self.table.env.phase == 'REACTION':
             pid = next((candidate for candidate in self.table.env.pending_reactions()
                         if self.seats[candidate] is None

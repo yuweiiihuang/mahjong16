@@ -148,7 +148,7 @@ def test_four_players_complete_round_with_engine_parity_and_rotated_payments(see
             action = room.table.bot.choose(room.table.env._obs(pid))
             room.act(room.seats[pid], room.version, str(index), action)
             control.apply(action)
-            control.advance()
+            control.advance(auto_discard_ting=False)
             assert room.table.snapshot() == control.snapshot()
         assert room.table.env.done
         payments = room.table.settlement['payments']

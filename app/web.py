@@ -120,7 +120,20 @@ class WebTable:
             state['ting_options'] = []
             playback.append({'state': state, 'pid': pid, 'type': action_type})
 
-    def advance(self, playback: list | None = None) -> None:
+    def ting_discard(self) -> dict | None:
+        """Return the forced drawn discard after ting, retaining any winning choice."""
+        if self.env.done or self.env.phase != 'TURN':
+            return None
+        pid = self.actor()
+        actions = self.env.legal_actions(pid)
+        if (self.env.players[pid].declared_ting and len(actions) == 1
+                and actions[0]['type'] == 'DISCARD' and actions[0]['from'] == 'drawn'):
+            return actions[0]
+        return None
+
+    def advance(
+        self, playback: list | None = None, *, auto_discard_ting: bool = True
+    ) -> None:
         """Play bots until a meaningful human choice or round end."""
         while not self.env.done:
             if self.env.phase == 'REACTION':
@@ -135,6 +148,10 @@ class WebTable:
                 continue
             pid = self.actor()
             actions = self.env.legal_actions(pid)
+            ting_discard = self.ting_discard() if auto_discard_ting else None
+            if ting_discard is not None:
+                self.apply(ting_discard, playback)
+                continue
             if pid in self.human_pids:
                 if actions == [{'type': 'PASS'}]:
                     self.apply(actions[0], playback)
