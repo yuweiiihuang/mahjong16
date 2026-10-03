@@ -152,20 +152,26 @@ class WebRoom:
         if (sid, request_id) in self.requests:
             return  # Retries acknowledge the original move without applying it twice.
         if (not self.started or self.table.env.done or version != self.version or
-                time.monotonic() < self.ready_at or self.table.actor() != pid or
+                time.monotonic() < self.ready_at or
+                (self.table.env.phase != 'REACTION' and self.table.actor() != pid) or
                 action not in self.table.env.legal_actions(pid)):
             raise ValueError('牌局已更新，請重新選擇操作。')
-        self.apply(action)
+        self.apply(action, pid=pid)
         self.requests[(sid, request_id)] = self.version
         if len(self.requests) > 256:
             self.requests.pop(next(iter(self.requests)))
 
-    def apply(self, action: dict) -> None:
+    def apply(self, action: dict, pid: int | None = None) -> None:
         """Apply a validated move, settle forced passes and publish its resolved event."""
-        pid = self.table.actor()
+        collecting = self.table.env.phase == 'REACTION'
+        pid = self.table.actor() if pid is None else pid
         frames = []
-        self.table.apply(action, frames)
+        self.table.apply(action, frames, pid=pid)
         self.table.advance(frames)  # Skip forced PASS and settle, but never run a bot here.
+        if collecting and self.table.env.phase == 'REACTION':
+            # A private reply does not change the shared revision or wake other seats.
+            # Other replies based on this same discard remain valid.
+            return
         self.event = {'pid': frames[-1]['pid'], 'type': frames[-1]['type']} if frames else None
         self.thinking = False
         self.ready_at = time.monotonic() + (.65 if self.event else .1)
@@ -186,6 +192,13 @@ class WebRoom:
             self.event = None
             self.publish()
         pid = self.table.actor()
+        if self.table.env.phase == 'REACTION':
+            pid = next((candidate for candidate in self.table.env.pending_reactions()
+                        if self.seats[candidate] is None
+                        or now - self.seen.get(self.seats[candidate], 0)
+                        >= self.RECONNECT_SECONDS), None)
+            if pid is None:
+                return
         sid = self.seats[pid]
         if sid and now - self.seen.get(sid, now) < self.RECONNECT_SECONDS:
             return
@@ -195,7 +208,7 @@ class WebRoom:
             self.ready_at = now + .7
             self.publish()
             return
-        self.apply(self.table.bot.choose(self.table.env._obs(pid)))
+        self.apply(self.table.bot.choose(self.table.env._obs(pid)), pid=pid)
 
 
 class RoomRegistry:

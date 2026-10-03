@@ -3,6 +3,29 @@ import assert from 'node:assert/strict';
 import * as THREE from '../../ui/web/vendor/three.module.js';
 import { MahjongTableView } from '../../ui/web/table3d.js';
 
+test('ting mode raises every eligible copy and drawn tile above ordinary selection', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  const group = new THREE.Group();
+  view.seatGroup = () => group;
+  view.makeTile = (id, upright, action, selected) => {
+    const tile = new THREE.Group();
+    tile.position.y = .705 + (selected ? .22 : 0);
+    tile.userData = {id, selected};
+    return tile;
+  };
+  const state = {hand:[4,4,9], drawn:4, legal_actions:[],
+    players:[{melds:[], flowers:[]}]};
+  view.addConcealed(0, state, {tingCandidates:[{tile:4,from:'hand'}, {tile:4,from:'drawn'}]});
+  assert.equal(group.children.filter(tile => tile.userData.selected).length, 3);
+  for (const tile of group.children) {
+    assert.equal(tile.position.y, tile.userData.selected ? .705 + .22 + .55 : .705);
+  }
+  group.clear();
+  view.addConcealed(0, state, {tingCandidates:[{tile:4,from:'drawn'}]});
+  assert.equal(group.children.filter(tile => tile.userData.selected).length, 1,
+    'a drawn-tile candidate must not raise identical but ineligible hand tiles');
+});
+
 test('thin discard frame and triangular bipyramid follow the tile without lifting it', () => {
   const view = Object.create(MahjongTableView.prototype);
   const tile = new THREE.Group();

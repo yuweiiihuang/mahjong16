@@ -28,7 +28,7 @@ class TurnLoopMixin:
             for tile in self._legal_discards(pid):
                 acts.append({"type": "DISCARD", "tile": tile, "from": "hand"})
             acts.extend(self._ting_candidates(pid))
-        if self.rules.allow_gang:
+        if self.rules.allow_gang and not declared_ting:
             for tile in self._angang_candidates(pid):
                 acts.append({"type": "ANGANG", "tile": tile})
             for tile in self._kakan_candidates(pid):
@@ -101,6 +101,7 @@ class TurnLoopMixin:
         ]
         self.reaction_idx = 0
         self.claims = []
+        self.reaction_responses = {}
         self._recent_gang_draw_pid = None
         next_pid = self.reaction_queue[self.reaction_idx]
         return self._obs(next_pid), [0] * self.rules.n_players, False, {}
@@ -145,6 +146,7 @@ class TurnLoopMixin:
         ]
         self.reaction_idx = 0
         self.claims = []
+        self.reaction_responses = {}
         next_pid = self.reaction_queue[self.reaction_idx]
         return self._obs(next_pid), [0] * self.rules.n_players, False, {}
 

@@ -35,6 +35,7 @@ class TableSetupMixin:
         self.reaction_queue = []
         self.reaction_idx = 0
         self.claims = []
+        self.reaction_responses = {}
         self.last_discard = None
         self.done = False
         self.winner = None

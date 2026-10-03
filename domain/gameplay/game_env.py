@@ -47,11 +47,15 @@ class MahjongEnvironment(TableSetupMixin, ReactionMixin, TurnLoopMixin):
             return self._turn_phase_actions(target)
         return self._reaction_phase_actions(pid)
 
-    def step(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+    def step(
+        self, action: Action, pid: Optional[int] = None
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+        """Apply a turn or collect one seat's reaction, in any arrival order."""
         assert not self.done, "episode is done"
         if self.phase == "TURN":
+            assert pid is None or pid == self.turn, "尚未輪到此玩家"
             return self._handle_turn_action(action)
-        return self._handle_reaction_action(action)
+        return self._handle_reaction_action(action, pid)
 
     # ====== 內部輔助 ======
     def _resolve_flower_win(

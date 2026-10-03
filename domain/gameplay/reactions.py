@@ -13,10 +13,23 @@ PRIORITY = {"HU": 3, "GANG": 2, "PONG": 1, "CHI": 0}
 class ReactionMixin:
     """Encapsulate post-discard reaction windows."""
 
-    def _reaction_phase_actions(self, pid: Optional[int] = None) -> List[Action]:
+    def pending_reactions(self) -> List[int]:
+        """Return unanswered seats; choices are private until the window resolves."""
+        if self.phase != "REACTION":
+            return []
+        return [pid for pid in self.reaction_queue[self.reaction_idx:]
+                if pid not in self.reaction_responses]
+
+    def _reaction_phase_actions(
+        self, pid: Optional[int] = None, include_submitted: bool = False
+    ) -> List[Action]:
         if not self.reaction_queue or not (0 <= self.reaction_idx < len(self.reaction_queue)):
             return []
         actor = self.reaction_queue[self.reaction_idx] if pid is None else pid
+        if actor not in self.pending_reactions() and not (
+            include_submitted and actor in self.reaction_responses
+        ):
+            return []
         acts: List[Action] = [{"type": "PASS"}]
         discard = self.last_discard
         if discard is None:
@@ -43,9 +56,15 @@ class ReactionMixin:
             acts.append({"type": "HU"})
         return acts
 
-    def _handle_reaction_action(self, action: Action) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
+    def _handle_reaction_action(
+        self, action: Action, pid: Optional[int] = None
+    ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
         assert self.reaction_queue and 0 <= self.reaction_idx < len(self.reaction_queue), "reaction queue empty"
-        pid = self.reaction_queue[self.reaction_idx]
+        if pid is None:
+            pid = self.reaction_queue[self.reaction_idx]
+        else:
+            assert action in self.legal_actions(pid), "非法或已回應的操作"
+        assert pid in self.pending_reactions(), "玩家已回應或不在反應視窗"
         a_type = action.get("type")
         assert a_type in ("PASS", "CHI", "PONG", "GANG", "HU"), "反應期僅允許 PASS/CHI/PONG/GANG/HU"
         if self.players[pid].declared_ting and a_type not in ("PASS", "HU"):
@@ -62,7 +81,10 @@ class ReactionMixin:
                 assert isinstance(use, list) and len(use) == 2, "CHI 需指定兩張手牌"
                 claim["use"] = use
             self.claims.append(claim)
-        self.reaction_idx += 1
+        self.reaction_responses[pid] = dict(action, type=a_type)
+        while (self.reaction_idx < len(self.reaction_queue)
+               and self.reaction_queue[self.reaction_idx] in self.reaction_responses):
+            self.reaction_idx += 1
         if self.reaction_idx < len(self.reaction_queue):
             next_pid = self.reaction_queue[self.reaction_idx]
             return self._obs(next_pid), [0] * self.rules.n_players, False, {}

@@ -89,15 +89,17 @@ class WebTable:
         self.manager.finish_hand(self.env)
 
     def actor(self) -> int:
-        """Return the actual actor for a turn or sequential reaction window."""
+        """Return the turn actor or first unanswered seat for sequential clients."""
         if self.env.phase == 'REACTION':
             return self.env.reaction_queue[self.env.reaction_idx]
         return self.env.turn
 
-    def apply(self, action: dict, playback: list | None = None) -> None:
+    def apply(
+        self, action: dict, playback: list | None = None, pid: int | None = None
+    ) -> None:
         """Apply and record an already validated action."""
-        pid, phase = self.actor(), self.env.phase
-        _, _, _, info = self.env.step(action)
+        pid, phase = self.actor() if pid is None else pid, self.env.phase
+        _, _, _, info = self.env.step(action, pid=pid)
         resolved = info.get('resolved_claim')
         # Tentative or rejected claims can contain tiles still hidden in a player's hand.
         if resolved:
@@ -121,6 +123,16 @@ class WebTable:
     def advance(self, playback: list | None = None) -> None:
         """Play bots until a meaningful human choice or round end."""
         while not self.env.done:
+            if self.env.phase == 'REACTION':
+                # Bots and forced passes must not wait behind a human's decision.
+                automatic = next((pid for pid in self.env.pending_reactions()
+                                  if pid not in self.human_pids
+                                  or self.env.legal_actions(pid) == [{'type': 'PASS'}]), None)
+                if automatic is None:
+                    return
+                action = self.bot.choose(self.env._obs(automatic))
+                self.apply(action, playback, pid=automatic)
+                continue
             pid = self.actor()
             actions = self.env.legal_actions(pid)
             if pid in self.human_pids:
@@ -139,10 +151,11 @@ class WebTable:
 
     def act(self, action: dict) -> dict:
         """Reject stale/forged moves before mutating game state."""
-        if self.env.done or self.actor() != 0 or action not in self.env.legal_actions(0):
+        if (self.env.done or (self.env.phase != 'REACTION' and self.actor() != 0)
+                or action not in self.env.legal_actions(0)):
             raise ValueError('這個操作已失效，請重新選牌。')
         playback = []
-        self.apply(action, playback)
+        self.apply(action, playback, pid=0)
         self.advance(playback)
         return {**self.snapshot(), 'playback': playback}
 
@@ -152,7 +165,12 @@ class WebTable:
         result = deepcopy(env._obs(viewer))
         result.update({
             'legal_actions': (env.legal_actions(viewer)
-                              if not env.done and self.actor() == viewer else []),
+                              if not env.done and (env.phase == 'REACTION'
+                                                   or self.actor() == viewer) else []),
+            'reaction_choice': (deepcopy(env.reaction_responses.get(viewer))
+                                if env.phase == 'REACTION' else None),
+            'reaction_actions': (env._reaction_phase_actions(viewer, include_submitted=True)
+                                 if env.phase == 'REACTION' else []),
             # Reaction eligibility is private; only normal turn actors are public.
             'actor': None if env.done or env.phase == 'REACTION' else self.actor(),
             'done': env.done,
@@ -199,7 +217,7 @@ class WebTable:
         ]
         result['ting_waits'] = wait_details(waits_for_hand_16(
             result['hand'], result['melds'], env.rules
-        )) if result['declared_ting'] and not env.done else []
+        )) if not env.done and (result['declared_ting'] or result['drawn'] is None) else []
         if env.done and env.winner is not None:
             winner = env.players[env.winner]
             if env.flower_win_type:

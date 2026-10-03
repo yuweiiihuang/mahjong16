@@ -41,9 +41,11 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 .settlement-table{width:100%;border-collapse:collapse;margin-top:20px;font-size:13px}
 .settlement-table th,.settlement-table td{padding:10px 4px;text-align:right;border-bottom:1px solid #dde2d5}
 .settlement-table th:first-child,.settlement-table td:first-child{text-align:left}
-.ting-row{display:flex;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid #dde2d5;font-size:13px}
-.ting-pick,.wait-tiles{display:flex;align-items:center;gap:8px}.ting-pick{padding:6px;border-radius:6px;background:#e6eddf}
-.wait-tiles{flex-wrap:wrap}.wait-tile{display:flex;flex-direction:column;align-items:center;gap:4px}.wait-tile small{font-size:10px;color:#697c6b}
+#ting-panel{position:absolute;right:22px;z-index:4;transform:translateY(-100%);padding:9px 12px;background:#f7f7edb3;color:#315f4c;border:1px solid #d5ddca99;border-radius:10px;box-shadow:0 3px 8px #1c403c20;max-width:260px}
+.ting-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:12px;color:#315f4c;cursor:pointer;list-style:none}.ting-heading::-webkit-details-marker{display:none}.ting-heading::after{content:'＋';font-size:16px;line-height:1}#ting-panel[open] .ting-heading{margin-bottom:5px}#ting-panel[open] .ting-heading::after{content:'−'}.ting-heading:focus-visible{outline:2px solid #8b7036;outline-offset:3px;border-radius:3px}
+.ting-row{display:flex;align-items:center;gap:9px;padding:5px 0}.ting-row+.ting-row{border-top:1px solid #dfe5d5}.ting-row>.tile{background:#e3efe6;border-color:#94bba3}.ting-arrow{font-size:17px;color:#73927c}
+.wait-tiles{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.wait-tile{position:relative;display:flex}.wait-tile small{position:absolute;bottom:-2px;right:-3px;min-width:17px;height:17px;border-radius:9px;background:#315f4c;color:#fff;font:600 11px sans-serif;display:grid;place-items:center;border:1px solid #f7f7ed}
+@media(max-width:950px) and (orientation:landscape){#ting-panel{right:14px;padding:6px 8px;max-width:220px}.ting-row{padding:3px 0;gap:6px}#ting-panel .tile.small{width:22px;height:30px}.ting-heading{font-size:10px;margin-bottom:3px}.wait-tile small{min-width:14px;height:14px;font-size:9px}}
 dialog{max-height:85dvh;overflow-y:auto}
 .result-dialog{padding:24px}.result-dialog h2{margin-bottom:14px}.result-dialog p{margin:10px 0;font-size:12px;line-height:1.5}
 .result-dialog .result-hand{margin:12px 0}.result-dialog .result-hand .tile{width:30px;height:42px;padding:2px}
@@ -56,7 +58,18 @@ dialog{max-height:85dvh;overflow-y:auto}
 
 /* Controls sit toward the table center, ahead of the near-side hand. */
 .action-bar{bottom:auto;left:35%;right:20%;justify-content:flex-end;transform:translateY(-100%)}
-#actions{flex-direction:row-reverse;justify-content:flex-start}
+#actions{flex-direction:row;justify-content:flex-end}
+#actions button[data-action]{--action-color:#64716c;--action-tint:#e7ebe7}
+#actions button[data-action="CHI"]{--action-color:#3d7865;--action-tint:#e3efe6}
+#actions button[data-action="PONG"]{--action-color:#386f96;--action-tint:#e2edf5}
+#actions button:is([data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"]){--action-color:#8461a0;--action-tint:#ede5f4}
+#actions button[data-action="TING"]{--action-color:#8b7036;--action-tint:#f4edda}
+#actions button[data-action="HU"]{--action-color:#b45043;--action-tint:#f8e6df}
+#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]){min-width:76px;height:48px;padding:0 16px;border:1px solid var(--action-tint);border-radius:9px;background:var(--action-tint);color:var(--action-color);box-shadow:0 3px 0 color-mix(in srgb,var(--action-color),#ffffff 30%);font:600 24px 'PingFang TC',sans-serif;white-space:nowrap}
+#actions[data-submitted="true"] button{opacity:1}
+#actions[data-submitted="true"] button[aria-pressed="false"]{visibility:hidden}
+.claim-options{display:flex;flex-wrap:wrap;gap:12px}.claim-option{padding:12px 18px;border:1px solid #ccd2c2;border-radius:9px;background:#fffdf1;color:#3d7865}
+@media(max-width:950px) and (orientation:landscape){#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]){min-width:56px;height:40px;padding:0 10px;font-size:20px}}
 /* All settings share the same controls, spacing and tabletop previews. */
 .settings-dialog{width:min(680px,92vw);padding:26px 30px;max-height:92dvh}
 .settings-dialog h2{font-size:22px;margin:0 0 12px}

@@ -9,7 +9,7 @@ let playerName = localStorage.getItem('qinghe-player-name') || '';
 let names = [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
-let state, selected = null, busy = false, playbackFrame = null;
+let state, selected = null, busy = false, playbackFrame = null, tingMode = false;
 let sound = localStorage.getItem('qinghe-sound') === 'true';
 let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
   ? localStorage.getItem('qinghe-pace') : 'natural';
@@ -35,6 +35,12 @@ function tileName(id) {
 }
 function selectHandTile(action) {
   if (busy) return;
+  if (tingMode) {
+    const ting = state.legal_actions.find(candidate => candidate.type === 'TING'
+      && candidate.tile === action.tile && candidate.from === action.from);
+    if (ting) perform(ting);
+    return;
+  }
   if (selected?.tile === action.tile && selected?.from === action.from &&
       selected?.index === action.index) {
     perform(action);
@@ -104,7 +110,9 @@ function melds(pid, target, small = true) {
   }
 }
 function renderHand() {
-  if (tableView && state) tableView.update(state, selected, sortOrder);
+  if (tableView && state) tableView.update(state, tingMode
+    ? {tingCandidates:state.legal_actions.filter(action => action.type === 'TING')}
+    : selected, sortOrder);
 }
 function syncProjection(view) {
   if (!state) return;
@@ -120,14 +128,18 @@ function syncProjection(view) {
     button.replaceChildren(); // Hit targets have no artwork; the 3D face is the only visible image.
     button.dataset.slot = slot;
     button.classList.add('tile-hit');
-    button.disabled = busy;
+    button.disabled = busy || (tingMode && !state.legal_actions.some(candidate =>
+      candidate.type === 'TING' && candidate.tile === action.tile && candidate.from === action.from));
     button.setAttribute('aria-pressed', String(box.selected));
     button.onclick = () => selectHandTile(action);
     button.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
     if (hand.children[position] !== button) hand.insertBefore(button, hand.children[position] || null);
   });
   for (const button of existing.values()) button.remove();
-  document.querySelector('.action-bar').style.top = `${view.project([0,.5,9.4]).y}px`;
+  const actionBar = document.querySelector('.action-bar');
+  const actionY = view.project([0,.5,9.4]).y;
+  actionBar.style.top = `${actionY}px`;
+  $('ting-panel').style.top = `${actionY - actionBar.offsetHeight - 12}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
   const order = state.seating_order;
   for (const pid of [1,2,3]) {
@@ -139,10 +151,36 @@ function syncProjection(view) {
 function actionButton(text, action, primary=false) {
   const button=document.createElement('button');button.textContent=text;
   button.className=primary?'primary':'';button.disabled=busy;
+  if (action) button.dataset.action = action.type;
   button.onclick=()=>perform(action);return button;
+}
+function renderReactionActions(target, actions, choice = null) {
+  target.dataset.submitted = String(Boolean(choice));
+  for (const type of ['CHI', 'PONG', 'GANG', 'HU', 'PASS']) {
+    const options = actions.filter(action => action.type === type);
+    if (!options.length) continue;
+    const button = actionButton(labels[type], options[0], type !== 'PASS');
+    if (choice) {
+      button.disabled = true;
+      button.setAttribute('aria-pressed', String(type === choice.type));
+      if (type === choice.type) button.title = '已選擇，等待裁決';
+    } else if (options.length > 1) {
+      button.onclick = () => {
+        modal(`選擇${labels[type]}的牌組`, '<div id="claim-options" class="claim-options"></div>');
+        for (const action of options) {
+          const pick = actionButton(action.use.map(tileName).join('・'), action);
+          pick.className = 'claim-option';
+          pick.onclick = () => { $('modal').close(); perform(action); };
+          $('claim-options').append(pick);
+        }
+      };
+    }
+    target.append(button);
+  }
 }
 function renderActions(){
   const target=$('actions');target.replaceChildren();
+  delete target.dataset.submitted;
   if (playbackFrame) {
     return;
   }
@@ -157,54 +195,73 @@ function renderActions(){
     const result = actionButton('結算明細', null); result.onclick = showResult;
     target.append(result); return;
   }
+  if (state.phase === 'REACTION' && state.reaction_choice) {
+    renderReactionActions(target, state.reaction_actions, state.reaction_choice);
+    return;
+  }
   if (state.room && !state.done && !state.legal_actions.length) {
     return;
   }
   if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
   if(state.phase==='TURN'){
     for(const a of state.legal_actions.filter(a=>!['DISCARD','TING'].includes(a.type))) target.append(actionButton(a.type==='HU'&&a.source==='TSUMO'?'自摸':labels[a.type],a,true));
-    const ting=selected && state.legal_actions.find(a=>a.type==='TING'&&a.tile===selected.tile&&a.from===selected.from);
-    if(ting) target.append(actionButton('聽牌',ting));
-    const discard=actionButton('出牌　→',selected,true);discard.disabled=busy||!selected;target.append(discard);
-  } else {
-    for(const a of state.legal_actions){
-      const text=labels[a.type]+(a.use?` ${a.use.map(tileName).join('・')}`:'');
-      target.append(actionButton(text,a,a.type!=='PASS'));
+    if (state.legal_actions.some(action => action.type === 'TING')) {
+      const ting = actionButton('聽', {type:'TING'});
+      ting.setAttribute('aria-pressed', String(tingMode));
+      ting.onclick = () => { tingMode = !tingMode; selected = null; renderActions(); renderHand(); };
+      target.append(ting);
+      if (tingMode) {
+        const pass = actionButton('過', null);
+        pass.dataset.action = 'PASS';
+        pass.onclick = () => { tingMode = false; selected = null; renderActions(); renderHand(); };
+        target.append(pass);
+      }
     }
-  }
-  if (state.ting_options.length || state.ting_waits.length) {
-    const hints = actionButton('聽牌提示', null);
-    hints.onclick = showTing;
-    target.prepend(hints);
+  } else {
+    renderReactionActions(target, state.legal_actions);
   }
 }
-function showTing() {
-  modal('聽牌提示', '<p>未見張數依自己的牌與公開牌估算，包含對手手牌及尾牌，不代表牌牆可摸張數。</p><div id="ting-list"></div>');
-  const options = state.ting_options.length ? state.ting_options : [{waits:state.ting_waits}];
+function uniqueTingOptions(options) {
+  const seen = new Set();
+  return options.filter(option => {
+    const waits = option.waits.map(wait => `${wait.tile}:${wait.unseen}`).sort().join(',');
+    const key = `${option.tile ?? ''}|${waits}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function renderTing() {
+  const target = $('ting-panel');
+  target.replaceChildren();
+  const options = uniqueTingOptions(state.ting_options.length
+    ? state.ting_options : state.ting_waits.length ? [{waits:state.ting_waits}] : []);
+  target.hidden = !options.length || state.done || Boolean(playbackFrame)
+    || Boolean(state.room && !state.room.started);
+  if (target.hidden) return;
+  const header = document.createElement('summary'); header.className = 'ting-heading';
+  const label = document.createElement('span'); label.textContent = '聽牌提示';
+  header.title = '數字是未見牌數，包含對手手牌及尾牌，不代表牌牆可摸張數。';
+  header.append(label); target.append(header);
   for (const option of options) {
     const row = document.createElement('div'); row.className = 'ting-row';
     if (option.tile !== undefined) {
-      const pick = document.createElement('button'); pick.className = 'ting-pick';
-      pick.setAttribute('aria-label', `選擇打${tileName(option.tile)}${option.from === 'drawn' ? '（摸牌）' : ''}`);
-      const label = document.createElement('span'); label.textContent = option.from === 'drawn' ? '打摸牌' : '打';
-      pick.append(label, tile(option.tile, true));
-      pick.onclick = () => {
-        selected = state.legal_actions.find(a => a.type === 'DISCARD' && a.tile === option.tile && a.from === option.from);
-        $('modal').close(); renderHand(); renderActions();
-      };
-      row.append(pick);
+      row.append(tile(option.tile, true));
+      const arrow = document.createElement('span'); arrow.className = 'ting-arrow';
+      arrow.textContent = '→'; row.append(arrow);
     }
-    const label = document.createElement('span'); label.textContent = '聽'; row.append(label);
     const waits = document.createElement('div'); waits.className = 'wait-tiles';
     for (const wait of option.waits) {
       const item = document.createElement('span'); item.className = 'wait-tile';
-      const count = document.createElement('small'); count.textContent = `未見 ${wait.unseen}`;
+      const count = document.createElement('small'); count.textContent = wait.unseen;
+      item.setAttribute('aria-label', `${tileName(wait.tile)}，未見 ${wait.unseen} 張`);
       item.append(tile(wait.tile, true), count); waits.append(item);
     }
-    row.append(waits); $('ting-list').append(row);
+    row.append(waits); target.append(row);
   }
 }
 function render(){
+  if (state.done || playbackFrame || !state.legal_actions.some(a => a.type === 'TING')) tingMode = false;
   const waiting = state.room && !state.room.started;
   const humans = waiting ? state.room.members.filter(member => member.human).length : 0;
   setTableStatus(waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
@@ -236,7 +293,7 @@ function render(){
   $('me').replaceChildren(...person(0).childNodes);
   $('flowers').replaceChildren();
   if(state.flowers.length){const label=document.createElement('small');label.textContent='花牌';$('flowers').append(label);for(const id of state.flowers)$('flowers').append(tile(id,true));}
-  renderHand();renderActions();
+  renderActions();renderTing();renderHand();
 
 }
 function beep(){
@@ -289,7 +346,7 @@ async function present(result) {
   if (state.done) showResult();
 }
 async function perform(action){
-  if(!action||busy)return;busy=true;renderActions();renderHand();
+  if(!action||busy)return;tingMode=false;busy=true;renderActions();renderHand();
   try{
     const move = Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'));
     if (roomMode) {
@@ -339,7 +396,7 @@ function showResult(){
   if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick=()=>newGame(true);
 }
-$('help').onclick=()=>modal('遊戲說明',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再按「出牌」。也可以再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，可直接選擇所需的兩張牌。</li><li>花牌會自動補花。可聽牌時，選中對應棄牌後會出現「聽牌」。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。聽牌提示顯示候選棄牌與未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
+$('help').onclick=()=>modal('遊戲說明',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，點「吃」後再選擇牌組。</li><li>花牌會自動補花。可聽牌時，右下角會顯示提示。按「聽」讓候選牌跳起，再點一張即可出牌並宣告聽牌。再按「聽」可取消選擇模式。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。提示牌面旁的數字代表未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
 $('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
@@ -646,7 +703,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=lobby-no-tiles-1');
+    const { MahjongTableView } = await import('./table3d.js?v=ting-candidates-lift-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

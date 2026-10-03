@@ -246,16 +246,22 @@ export class MahjongTableView {
     }
     hand.forEach((id,index)=>{
       const action=pid===0?state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand'):null;
-      const chosen=pid===0&&selected?.tile===id&&selected?.from==='hand'&&(selected.index===undefined||selected.index===index);
+      const chosen=pid===0&&((selected?.tile===id&&selected?.from==='hand'&&(selected.index===undefined||selected.index===index))
+        || selected?.tingCandidates?.some(a=>a.tile===id&&a.from==='hand'));
       const tile=this.makeTile(id,true,action,chosen);tile.position.x=x;group.add(tile);x+=TILE.pitch;
       if (pid === 0) tile.position.z = OWN_HAND_Z;
       tile.userData.index=index;
     });
     if(drawn){const action=state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
       const t=this.makeTile(pid===0?state.drawn:null,true,pid===0?action:null,
-        pid===0&&selected?.from==='drawn');t.position.x=DRAWN_X;
+        pid===0&&(selected?.from==='drawn'||selected?.tingCandidates?.some(a=>a.from==='drawn')));t.position.x=DRAWN_X;
       if (pid === 0) t.position.z = OWN_HAND_Z;
       group.add(t);}
+    if (pid === 0 && selected?.tingCandidates) {
+      for (const tile of group.children) {
+        if (tile.userData.selected) tile.position.y += .55;
+      }
+    }
     if(pid!==0){
       const melds=state.players[pid].melds;
       for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.0);
