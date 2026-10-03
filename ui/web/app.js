@@ -415,7 +415,7 @@ $('settings').onclick=()=>{
   modal('牌桌設定',`
     <section class="settings-section" aria-labelledby="play-settings-heading">
       <h3 id="play-settings-heading">對局與顯示</h3>
-      <label class="setting-row">對局節奏<select id="pace-setting"><option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option></select></label>
+      <label class="setting-row"><span class="pace-label">對局節奏${roomMode ? '<small id="pace-help">多人模式由伺服器統一設定</small>' : ''}</span><select id="pace-setting" ${roomMode ? 'disabled aria-describedby="pace-help"' : ''}>${roomMode ? '<option value="shared">統一節奏</option>' : '<option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option>'}</select></label>
       <div class="settings-toggles">
         <label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label>
         <label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label>
@@ -468,9 +468,7 @@ $('settings').onclick=()=>{
     });
   };
   previewFont();
-  $('pace-setting').value = pace;
-  $('pace-setting').disabled = roomMode;
-  if (roomMode) $('pace-setting').title = '連線桌由伺服器統一安排節奏';
+  $('pace-setting').value = roomMode ? 'shared' : pace;
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
   $('save-settings').onclick=async()=>{
@@ -478,7 +476,7 @@ $('settings').onclick=()=>{
     if (button.disabled) return;
     const next = {font:$('tile-font-setting').value, order:[...settingsOrder],
       sound:$('sound-setting').checked, compact:$('flat-setting').checked,
-      pace:$('pace-setting').value};
+      pace:roomMode ? pace : $('pace-setting').value};
     button.disabled = true;
     button.textContent = '儲存中…';
     try {
@@ -648,7 +646,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=mobile-feedback-2');
+    const { MahjongTableView } = await import('./table3d.js?v=lobby-no-tiles-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

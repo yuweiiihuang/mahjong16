@@ -90,3 +90,6 @@ dialog{max-height:85dvh;overflow-y:auto}
 .full-face-label{width:20px;color:var(--ink);font-size:12px}
 
 @media(max-width:950px) and (orientation:landscape){.my-heading #me .player-info{display:block}.my-heading #me strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+
+.settings-dialog select:disabled{background:#e5e7df;border-color:#c2c8ba;color:#747c70;-webkit-text-fill-color:#747c70;opacity:1;cursor:not-allowed}
+.pace-label{display:flex;flex-direction:column;gap:4px}.pace-label small{font-size:11px;font-weight:400;color:#697c6b;line-height:1.5}

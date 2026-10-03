@@ -122,7 +122,7 @@ class WebRoom:
             state['melds_all'] = [[], [], [], []]
             state['rivers'] = [[], [], [], []]
             for player in state['players']:
-                player.update(count=0, flowers=[], melds=[])
+                player.update(count=0, has_drawn=False, flowers=[], melds=[])
         return state
 
     def start(self, sid: str, next_hand: bool = False) -> None:

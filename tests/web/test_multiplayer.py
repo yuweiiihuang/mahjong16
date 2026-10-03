@@ -356,3 +356,24 @@ def test_invalid_names_do_not_reserve_seats_or_replace_existing_names(name):
     with pytest.raises(ValueError):
         registry.join('host', room.code, name)
     assert room.names['host'] == '麻雀雖小'
+
+
+def test_lobby_hides_all_tiles_and_drawn_flags_for_every_viewer():
+    room = WebRoom('1234ABCD', 'host', WebTable(42, human_pids={0, 1, 2, 3}))
+    with room.changed:
+        for sid in ('guest1', 'guest2', 'guest3'):
+            room.join(sid)
+    room.table.env.players[0].drawn = 8
+    for sid in room.seats:
+        state = room.snapshot(sid)
+        assert state['hand'] == [] and state['drawn'] is None
+        assert all(player['count'] == 0 and not player['has_drawn']
+                   for player in state['players'])
+    assert room.table.env.players[0].drawn == 8
+    with room.changed:
+        room.start('host')
+    for sid in room.seats:
+        state = room.snapshot(sid)
+        assert state['room']['started']
+        assert state['players'][0]['count'] > 0
+        assert state['players'][0]['has_drawn'] == (state['drawn'] is not None)

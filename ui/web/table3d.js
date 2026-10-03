@@ -232,6 +232,7 @@ export class MahjongTableView {
   }
 
   addConcealed(pid,state,selected,sortOrder) {
+    if (state.room && !state.room.started) return;
     const group=this.seatGroup(pid);
     const drawn=pid===0?state.drawn!==null&&state.drawn!==undefined:
       Boolean(state.players[pid].has_drawn);

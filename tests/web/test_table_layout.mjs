@@ -380,3 +380,12 @@ test('three-row rivers clear hands, melds, flowers and other rivers in every sea
     }
   }
 });
+
+
+test('waiting rooms draw no concealed tiles even with a stale drawn flag', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  view.seatGroup = () => { throw new Error('waiting rooms must not build tile groups'); };
+  const state = {room:{started:false}, drawn:8, hand:[0],
+    players:Array.from({length:4}, () => ({count:0, has_drawn:true}))};
+  for (let pid=0;pid<4;pid++) view.addConcealed(pid,state,null,[0,1,2,3]);
+});
