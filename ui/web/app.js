@@ -155,6 +155,7 @@ function actionButton(text, action, primary=false) {
   button.onclick=()=>perform(action);return button;
 }
 function renderReactionActions(target, actions, choice = null) {
+  if (!actions.some(action => action.type !== 'PASS')) return;
   target.dataset.submitted = String(Boolean(choice));
   for (const type of ['CHI', 'PONG', 'GANG', 'HU', 'PASS']) {
     const options = actions.filter(action => action.type === type);

@@ -200,3 +200,26 @@ def test_all_passes_draw_once_only_after_last_reply():
     env.step({'type': 'PASS'}, pid=2)
     assert env.phase == 'TURN' and env.turn == 1
     assert len(env.wall) == wall_size - 1
+
+
+@pytest.mark.parametrize('discarder', [1, 2])
+def test_non_upstream_chi_shape_only_auto_passes(discarder):
+    table = WebTable(42, human_pids={0, 1, 2, 3})
+    env = table.env
+    for player in env.players:
+        player.hand = []
+        player.drawn = None
+        player.melds = []
+        player.river = []
+    env.players[0].hand = [0, 2]  # Could chi tile 1 only from upstream seat 3.
+    env.players[discarder].hand = [1]
+    env.players[3].hand = [1, 1]  # Keep the reaction window open for a real choice.
+    env.turn = discarder
+    env.phase = 'TURN'
+    env.step({'type': 'DISCARD', 'tile': 1, 'from': 'hand'})
+    assert env.legal_actions(0) == [{'type': 'PASS'}]
+    table.advance()
+    state = table.snapshot(0)
+    assert state['reaction_choice'] == {'type': 'PASS'}
+    assert state['reaction_actions'] == [{'type': 'PASS'}]
+    assert state['legal_actions'] == []

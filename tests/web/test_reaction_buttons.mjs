@@ -21,6 +21,10 @@ test('available reactions group by type, keep order after submission, and choose
   const actions = [{type:'PASS'}, otherChi, {type:'PONG'}, chi];
   const buttons = [];
   const target = {dataset:{}, append:button => buttons.push(button)};
+  ctx.renderReactionActions(target, [{type:'PASS'}]);
+  assert.equal(buttons.length, 0);
+  ctx.renderReactionActions(target, [{type:'PASS'}], {type:'PASS'});
+  assert.equal(buttons.length, 0, 'automatic pass must not leave a visible button');
   ctx.renderReactionActions(target, actions);
   assert.deepEqual(buttons.map(button => button.textContent), ['吃','碰','過']);
   buttons[0].onclick();
@@ -33,6 +37,9 @@ test('available reactions group by type, keep order after submission, and choose
   assert.deepEqual(buttons.map(button => button.textContent), ['吃','碰','過']);
   assert.ok(buttons.every(button => button.disabled));
   assert.deepEqual(buttons.map(button => button['aria-pressed']), ['true','false','false']);
+  buttons.length = 0;
+  ctx.renderReactionActions(target, actions, {type:'PASS'});
+  assert.equal(buttons.at(-1)['aria-pressed'], 'true', 'a chosen pass remains when claims were available');
   buttons.length = 0;
   ctx.renderReactionActions(target, [{type:'HU'}, {type:'GANG'}, ...actions]);
   assert.deepEqual(buttons.map(button => button.textContent), ['吃','碰','槓','胡','過']);
