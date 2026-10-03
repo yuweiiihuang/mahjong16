@@ -236,7 +236,7 @@ function renderTing() {
   target.replaceChildren();
   const options = uniqueTingOptions(state.ting_options.length
     ? state.ting_options : state.ting_waits.length ? [{waits:state.ting_waits}] : []);
-  target.hidden = !options.length || state.done || Boolean(playbackFrame)
+  target.hidden = !options.length || state.done || Boolean(playbackFrame && !state.declared_ting)
     || Boolean(state.room && !state.room.started);
   if (target.hidden) return;
   const header = document.createElement('summary'); header.className = 'ting-heading';

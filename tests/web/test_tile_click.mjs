@@ -63,3 +63,23 @@ test('hint deduplication ignores hand/drawn origin but preserves distinct wait s
   const different = {...first, waits:[{tile:8,unseen:2}]};
   assert.deepEqual(Array.from(ctx.uniqueTingOptions([first,duplicate,different])), [first,different]);
 });
+
+test('declared ting hints remain visible during opponent playback', () => {
+  const node = () => ({append() {}, replaceChildren() {}, setAttribute() {}});
+  const panel = node();
+  const ctx = vm.createContext({
+    state:{ting_options:[], ting_waits:[{tile:28,unseen:2}], declared_ting:true, done:false},
+    playbackFrame:{type:'DISCARD',pid:1},
+    $:() => panel, document:{createElement:node}, tile:node, tileName:String,
+  });
+  vm.runInContext(source.slice(source.indexOf('function uniqueTingOptions('),
+    source.indexOf('function render(){')), ctx);
+  ctx.renderTing();
+  assert.equal(panel.hidden, false);
+  ctx.playbackFrame = null;
+  ctx.renderTing();
+  assert.equal(panel.hidden, false);
+  ctx.state.done = true;
+  ctx.renderTing();
+  assert.equal(panel.hidden, true);
+});
