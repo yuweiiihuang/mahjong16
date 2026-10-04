@@ -290,6 +290,12 @@ def test_http_invites_cookie_seat_auth_and_long_poll(online_server):
         assert guest['room']['members'][0]['name'] == f'碰碰胡椒粉{index}'
         cookies.append(cookie)
     assert len(set(cookies)) == 4
+    assert state['auto_ting_discard'] is True
+    status, preference, _ = request('/api/preferences', {'auto_ting_discard': False}, cookies[1])
+    assert status == 200 and preference['auto_ting_discard'] is False
+    assert request('/api/room/state', cookie=host)[1]['auto_ting_discard'] is True
+    assert request('/api/preferences', {'auto_ting_discard': 'false'}, cookies[1])[0] == 400
+    assert request('/api/preferences', {'auto_ting_discard': True}, cookies[1])[1]['auto_ting_discard']
     assert len(handler.sessions) == 4
     assert host.startswith(f'qinghe_{address[1]}=')
     assert request('/api/room/name', {'name': '海底撈月餅'}, cookies[1])[0] == 404

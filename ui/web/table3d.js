@@ -245,9 +245,12 @@ export class MahjongTableView {
       offset=this.addMeld(pid,meld,group,offset,.1+OWN_HAND_Z);
     }
     hand.forEach((id,index)=>{
-      const action=pid===0?state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand'):null;
+      const action=pid===0?(selected?.chiCards
+        ? {type:'CHI_PICK',tile:id,from:'hand'}
+        : state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand')):null;
       const chosen=pid===0&&((selected?.tile===id&&selected?.from==='hand'&&(selected.index===undefined||selected.index===index))
-        || selected?.tingCandidates?.some(a=>a.tile===id&&a.from==='hand'));
+        || selected?.tingCandidates?.some(a=>a.tile===id&&a.from==='hand')
+        || selected?.chiCards?.some(a=>a.index===index));
       const tile=this.makeTile(id,true,action,chosen);tile.position.x=x;group.add(tile);x+=TILE.pitch;
       if (pid === 0) tile.position.z = OWN_HAND_Z;
       tile.userData.index=index;

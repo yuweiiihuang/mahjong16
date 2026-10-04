@@ -9,12 +9,15 @@ const handlers = source.slice(source.indexOf('function actionButton('),
 
 test('available reactions group by type, keep order after submission, and choose exact chi', () => {
   const sent = [], choices = [];
-  let closed = false;
+  const node = () => ({dataset:{},children:[],classList:{add() {}},
+    append(...children) { this.children.push(...children); },setAttribute(key,value) { this[key]=value; }});
   const ctx = vm.createContext({
+    chiMode:'groups', chiSelection:null,
+    state:{phase:'REACTION',round:1,last_discard:{pid:3,tile:1},rivers:[]},
     busy:false, labels:{CHI:'吃', PONG:'碰', GANG:'槓', HU:'胡', PASS:'過'},
-    document:{createElement:() => ({dataset:{}, setAttribute(key, value) { this[key] = value; }})},
-    perform:action => sent.push(action), tileName:String, modal() {},
-    $:id => id === 'modal' ? {close() { closed = true; }} : {append:button => choices.push(button)},
+    document:{createElement:node},tile:node,
+    perform:action => sent.push(action), tileName:String,renderHand() {},
+    renderActions() { choices.length=0; ctx.renderChiSelection({append:panel=>choices.push(...panel.children)}); },
   });
   vm.runInContext(handlers, ctx);
   const chi = {type:'CHI', use:[0,2]}, otherChi = {type:'CHI', use:[2,3]};
@@ -30,8 +33,8 @@ test('available reactions group by type, keep order after submission, and choose
   buttons[0].onclick();
   assert.equal(sent.length, 0, 'opening the chooser must not submit');
   choices[1].onclick();
-  assert.equal(closed, true);
   assert.deepEqual(sent, [chi]);
+  assert.equal(choices[1].children.length,3,'every choice shows the complete sequence');
   buttons.length = 0;
   ctx.renderReactionActions(target, actions, chi);
   assert.deepEqual(buttons.map(button => button.textContent), ['吃','碰','過']);
@@ -45,13 +48,44 @@ test('available reactions group by type, keep order after submission, and choose
   assert.deepEqual(buttons.map(button => button.textContent), ['吃','碰','槓','胡','過']);
 });
 
+test('chi hand selection rejects incompatible copies and confirms the exact legal pair', () => {
+  const node = () => ({dataset:{},children:[],classList:{add() {}},
+    append(...children) { this.children.push(...children); },setAttribute() {}});
+  const sent=[], panels=[];
+  const low={type:'CHI',use:[0,2]}, high={type:'CHI',use:[2,3]};
+  const ctx = vm.createContext({
+    state:{last_discard:{tile:1}},busy:false,selected:null,tingMode:false,
+    chiSelection:{mode:'tiles', options:[low,high],picked:[]},
+    document:{createElement:node},tile:node,tileName:String,perform:a=>sent.push(a),
+    renderHand() {},renderActions() {},
+  });
+  vm.runInContext(handlers, ctx);
+  vm.runInContext(source.slice(source.indexOf('function selectHandTile('),
+    source.indexOf('function setTileFace(')), ctx);
+  const click=(tile,index)=>ctx.selectHandTile({tile,index,from:'hand'});
+  ctx.renderChiSelection({append:p=>panels.push(p)});
+  assert.equal(panels[0].children[1].disabled,true);
+  click(0,0); click(3,3); click(0,1);
+  assert.deepEqual(Array.from(ctx.chiSelection.picked,p=>p.tile),[0]);
+  click(2,2);
+  ctx.renderChiSelection({append:p=>panels.push(p)});
+  assert.equal(sent.length,0,'two picks do not submit before confirmation');
+  panels.at(-1).children[1].onclick();
+  assert.deepEqual(sent,[low]);
+  click(0,0);
+  assert.deepEqual(Array.from(ctx.chiSelection.picked,p=>p.tile),[2]);
+  panels.at(-1).children[2].onclick();
+  assert.equal(ctx.chiSelection,null,'cancel does not submit');
+  assert.equal(sent.length,1);
+});
+
 test('ting offers pass immediately and stays dismissed until the next turn', () => {
   const buttons = [], sent = [];
   const target = {dataset:{}, append:b => buttons.push(b), replaceChildren() { buttons.length = 0; }};
   const ctx = vm.createContext({
     state:{phase:'TURN', legal_actions:[{type:'TING',tile:4,from:'hand'},
       {type:'DISCARD',tile:4,from:'hand'}]},
-    selected:null, tingMode:false, tingPassed:false, busy:false, playbackFrame:null,
+    selected:null, tingMode:false, tingPassed:false, busy:false, playbackFrame:null, chiSelection:null,
     $:() => target,
     document:{createElement:() => ({dataset:{},setAttribute() {}})},
     perform:a => sent.push(a), renderHand() {},
@@ -82,11 +116,11 @@ test('switching between a room and practice clears local ting choices', async ()
   const practice = {legal_actions:[{type:'TING',tile:4,from:'hand'}]};
   const room = {...practice,room:{code:'ABCD1234',members:[{name:'玩家'}]}};
   const ctx = vm.createContext({
-    state:practice, selected:null, roomMode:false, busy:false, pollGeneration:0,
+    state:practice, selected:null, roomMode:false, busy:false, pollGeneration:0,autoTingDiscard:true,
     tingPassed:true, tingMode:true, URL, location:{href:'http://localhost/'},
     sessionStorage:{setItem() {},removeItem() {}}, history:{replaceState() {}},
     rememberPlayerName() {},pollRoom() {},render() {},toast() {},
-    $:() => ({close() {}}), request:async path => path === '/api/state' ? practice : {},
+    $:() => ({close() {}}), request:async path => ['/api/state','/api/preferences'].includes(path) ? practice : {},
   });
   vm.runInContext(source.slice(source.indexOf('function acceptRoom('),
     source.indexOf('async function pollRoom(')), ctx);
@@ -100,4 +134,86 @@ test('switching between a room and practice clears local ting choices', async ()
   assert.equal(ctx.state, practice);
   assert.equal(ctx.tingPassed, false);
   assert.equal(ctx.tingMode, false);
+});
+
+test('selecting a tile before ting declares only its matching legal source', () => {
+  const hand = {type:'TING',tile:4,from:'hand',waits:[2]};
+  const drawn = {type:'TING',tile:4,from:'drawn',waits:[3]};
+  for (const [selection, actions, expected] of [
+    [{tile:4,from:'hand',index:0},[hand,drawn],hand],
+    [{tile:4,from:'drawn'},[hand,drawn],drawn],
+    [{tile:4,from:'drawn'},[hand],null],
+    [{tile:9,from:'hand',index:1},[hand],null],
+    [null,[hand],null],
+  ]) {
+    const buttons=[],sent=[];
+    const target={dataset:{},replaceChildren() { buttons.length=0; },append:b=>buttons.push(b)};
+    const ctx=vm.createContext({
+      state:{phase:'TURN',legal_actions:actions},selected:null,busy:false,playbackFrame:null,
+      chiSelection:null,tingMode:false,tingPassed:false,
+      $:()=>target,document:{createElement:()=>({dataset:{},setAttribute() {}})},
+      renderHand() {},perform:a=>sent.push(a),
+    });
+    vm.runInContext(source.slice(source.indexOf('function actionButton('),
+      source.indexOf('function uniqueTingOptions(')),ctx);
+    vm.runInContext(source.slice(source.indexOf('function selectHandTile('),
+      source.indexOf('function setTileFace(')),ctx);
+    if (selection) ctx.selectHandTile({type:'DISCARD',...selection});
+    else ctx.renderActions();
+    buttons[0].onclick();
+    assert.deepEqual(sent,expected?[expected]:[]);
+    assert.equal(ctx.tingMode,!expected,'an invalid or absent selection enters candidate mode');
+    if (!expected) assert.equal(ctx.selected,null);
+  }
+});
+
+test('submitting a chi choice never restores unchosen reactions before acknowledgement', async () => {
+  const node=()=>({dataset:{},children:[],classList:{add() {}},
+    append(...children) { this.children.push(...children); },setAttribute(k,v) { this[k]=v; }});
+  const buttons=[], renders=[];
+  const target={dataset:{},replaceChildren() { buttons.length=0; },append:b=>buttons.push(b)};
+  const low={type:'CHI',use:[0,2]}, high={type:'CHI',use:[2,3]};
+  let resolve,reject;
+  const state={phase:'REACTION',round:1,rivers:[],last_discard:{tile:1},
+    legal_actions:[low,high,{type:'PASS'}]};
+  const ctx=vm.createContext({
+    state,chiMode:'groups',chiSelection:null,pendingReaction:null,
+    selected:null,busy:false,tingMode:false,tingPassed:false,playbackFrame:null,roomMode:true,
+    labels:{CHI:'吃',PASS:'過'},document:{createElement:node},tile:node,tileName:String,
+    $:()=>target,renderHand() {},crypto:{randomUUID:()=> 'once'},toast() {},
+    request:path=>path==='/api/room/action'?new Promise((a,b)=>{resolve=a;reject=b;}):Promise.resolve(state),
+    render() { ctx.renderActions(); renders.push(target.dataset.submitted); },
+    showResult() {},
+  });
+  vm.runInContext(source.slice(source.indexOf('function actionButton('),source.indexOf('function uniqueTingOptions(')),ctx);
+  vm.runInContext(source.slice(source.indexOf('async function perform('),source.indexOf('async function newGame(')),ctx);
+  ctx.renderActions(); buttons[0].onclick();
+  const request=ctx.perform(high);
+  assert.equal(target.dataset.submitted,'true');
+  assert.deepEqual(buttons.map(b=>b['aria-pressed']),['true','false']);
+  assert.ok(buttons.every(b=>b.disabled));
+  resolve({...state,legal_actions:[],reaction_choice:high,reaction_actions:state.legal_actions});
+  await request;
+  assert.ok(renders.every(value=>value==='true'));
+  assert.equal(ctx.pendingReaction,null);
+  assert.deepEqual(buttons.map(b=>b['aria-pressed']),['true','false']);
+  // A rejected request restores the actual available choices.
+  ctx.state=state;
+  const failed=ctx.perform(low);
+  reject(new Error('stale'));
+  await failed;
+  assert.equal(target.dataset.submitted,'false');
+  assert.ok(buttons.every(b=>!b.disabled));
+  ctx.roomMode=false;
+  ctx.state=state;
+  ctx.present=async () => {
+    assert.equal(ctx.pendingReaction,null,'acknowledged choices must not leak into playback');
+    ctx.state={...state,last_discard:{tile:4},legal_actions:[high,{type:'PASS'}]};
+    ctx.render();
+  };
+  const practice=ctx.perform(low);
+  resolve({});
+  await practice;
+  assert.equal(target.dataset.submitted,'false');
+  assert.ok(buttons.every(b=>!b.disabled),'the next reaction window is selectable');
 });

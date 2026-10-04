@@ -9,7 +9,7 @@ const handler = source.slice(source.indexOf('function selectHandTile('),
   source.indexOf('function tile('));
 function input() {
   const sent = [];
-  const ctx = vm.createContext({selected:null, busy:false, tingMode:false,
+  const ctx = vm.createContext({selected:null, busy:false, tingMode:false, chiSelection:null,
     renderHand() {}, renderActions() {},
     perform(action) { sent.push(action); ctx.busy = true; },
   });

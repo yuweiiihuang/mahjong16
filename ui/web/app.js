@@ -11,6 +11,10 @@ const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
 let state, selected = null, busy = false, playbackFrame = null, tingMode = false;
 let tingPassed = false;
+let autoTingDiscard = localStorage.getItem('qinghe-auto-ting-discard') !== 'false';
+let chiMode = localStorage.getItem('qinghe-chi-mode') === 'tiles' ? 'tiles' : 'groups';
+let chiSelection = null;
+let pendingReaction = null;
 let sound = localStorage.getItem('qinghe-sound') === 'true';
 let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
   ? localStorage.getItem('qinghe-pace') : 'natural';
@@ -36,6 +40,15 @@ function tileName(id) {
 }
 function selectHandTile(action) {
   if (busy) return;
+  if (chiSelection?.mode === 'tiles') {
+    if (!canPickChi(action)) return;
+    const picked = chiSelection.picked;
+    const index = picked.findIndex(p => p.index === action.index);
+    if (index >= 0) picked.splice(index, 1);
+    else picked.push({tile:action.tile, index:action.index});
+    renderActions(); renderHand();
+    return;
+  }
   if (tingMode) {
     const ting = state.legal_actions.find(candidate => candidate.type === 'TING'
       && candidate.tile === action.tile && candidate.from === action.from);
@@ -111,7 +124,8 @@ function melds(pid, target, small = true) {
   }
 }
 function renderHand() {
-  if (tableView && state) tableView.update(state, tingMode
+  if (tableView && state) tableView.update(state, chiSelection?.mode === 'tiles'
+    ? {chiCards:chiSelection.picked} : tingMode
     ? {tingCandidates:state.legal_actions.filter(action => action.type === 'TING')}
     : selected, sortOrder);
 }
@@ -129,7 +143,8 @@ function syncProjection(view) {
     button.replaceChildren(); // Hit targets have no artwork; the 3D face is the only visible image.
     button.dataset.slot = slot;
     button.classList.add('tile-hit');
-    button.disabled = busy || (tingMode && !state.legal_actions.some(candidate =>
+    button.disabled = busy || (chiSelection?.mode === 'tiles' && !canPickChi(action))
+      || (tingMode && !state.legal_actions.some(candidate =>
       candidate.type === 'TING' && candidate.tile === action.tile && candidate.from === action.from));
     button.setAttribute('aria-pressed', String(box.selected));
     button.onclick = () => selectHandTile(action);
@@ -155,6 +170,50 @@ function actionButton(text, action, primary=false) {
   if (action) button.dataset.action = action.type;
   button.onclick=()=>perform(action);return button;
 }
+function canPickChi(action) {
+  const picked = chiSelection.picked;
+  return picked.some(p => p.index === action.index) || (picked.length < 2
+    && !picked.some(p => p.tile === action.tile)
+    && chiSelection.options.some(option => option.use.includes(action.tile)
+      && picked.every(p => option.use.includes(p.tile))));
+}
+function renderChiSelection(target) {
+  const panel = document.createElement('div'); panel.className = 'chi-picker';
+  panel.setAttribute('role', 'group'); panel.setAttribute('aria-label', '選擇吃牌組合');
+  if (chiSelection.mode === 'groups') {
+    for (const option of chiSelection.options) {
+      const pick = actionButton('', option); pick.className = 'chi-group';
+      delete pick.dataset.action;
+      const sequence = [...option.use, state.last_discard.tile].sort((a,b) => a-b);
+      pick.setAttribute('aria-label', `吃 ${sequence.map(tileName).join('、')}`);
+      for (const id of sequence) {
+        const face = tile(id, true);
+        if (id === state.last_discard.tile) face.classList.add('chi-discard');
+        pick.append(face);
+      }
+      panel.append(pick);
+    }
+  } else {
+    const preview = document.createElement('div'); preview.className = 'chi-preview';
+    const discard = tile(state.last_discard.tile, true); discard.classList.add('chi-discard');
+    preview.append(discard);
+    for (let i=0; i<2; i++) {
+      const picked = chiSelection.picked[i];
+      const face = picked ? tile(picked.tile, true) : document.createElement('span');
+      if (!picked) { face.className = 'chi-empty'; face.textContent = '＋'; }
+      preview.append(face);
+    }
+    panel.append(preview);
+    const option = chiSelection.options.find(o => chiSelection.picked.length === 2
+      && chiSelection.picked.every(p => o.use.includes(p.tile)));
+    const confirm = actionButton('確認', option); confirm.className = 'chi-confirm';
+    delete confirm.dataset.action;
+    confirm.disabled = busy || !option; panel.append(confirm);
+  }
+  const cancel = actionButton('取消', null); cancel.className = 'chi-cancel';
+  cancel.onclick = () => { chiSelection = null; renderActions(); renderHand(); };
+  panel.append(cancel); target.append(panel);
+}
 function renderReactionActions(target, actions, choice = null) {
   if (!actions.some(action => action.type !== 'PASS')) return;
   target.dataset.submitted = String(Boolean(choice));
@@ -168,13 +227,9 @@ function renderReactionActions(target, actions, choice = null) {
       if (type === choice.type) button.title = '已選擇，等待裁決';
     } else if (options.length > 1) {
       button.onclick = () => {
-        modal(`選擇${labels[type]}的牌組`, '<div id="claim-options" class="claim-options"></div>');
-        for (const action of options) {
-          const pick = actionButton(action.use.map(tileName).join('・'), action);
-          pick.className = 'claim-option';
-          pick.onclick = () => { $('modal').close(); perform(action); };
-          $('claim-options').append(pick);
-        }
+        chiSelection = {mode:chiMode, options, picked:[],
+          key:JSON.stringify([state.room?.code, state.round, state.last_discard, state.rivers])};
+        renderActions(); renderHand();
       };
     }
     target.append(button);
@@ -184,6 +239,10 @@ function renderActions(){
   const target=$('actions');target.replaceChildren();
   if (!state.legal_actions.some(action => action.type === 'TING')) tingPassed = false;
   delete target.dataset.submitted;
+  if (chiSelection && (state.phase !== 'REACTION' || state.reaction_choice
+      || JSON.stringify([state.room?.code, state.round, state.last_discard, state.rivers]) !== chiSelection.key
+      || !state.legal_actions.some(a => a.type === 'CHI'))) chiSelection = null;
+  if (chiSelection && !playbackFrame) { renderChiSelection(target); return; }
   if (playbackFrame) {
     return;
   }
@@ -198,8 +257,9 @@ function renderActions(){
     const result = actionButton('結算明細', null); result.onclick = showResult;
     target.append(result); return;
   }
-  if (state.phase === 'REACTION' && state.reaction_choice) {
-    renderReactionActions(target, state.reaction_actions, state.reaction_choice);
+  if (state.phase === 'REACTION' && (state.reaction_choice || pendingReaction)) {
+    renderReactionActions(target, state.reaction_choice ? state.reaction_actions : state.legal_actions,
+      state.reaction_choice || pendingReaction);
     return;
   }
   if (state.room && !state.done && !state.legal_actions.length) {
@@ -211,7 +271,13 @@ function renderActions(){
     if (!tingPassed && state.legal_actions.some(action => action.type === 'TING')) {
       const ting = actionButton('聽', {type:'TING'});
       ting.setAttribute('aria-pressed', String(tingMode));
-      ting.onclick = () => { tingMode = !tingMode; selected = null; renderActions(); renderHand(); };
+      ting.onclick = () => {
+        if (busy) return;
+        const declaration = selected && state.legal_actions.find(action => action.type === 'TING'
+          && action.tile === selected.tile && action.from === selected.from);
+        if (declaration) { perform(declaration); return; }
+        tingMode = !tingMode; selected = null; renderActions(); renderHand();
+      };
       target.append(ting);
       const pass = actionButton('過', null);
       pass.dataset.action = 'PASS';
@@ -348,20 +414,27 @@ async function present(result) {
   if (state.done) showResult();
 }
 async function perform(action){
-  if(!action||busy)return;tingMode=false;tingPassed=false;busy=true;renderActions();renderHand();
+  if(!action||busy)return;
+  pendingReaction = state.phase === 'REACTION' ? action : null;
+  chiSelection=null;tingMode=false;tingPassed=false;busy=true;renderActions();renderHand();
   try{
     const move = Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'));
     if (roomMode) {
       state = await request('/api/room/action', {action:move, version:state.version, request_id:crypto.randomUUID()});
+      pendingReaction = null;
       selected = null;
       render();
       if (['DISCARD','TING'].includes(state.display_event?.type)) {
         beep(); await tableView.animateDiscard(state.display_event.pid);
       }
-    } else await present(await request('/api/action', move));
+    } else {
+      const result = await request('/api/action', move);
+      pendingReaction = null;
+      await present(result);
+    }
   }
   catch(e){toast(e.message);try{state=await request(roomMode ? '/api/room/state' : '/api/state');selected=null;}catch{}}
-  finally{busy=false;render();if(roomMode && state.done)showResult();}
+  finally{pendingReaction=null;busy=false;render();if(roomMode && state.done)showResult();}
 }
 async function newGame(next = false){
   tingPassed = false;
@@ -476,7 +549,12 @@ $('settings').onclick=()=>{
     <section class="settings-section" aria-labelledby="play-settings-heading">
       <h3 id="play-settings-heading">對局與顯示</h3>
       <label class="setting-row"><span class="pace-label">對局節奏${roomMode ? '<small id="pace-help">多人模式由伺服器統一設定</small>' : ''}</span><select id="pace-setting" ${roomMode ? 'disabled aria-describedby="pace-help"' : ''}>${roomMode ? '<option value="shared">統一節奏</option>' : '<option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option>'}</select></label>
+      <fieldset class="chi-mode-options"><legend>多種吃牌選擇</legend>
+        <label class="chi-mode-card"><input type="radio" name="chi-mode" value="groups" ${chiMode==='groups'?'checked':''}><span id="chi-groups-icon" class="chi-mode-graphic" aria-hidden="true"></span><span class="chi-mode-caption">選整組順子</span></label>
+        <label class="chi-mode-card"><input type="radio" name="chi-mode" value="tiles" ${chiMode==='tiles'?'checked':''}><span id="chi-tiles-icon" class="chi-mode-graphic" aria-hidden="true"></span><span class="chi-mode-caption">選兩張牌後確認</span></label>
+      </fieldset>
       <div class="settings-toggles">
+        <label class="setting-row">聽牌後自動出牌<input id="auto-ting-setting" type="checkbox" ${autoTingDiscard?'checked':''} ${state.auto_ting_discard === undefined?'disabled':''}></label>
         <label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label>
         <label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label>
       </div>
@@ -494,6 +572,22 @@ $('settings').onclick=()=>{
     </section>
     <div class="settings-footer"><p>儲存後套用，下次開啟會保留。<br>牌面來源：<a href="https://github.com/SyaoranHinata/I.Mahjong" target="_blank" rel="noopener">I.Mahjong</a></p><button class="modal-primary" id="save-settings">儲存</button></div>
   `,'settings-dialog');
+  for (const [id, combinations] of [['chi-groups-icon', [[0,1,2],[1,2,3]]],
+    ['chi-tiles-icon', [[0,1,2]]]]) {
+    for (const combination of combinations) {
+      const group = document.createElement('span'); group.className = 'chi-icon-group';
+      for (const value of combination) {
+        const face = tile(value, true);
+        if (value === 1) face.classList.add('chi-icon-discard');
+        group.append(face);
+      }
+      $(id).append(group);
+    }
+    if (id === 'chi-tiles-icon') {
+      const confirm = document.createElement('span'); confirm.className = 'chi-icon-confirm';
+      confirm.textContent = '確認'; $(id).append(confirm);
+    }
+  }
   $('tile-font-setting').value = tileFont;
   const previewFont = () => {
     const font = $('tile-font-setting').value;
@@ -533,20 +627,34 @@ $('settings').onclick=()=>{
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
   $('save-settings').onclick=async()=>{
     const button = $('save-settings');
-    if (button.disabled) return;
+    if (button.disabled || busy) return;
     const next = {font:$('tile-font-setting').value, order:[...settingsOrder],
       sound:$('sound-setting').checked, compact:$('flat-setting').checked,
-      pace:roomMode ? pace : $('pace-setting').value};
+      pace:roomMode ? pace : $('pace-setting').value,
+      autoTingDiscard:$('auto-ting-setting').checked,
+      chiMode:document.querySelector('input[name="chi-mode"]:checked').value};
     button.disabled = true;
     button.textContent = '儲存中…';
+    busy = true;
     try {
       if (tableView) await tableView.setFaceFont(next.font);
+      if (!state || state.auto_ting_discard !== undefined) {
+        const result = await request('/api/preferences', {auto_ting_discard:next.autoTingDiscard});
+        if (roomMode) { state = result; render(); }
+        else await present(result);
+      }
     } catch (error) {
+      busy = false;
       button.disabled = false;
       button.textContent = '儲存';
-      toast('牌面載入失敗，請再試一次');
+      toast('設定儲存失敗，請再試一次');
       return;
     }
+    busy = false;
+    autoTingDiscard = next.autoTingDiscard;
+    chiMode = next.chiMode; chiSelection = null;
+    localStorage.setItem('qinghe-chi-mode', chiMode);
+    localStorage.setItem('qinghe-auto-ting-discard', String(autoTingDiscard));
     tileFont = next.font;
     sortOrder = next.order;
     sound = next.sound;
@@ -621,7 +729,10 @@ async function roomCommand(path, body = {}) {
   if (busy || !tableView) return;
   busy = true;
   try {
-    const result = await request(path, body);
+    let result = await request(path, body);
+    if (result.auto_ting_discard !== undefined && (path === '/api/rooms' || path === '/api/room/join')) {
+      result = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
+    }
     $('modal').close();
     if (!roomMode) acceptRoom(result);
     else state = result;
@@ -670,6 +781,9 @@ async function leaveRoom() {
     const url = new URL(location.href); url.searchParams.delete('room');
     history.replaceState(null, '', url);
     state = await request('/api/state'); selected = null; tingPassed = false; tingMode = false;
+    if (state.auto_ting_discard !== undefined) {
+      state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
+    }
     $('modal').close(); render();
   } catch (error) { toast(error.message); }
   finally { busy = false; if (state) render(); }
@@ -707,7 +821,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=ting-candidates-lift-1');
+    const { MahjongTableView } = await import('./table3d.js?v=chi-hand-selection-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
@@ -716,6 +830,9 @@ $('multiplayer').onclick = () => {
     setTableStatus('正在連線…');
     const code = new URL(location.href).searchParams.get('room');
     state = await request('/api/state');
+    if (state.auto_ting_discard !== undefined) {
+      state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
+    }
     if (!state.room) sessionStorage.removeItem('qinghe-room');
     if (state.room && !roomMode) acceptRoom(state);
     render();

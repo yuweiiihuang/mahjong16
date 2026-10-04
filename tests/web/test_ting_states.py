@@ -111,3 +111,33 @@ def test_auto_discard_only_after_declared_ting_without_win(
         assert player.drawn == drawn
         if declared:
             assert any(a['type'] == 'HU' for a in table.env.legal_actions(0))
+
+
+@pytest.mark.parametrize('online', [False, True])
+def test_auto_discard_can_be_disabled_per_player_and_reenabled(monkeypatch, online):
+    table = ting_table()
+    player = table.env.players[0]
+    player.declared_ting = True
+    assert table.snapshot()['auto_ting_discard'] is True
+    table.auto_ting_discard[0] = False
+    assert table.snapshot()['auto_ting_discard'] is False
+    assert table.snapshot(1)['auto_ting_discard'] is True
+    assert table.ting_discard() is None
+    if online:
+        monkeypatch.setattr('app.web_rooms.time.monotonic', lambda: 100.)
+        room = WebRoom('1234ABCD', 'a', table)
+        room.started = True
+        with room.changed:
+            room.tick(100.)
+            assert player.drawn == 29 and player.river == []
+            table.auto_ting_discard[0] = True
+            room.tick(100.)
+    else:
+        table.advance()
+        assert player.drawn == 29 and player.river == []
+        table.auto_ting_discard[0] = True
+        table.advance()
+    assert player.drawn is None and player.river == [29]
+    table.auto_ting_discard[0] = False
+    table.new_table()
+    assert table.snapshot()['auto_ting_discard'] is False

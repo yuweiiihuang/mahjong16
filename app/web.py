@@ -32,6 +32,7 @@ class WebTable:
 
     def __init__(self, seed: int | None = None, human_pids: set[int] | None = None):
         self.human_pids = {0} if human_pids is None else set(human_pids)
+        self.auto_ting_discard = [True] * 4
         self.env = Mahjong16Env(Ruleset(randomize_seating_and_dealer=False), seed=seed)
         self.bot = GreedyBotStrategy()
         self.events: list[dict] = []
@@ -125,6 +126,8 @@ class WebTable:
         if self.env.done or self.env.phase != 'TURN':
             return None
         pid = self.actor()
+        if not self.auto_ting_discard[pid]:
+            return None
         actions = self.env.legal_actions(pid)
         if (self.env.players[pid].declared_ting and len(actions) == 1
                 and actions[0]['type'] == 'DISCARD' and actions[0]['from'] == 'drawn'):
@@ -181,6 +184,7 @@ class WebTable:
         env = self.env
         result = deepcopy(env._obs(viewer))
         result.update({
+            'auto_ting_discard': self.auto_ting_discard[viewer],
             'legal_actions': (env.legal_actions(viewer)
                               if not env.done and (env.phase == 'REACTION'
                                                    or self.actor() == viewer) else []),
@@ -345,7 +349,7 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         if self.path not in ('/api/action', '/api/new', '/api/next', '/api/rooms',
                              '/api/room/join', '/api/room/start', '/api/room/action',
-                             '/api/room/next', '/api/room/leave'):
+                             '/api/room/next', '/api/room/leave', '/api/preferences'):
             self.send_error(404)
             return
         sid = ''
@@ -360,6 +364,27 @@ class WebHandler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('無效請求')
+            if self.path == '/api/preferences':
+                enabled = body.get('auto_ting_discard')
+                if type(enabled) is not bool:
+                    raise ValueError('聽牌自動出牌設定必須為開啟或關閉。')
+                sid = self.identity()
+                try:
+                    room = self.rooms.get(sid)
+                except ValueError:
+                    sid, table = self.table()
+                    with table.lock:
+                        table.auto_ting_discard[0] = enabled
+                        playback = []
+                        table.advance(playback)
+                        data = {**table.snapshot(), 'playback': playback}
+                else:
+                    with room.changed:
+                        pid = room.touch(sid)
+                        room.table.auto_ting_discard[pid] = enabled
+                        data = room.snapshot(sid)
+                self.respond(data, sid)
+                return
             if self.path.startswith('/api/room'):
                 sid = self.identity()
                 if self.path == '/api/rooms':
