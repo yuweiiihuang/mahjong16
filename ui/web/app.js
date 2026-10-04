@@ -10,6 +10,7 @@ let names = [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
 let state, selected = null, busy = false, playbackFrame = null, tingMode = false;
+let tingPassed = false;
 let sound = localStorage.getItem('qinghe-sound') === 'true';
 let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
   ? localStorage.getItem('qinghe-pace') : 'natural';
@@ -95,7 +96,7 @@ function tile(id, small = false, action = null, font = tileFont) {
 function person(pid, sidebar = false) {
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
   const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong>${escapeHtml(names[pid])}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已聽牌':''}</small></div>`;
+  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong>${escapeHtml(names[pid])}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已宣告聽牌':''}</small></div>`;
   if (state.room) {
     const member = state.room.members[pid];
     const detail = wrap.querySelector('small');
@@ -139,7 +140,7 @@ function syncProjection(view) {
   const actionBar = document.querySelector('.action-bar');
   const actionY = view.project([0,.5,9.4]).y;
   actionBar.style.top = `${actionY}px`;
-  $('ting-panel').style.top = `${actionY - actionBar.offsetHeight - 12}px`;
+  $('ting-panel').style.top = `${actionY}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
   const order = state.seating_order;
   for (const pid of [1,2,3]) {
@@ -181,6 +182,7 @@ function renderReactionActions(target, actions, choice = null) {
 }
 function renderActions(){
   const target=$('actions');target.replaceChildren();
+  if (!state.legal_actions.some(action => action.type === 'TING')) tingPassed = false;
   delete target.dataset.submitted;
   if (playbackFrame) {
     return;
@@ -206,17 +208,17 @@ function renderActions(){
   if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
   if(state.phase==='TURN'){
     for(const a of state.legal_actions.filter(a=>!['DISCARD','TING'].includes(a.type))) target.append(actionButton(a.type==='HU'&&a.source==='TSUMO'?'自摸':labels[a.type],a,true));
-    if (state.legal_actions.some(action => action.type === 'TING')) {
+    if (!tingPassed && state.legal_actions.some(action => action.type === 'TING')) {
       const ting = actionButton('聽', {type:'TING'});
       ting.setAttribute('aria-pressed', String(tingMode));
       ting.onclick = () => { tingMode = !tingMode; selected = null; renderActions(); renderHand(); };
       target.append(ting);
-      if (tingMode) {
-        const pass = actionButton('過', null);
-        pass.dataset.action = 'PASS';
-        pass.onclick = () => { tingMode = false; selected = null; renderActions(); renderHand(); };
-        target.append(pass);
-      }
+      const pass = actionButton('過', null);
+      pass.dataset.action = 'PASS';
+      pass.onclick = () => {
+        tingPassed = true; tingMode = false; selected = null; renderActions(); renderHand();
+      };
+      target.append(pass);
     }
   } else {
     renderReactionActions(target, state.legal_actions);
@@ -237,8 +239,7 @@ function renderTing() {
   target.replaceChildren();
   const options = uniqueTingOptions(state.ting_options.length
     ? state.ting_options : state.ting_waits.length ? [{waits:state.ting_waits}] : []);
-  target.hidden = !options.length || state.done || Boolean(playbackFrame && !state.declared_ting)
-    || Boolean(state.room && !state.room.started);
+  target.hidden = !options.length || state.done || Boolean(state.room && !state.room.started);
   if (target.hidden) return;
   const header = document.createElement('summary'); header.className = 'ting-heading';
   const label = document.createElement('span'); label.textContent = '聽牌提示';
@@ -347,7 +348,7 @@ async function present(result) {
   if (state.done) showResult();
 }
 async function perform(action){
-  if(!action||busy)return;tingMode=false;busy=true;renderActions();renderHand();
+  if(!action||busy)return;tingMode=false;tingPassed=false;busy=true;renderActions();renderHand();
   try{
     const move = Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'));
     if (roomMode) {
@@ -363,6 +364,7 @@ async function perform(action){
   finally{busy=false;render();if(roomMode && state.done)showResult();}
 }
 async function newGame(next = false){
+  tingPassed = false;
   if (roomMode) return roomCommand('/api/room/next');
   if(busy)return;busy=true;$('new-game').disabled=true;
   try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done)toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
@@ -582,6 +584,7 @@ $('history').onclick=()=>{
 $('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手。本局開始後無法重新加入。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
+  tingPassed = false; tingMode = false;
   rememberPlayerName(result.room.members[0].name);
   sessionStorage.setItem('qinghe-room', result.room.code);
   const url = new URL(location.href); url.searchParams.set('room', result.room.code);
@@ -666,7 +669,7 @@ async function leaveRoom() {
     sessionStorage.removeItem('qinghe-room');
     const url = new URL(location.href); url.searchParams.delete('room');
     history.replaceState(null, '', url);
-    state = await request('/api/state'); selected = null;
+    state = await request('/api/state'); selected = null; tingPassed = false; tingMode = false;
     $('modal').close(); render();
   } catch (error) { toast(error.message); }
   finally { busy = false; if (state) render(); }

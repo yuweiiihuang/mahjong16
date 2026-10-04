@@ -40,6 +40,23 @@ def test_breaking_waiting_hand_clears_hints_without_declaring():
     assert state['ting_waits'] == []
 
 
+def test_ordinary_waiting_discard_does_not_lock_or_automate_next_turn():
+    table = ting_table()
+    table.apply({'type': 'DISCARD', 'tile': 29, 'from': 'drawn'}, pid=0)
+    table.advance()
+    assert [wait['tile'] for wait in table.snapshot()['ting_waits']] == [28]
+    assert not table.snapshot()['players'][0]['ting']
+    # Return to this player's next draw without changing the waiting hand.
+    table.env.turn = 0
+    table.env.phase = 'TURN'
+    table.env.players[0].drawn = 9
+    actions = table.env.legal_actions(0)
+    assert any(a['type'] == 'DISCARD' and a['from'] == 'hand' for a in actions)
+    assert table.ting_discard() is None
+    table.advance()
+    assert table.env.players[0].drawn == 9
+
+
 def test_declared_player_can_only_discard_drawn_tile_or_win():
     table = ting_table()
     player = table.env.players[0]
