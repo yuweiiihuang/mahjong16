@@ -46,7 +46,6 @@ test('settlement shows winner first and keeps melds, flowers, sorted hands and l
   const groups = cards[0].children[1].children;
   assert.deepEqual(groups.map(g=>g.children.map(t=>t.id)),
     [[34,35],[3,4,5],[6,6,6,6],[14,14,14],[1,2,9,18,27],[9]]);
-  assert.match(groups[2].className,/result-kong/);
   assert.deepEqual(state.final_hands[2].melds.map(m=>m.tiles),
     [[6,6,6,6],[3,4,5],[14,14,14]]);
   assert.deepEqual(state.final_hands[2].flowers,[35,34]);
@@ -107,9 +106,11 @@ test('player details explain dealer payments without adding dealer tai twice', (
   state.settlement.payments = [0,-220,220,0];
   let cards = render();
   assert.equal(cards[0].children[2].children[0].textContent,'胡牌 1 台');
+  assert.equal(cards[0].children[2].open,true);
   const dealer = cards[1].children[2];
   assert.equal(dealer.tag,'details');
   assert.equal(dealer.attrs.open,undefined);
+  assert.notEqual(dealer.open,true);
   assert.equal(dealer.children[0].textContent,'莊・連 2　加 5 台');
   assert.deepEqual(dealer.children.slice(1).map(row=>row.children.map(n=>n.textContent)),
     [['基本收付','120'],['莊家加台　5 × 20','100'],['付給 贏家','220']]);

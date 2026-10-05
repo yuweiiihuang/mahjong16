@@ -1,6 +1,7 @@
 :root{--paper:#f8f7f2;--ink:#183e36;--muted:#8b938a;font-family:'Noto Sans CJK TC','PingFang TC',sans-serif;color:var(--ink);background:var(--paper)}
 /* Keep scrolling and pinch zoom while preventing accidental double-tap zoom. */
 html{touch-action:manipulation}
+.table,.tile{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .table-status{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%);z-index:4;width:max-content;max-width:85%;padding:14px 20px;border:1px solid #afc69b80;border-radius:10px;background:#153e32e6;color:#f1f3df;text-align:center;font-size:14px;line-height:1.8;white-space:pre-line;pointer-events:none}
 .table-status[hidden],.tile .tile-face[hidden]{display:none}
 .tile[data-face-status]::after{content:attr(data-face-text);font-size:10px;color:#697c6b;text-align:center}
@@ -181,11 +182,6 @@ dialog{max-height:85dvh;overflow-y:auto}
 
 }
 
-.result-kong{display:grid;grid-template-columns:repeat(3,auto)}
-.result-kong .tile:nth-child(1){grid-area:2 / 1}
-.result-kong .tile:nth-child(2){grid-area:2 / 2}
-.result-kong .tile:nth-child(3){grid-area:2 / 3}
-.result-kong .tile:nth-child(4){grid-area:1 / 2}
 
 
 

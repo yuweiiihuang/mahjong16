@@ -500,7 +500,6 @@ function showResult(){
       if (!ids.length) return;
       const group = document.createElement('div'); group.className = `result-group result-${kind}`;
       group.setAttribute('role', 'group'); group.setAttribute('aria-label', label); group.title = label;
-      if (kind === 'meld' && ids.length === 4) group.classList.add('result-kong');
       for (const id of ids) {
         const face = tile(id);
         if (kind === 'flowers' && pid === winner && id === state.win_tile) face.classList.add('result-winning-tile');
@@ -528,6 +527,7 @@ function showResult(){
         ? result.tai > 0 && result.breakdown.length > 0 : result.payments[pid] < 0;
       const details = document.createElement(expandable ? 'details' : 'div');
       details.className = 'result-scoring';
+      if (pid === winner && expandable) details.open = true;
       const summary = document.createElement(expandable ? 'summary' : 'span');
       const streak = state.dealer_streak || 0;
       summary.textContent = pid === winner ? `胡牌 ${result.tai} 台`
