@@ -84,7 +84,7 @@ test('ting offers pass immediately and stays dismissed until the next turn', () 
   const target = {dataset:{}, append:b => buttons.push(b), replaceChildren() { buttons.length = 0; }};
   const ctx = vm.createContext({
     state:{phase:'TURN', legal_actions:[{type:'TING',tile:4,from:'hand'},
-      {type:'DISCARD',tile:4,from:'hand'}]},
+      {type:'TING',tile:5,from:'hand'}, {type:'DISCARD',tile:4,from:'hand'}]},
     selected:null, tingMode:false, tingPassed:false, busy:false, playbackFrame:null, chiSelection:null,
     $:() => target,
     document:{createElement:() => ({dataset:{},setAttribute() {}})},
@@ -136,15 +136,20 @@ test('switching between a room and practice clears local ting choices', async ()
   assert.equal(ctx.tingMode, false);
 });
 
-test('selecting a tile before ting declares only its matching legal source', () => {
+test('ting declares a selected or sole tile kind and otherwise offers candidates', () => {
   const hand = {type:'TING',tile:4,from:'hand',waits:[2]};
-  const drawn = {type:'TING',tile:4,from:'drawn',waits:[3]};
+  const drawn = {type:'TING',tile:4,from:'drawn',waits:[2]};
+  const other = {type:'TING',tile:9,from:'hand',waits:[3]};
   for (const [selection, actions, expected] of [
     [{tile:4,from:'hand',index:0},[hand,drawn],hand],
     [{tile:4,from:'drawn'},[hand,drawn],drawn],
-    [{tile:4,from:'drawn'},[hand],null],
-    [{tile:9,from:'hand',index:1},[hand],null],
-    [null,[hand],null],
+    [{tile:4,from:'drawn'},[hand,other],null],
+    [{tile:8,from:'hand',index:1},[hand,other],null],
+    [null,[hand,other],null],
+    [null,[hand],hand],
+    [null,[drawn],drawn],
+    [null,[hand,drawn],hand],
+    [{tile:8,from:'hand',index:1},[hand],hand],
   ]) {
     const buttons=[],sent=[];
     const target={dataset:{},replaceChildren() { buttons.length=0; },append:b=>buttons.push(b)};

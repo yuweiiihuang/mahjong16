@@ -10,6 +10,7 @@ const handler = source.slice(source.indexOf('function selectHandTile('),
 function input() {
   const sent = [];
   const ctx = vm.createContext({selected:null, busy:false, tingMode:false, chiSelection:null,
+    state:{blocked_discards:[]},
     renderHand() {}, renderActions() {},
     perform(action) { sent.push(action); ctx.busy = true; },
   });
@@ -40,6 +41,17 @@ test('identical tiles in different slots and the drawn tile select independently
   assert.equal(sent.length, 0);
   click(drawn);
   assert.deepEqual(sent, [drawn]);
+});
+
+test('chi-blocked copies cannot be selected or submitted even through the click handler', () => {
+  const {ctx,sent,click} = input();
+  ctx.state.blocked_discards = [4];
+  for(const action of [{type:'DISCARD',tile:4,from:'hand',index:0},
+    {type:'DISCARD',tile:4,from:'hand',index:1},{type:'DISCARD',tile:4,from:'drawn'}]) {
+    click(action); click(action);
+  }
+  assert.equal(ctx.selected,null);
+  assert.deepEqual(sent,[]);
 });
 
 test('ting mode declares on one candidate click and never discards another tile', () => {
@@ -82,4 +94,30 @@ for (const declared of [false, true]) test(`ting hints remain visible during pla
   ctx.state.done = true;
   ctx.renderTing();
   assert.equal(panel.hidden, true);
+});
+
+
+test('local identity position stays fixed when drawn and raised tile bounds change', () => {
+  const node = () => ({children:[],style:{},dataset:{},classList:{add() {}},
+    replaceChildren() {},setAttribute() {},
+    insertBefore(button) { this.children.push(button); }});
+  const elements = Object.fromEntries(['hand','ting-panel','seat-1','seat-2','seat-3']
+    .map(id => [id,node()]));
+  const heading=node(),bar=node();
+  const ctx=vm.createContext({state:{hand:[],seating_order:[0,1,2,3]},busy:false,
+    tingMode:false,chiSelection:null,selected:null,sortOrder:null,
+    $:id => elements[id],tile:node,tileName:String,sortHand:hand => hand,
+    selectHandTile() {},document:{querySelector:selector =>
+      selector === '.my-heading' ? heading : bar}});
+  vm.runInContext(source.slice(source.indexOf('function syncProjection('),
+    source.indexOf('function actionButton(')),ctx);
+  const view={height:390,project:() => ({x:100,y:300}),hitBoxes:() => []};
+  ctx.syncProjection(view);
+  const baseline=heading.style.bottom;
+  for(const top of [320,305,290]) {
+    view.hitBoxes=() => [{action:{type:'DISCARD',tile:4,from:'hand'},index:0,id:4,
+      left:100,top,width:20,height:30,selected:top===290}];
+    ctx.syncProjection(view);
+    assert.equal(heading.style.bottom,baseline);
+  }
 });

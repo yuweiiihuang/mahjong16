@@ -6,19 +6,20 @@ import { loadTileImage } from './tile-images.mjs';
 
 // All seats share these physical dimensions, this table, and this camera.
 const TILE = { width: 1, height: 1.4, depth: .42, pitch: 1.045 };
-const MELD_START = -7.84;
-// Reserve one extra concealed slot between a claim and its following discard.
-const OWN_MELD_START = -9 - TILE.pitch;
+// Keep one concealed slot free for the claim-before-discard stage.
+const MELD_START = -9.1;
 const HAND_END = 15 * TILE.pitch / 2;
 const DRAWN_X = HAND_END + TILE.pitch + .55;
 const OWN_HAND_Z = 1.8;
 const ANGLES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
-const SEATS = [[0, 9.1], [10.3, 0], [0, -9.1], [-10.3, 0]];
+const SEATS = [[0, 9.1], [11.2, 0], [0, -9.1], [-11.2, 0]];
 const RIVERS = [[0, 3.3], [4.45, 0], [0, -3.3], [-4.45, 0]];
 
 export class MahjongTableView {
   constructor(container, onPick, faceFont = DEFAULT_TILE_FONT) {
     this.container = container;
+    this.zoom = 1.19;
+    container.style.setProperty('--table-zoom', this.zoom);
     this.onPick = onPick;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, .1, 180);
@@ -188,7 +189,7 @@ export class MahjongTableView {
     if(this.snapshot)this.update(this.snapshot,this.selection,this.sortOrder);
   }
 
-  makeTile(id, upright=true, action=null, selected=false) {
+  makeTile(id, upright=true, action=null, selected=false, blocked=false) {
     const group=new THREE.Group();
     const body=new THREE.Mesh(this.bodyGeometry,this.ivory);body.position.z=.04;
     body.castShadow=true;body.receiveShadow=true;group.add(body);
@@ -196,11 +197,17 @@ export class MahjongTableView {
       const face=new THREE.Mesh(this.faceGeometry,this.faceMaterials.get(id));
       face.position.z=.216;group.add(face);
     }
+    if(blocked) {
+      this.blockedShade ||= new THREE.MeshBasicMaterial({color:0x000000,transparent:true,
+        opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+      const shade=new THREE.Mesh(this.faceGeometry,this.blockedShade);
+      shade.position.z=.218;group.add(shade);
+    }
     const back=new THREE.Mesh(this.backGeometry,this.jade);back.position.z=-.17;
     back.castShadow=true;back.receiveShadow=true;group.add(back);
     if(upright){group.rotation.x=0;group.position.y=.705+(selected?.22:0);}
     else{group.rotation.x=-Math.PI/2;group.position.y=.235;}
-    group.userData={id,action,selected};
+    group.userData={id,action,selected,blocked};
     if(action)this.handObjects.push(group);
     return group;
   }
@@ -228,7 +235,7 @@ export class MahjongTableView {
       if (top) tile.position.y += .46;
       group.add(tile);
     });
-    return x + Math.min(3, meld.tiles.length) * TILE.pitch + .18;
+    return x + Math.min(3, meld.tiles.length) * TILE.pitch + .04;
   }
 
   addConcealed(pid,state,selected,sortOrder) {
@@ -240,24 +247,30 @@ export class MahjongTableView {
       Array.from({length:state.players[pid].count-Number(drawn)},()=>null);
     // Hands fill fixed slots from the right; drawn tiles have a separate fixed slot.
     let x=HAND_END-(hand.length-1)*TILE.pitch;
-    let offset=pid===0?OWN_MELD_START:MELD_START;
+    let offset=MELD_START;
+    // Flat and upright tile bodies share the same outer edge.
+    const meldZ=(pid===0?OWN_HAND_Z:0)+.21-TILE.height/2;
     if(pid===0)for(const meld of state.players[0].melds){
-      offset=this.addMeld(pid,meld,group,offset,.1+OWN_HAND_Z);
+      offset=this.addMeld(pid,meld,group,offset,meldZ);
     }
     hand.forEach((id,index)=>{
+      const blocked=pid===0 && Boolean(state.blocked_discards?.includes(id));
       const action=pid===0?(selected?.chiCards
         ? {type:'CHI_PICK',tile:id,from:'hand'}
+        : blocked ? {type:'DISCARD',tile:id,from:'hand'}
         : state.legal_actions.find(a=>a.type==='DISCARD'&&a.tile===id&&a.from==='hand')):null;
       const chosen=pid===0&&((selected?.tile===id&&selected?.from==='hand'&&(selected.index===undefined||selected.index===index))
         || selected?.tingCandidates?.some(a=>a.tile===id&&a.from==='hand')
         || selected?.chiCards?.some(a=>a.index===index));
-      const tile=this.makeTile(id,true,action,chosen);tile.position.x=x;group.add(tile);x+=TILE.pitch;
+      const tile=this.makeTile(id,true,action,chosen,blocked);tile.position.x=x;group.add(tile);x+=TILE.pitch;
       if (pid === 0) tile.position.z = OWN_HAND_Z;
       tile.userData.index=index;
     });
-    if(drawn){const action=state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
+    if(drawn){const blocked=pid===0 && Boolean(state.blocked_discards?.includes(state.drawn));
+      const action=blocked?{type:'DISCARD',tile:state.drawn,from:'drawn'}:
+        state.legal_actions.find(a=>a.type==='DISCARD'&&a.from==='drawn');
       const t=this.makeTile(pid===0?state.drawn:null,true,pid===0?action:null,
-        pid===0&&(selected?.from==='drawn'||selected?.tingCandidates?.some(a=>a.from==='drawn')));t.position.x=DRAWN_X;
+        pid===0&&(selected?.from==='drawn'||selected?.tingCandidates?.some(a=>a.from==='drawn')),blocked);t.position.x=DRAWN_X;
       if (pid === 0) t.position.z = OWN_HAND_Z;
       group.add(t);}
     if (pid === 0 && selected?.tingCandidates) {
@@ -267,17 +280,20 @@ export class MahjongTableView {
     }
     if(pid!==0){
       const melds=state.players[pid].melds;
-      for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,-1.0);
+      for(const meld of melds)offset=this.addMeld(pid,meld,group,offset,meldZ);
     }
-    // Small flowers stay beside their owner's hand, outside the three-row river area.
+    // Align flowers with the reserved river outer edge in every seat.
+    const seat = this.seatPositions[pid];
+    const riverDepth = Math.hypot(SEATS[seat][0]-RIVERS[seat][0],
+      SEATS[seat][1]-RIVERS[seat][1]);
     state.players[pid].flowers.forEach((id,i)=>{
       const tile=this.makeTile(id,false);
       if (this.seatPositions[pid] === 2) tile.rotation.z = Math.PI;
-      tile.scale.setScalar(.55);
-      tile.position.y=.13;
-      tile.position.x=-4-(i%4)*.62;
-      tile.position.z=-2.25-Math.floor(i/4)*.85;
-      if (pid === 0) tile.position.z += OWN_HAND_Z;
+      tile.scale.setScalar(.8);
+      tile.position.y=.19;
+      tile.position.x=-4-(i%4)*.9;
+      tile.position.z=-riverDepth+2*1.58+TILE.height/2-.8*TILE.height/2
+        -Math.floor(i/4)*1.2;
       group.add(tile);
     });
   }
@@ -286,10 +302,16 @@ export class MahjongTableView {
     const seat = this.seatPositions[pid];
     const group=new THREE.Group();group.position.set(RIVERS[seat][0],0,RIVERS[seat][1]);
     group.rotation.y=ANGLES[seat];group.userData.riverPid=pid;this.tiles.add(group);
+    // Overflow stays inside the original three-row footprint; no discards are hidden.
+    const rows = Math.ceil(river.length / 6);
+    const scale = Math.min(1, (2 * 1.58 + TILE.height)
+      / (Math.max(0, rows - 1) * 1.58 + TILE.height));
     river.forEach((id,i)=>{
-      const tile=this.makeTile(id,false);tile.position.x=(i%6-2.5)*1.12;
+      const tile=this.makeTile(id,false);
+      tile.scale.setScalar(scale); tile.position.y *= scale;
+      tile.position.x=(i%6-2.5)*1.12*scale;
       if (seat === 2) tile.rotation.z = Math.PI;
-      tile.position.z=Math.floor(i/6)*1.58;
+      tile.position.z=Math.floor(i/6)*1.58*scale-(1-scale)*TILE.height/2;
       if(last?.pid===pid&&i===river.length-1){
         this.markLatest(tile);
       }
@@ -425,6 +447,7 @@ export class MahjongTableView {
     this.width=this.container.clientWidth;this.height=this.container.clientHeight;
     if(!this.width||!this.height)return;
     this.renderer.setSize(this.width,this.height);
+    this.camera.clearViewOffset();
     this.camera.aspect=this.width/this.height;
     // Frame a fixed, full 17-tile hand. Every object still uses this one camera.
     // The fit changes on viewport resize, never independently per seat or tile.
@@ -441,10 +464,15 @@ export class MahjongTableView {
       }
       const handZ=SEATS[0][1]+OWN_HAND_Z;
       const span=(this.project([DRAWN_X+.55,.77,handZ]).x-
-        this.project([OWN_MELD_START-.55,.77,handZ]).x)/this.width;
+        this.project([MELD_START-.55,.77,handZ]).x)/this.width;
       const farY=this.project([0,1.75,-9.1]).y/this.height;
-      if(span>.8 || farY<.14)near=scale;else far=scale;
+      if(span>.7 || farY<.14)near=scale;else far=scale;
     }
+    // Crop the same perspective uniformly, including projected hit targets.
+    this.camera.setViewOffset(this.width,this.height,
+      (this.width-this.width/this.zoom)/2+this.width*.01,this.height*.1375,
+      this.width/this.zoom,this.height/this.zoom);
+    this.camera.updateMatrixWorld();
     this.draw();
   }
 

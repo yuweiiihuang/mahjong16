@@ -39,7 +39,7 @@ function tileName(id) {
   return ['東','南','西','北','中','發','白','春','夏','秋','冬','梅','蘭','竹','菊'][id - 27];
 }
 function selectHandTile(action) {
-  if (busy) return;
+  if (busy || state.blocked_discards?.includes(action.tile)) return;
   if (chiSelection?.mode === 'tiles') {
     if (!canPickChi(action)) return;
     const picked = chiSelection.picked;
@@ -143,10 +143,12 @@ function syncProjection(view) {
     button.replaceChildren(); // Hit targets have no artwork; the 3D face is the only visible image.
     button.dataset.slot = slot;
     button.classList.add('tile-hit');
-    button.disabled = busy || (chiSelection?.mode === 'tiles' && !canPickChi(action))
+    button.disabled = busy || box.blocked || (chiSelection?.mode === 'tiles' && !canPickChi(action))
       || (tingMode && !state.legal_actions.some(candidate =>
       candidate.type === 'TING' && candidate.tile === action.tile && candidate.from === action.from));
     button.setAttribute('aria-pressed', String(box.selected));
+    button.title = box.blocked ? '剛吃進的同牌種，本次不能打出' : '';
+    button.setAttribute('aria-label', `${tileName(box.id)}${box.blocked ? '，本次不能打出' : ''}`);
     button.onclick = () => selectHandTile(action);
     button.style.cssText = `left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px`;
     if (hand.children[position] !== button) hand.insertBefore(button, hand.children[position] || null);
@@ -154,6 +156,8 @@ function syncProjection(view) {
   for (const button of existing.values()) button.remove();
   const actionBar = document.querySelector('.action-bar');
   const actionY = view.project([0,.5,9.4]).y;
+  document.querySelector('.my-heading').style.bottom =
+    `${view.height-view.project([0,1.475,10.9]).y+16}px`;
   actionBar.style.top = `${actionY}px`;
   $('ting-panel').style.top = `${actionY}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
@@ -273,8 +277,10 @@ function renderActions(){
       ting.setAttribute('aria-pressed', String(tingMode));
       ting.onclick = () => {
         if (busy) return;
-        const declaration = selected && state.legal_actions.find(action => action.type === 'TING'
-          && action.tile === selected.tile && action.from === selected.from);
+        const candidates = state.legal_actions.filter(action => action.type === 'TING');
+        const declaration = (selected && candidates.find(action =>
+          action.tile === selected.tile && action.from === selected.from))
+          || (candidates.every(action => action.tile === candidates[0].tile) && candidates[0]);
         if (declaration) { perform(declaration); return; }
         tingMode = !tingMode; selected = null; renderActions(); renderHand();
       };
@@ -358,7 +364,7 @@ function render(){
       `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : state.phase === 'REACTION' || state.actor === null ? '等待回應' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
   $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
-  $('me').replaceChildren(...person(0).childNodes);
+  $('me').replaceChildren(person(0));
   $('flowers').replaceChildren();
   if(state.flowers.length){const label=document.createElement('small');label.textContent='花牌';$('flowers').append(label);for(const id of state.flowers)$('flowers').append(tile(id,true));}
   renderActions();renderTing();renderHand();
@@ -689,7 +695,7 @@ $('history').onclick=()=>{
     for(const id of event.use||[])row.append(tile(id,true));$('history-list').append(row);
   }
 };
-$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手。本局開始後無法重新加入。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
+$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
   tingPassed = false; tingMode = false;
@@ -790,7 +796,9 @@ async function leaveRoom() {
 }
 $('multiplayer').onclick = () => {
   if (roomMode) {
-    modal('邀請朋友', '<p>將網址傳給朋友，對方確認加入後才會佔位。開局前皆可加入。</p><label class="setting-row">邀請網址<input id="invite-url" readonly></label><button class="modal-primary" id="copy-invite" aria-live="polite">複製邀請網址</button>');
+    modal('房間選單', '<p>將網址傳給朋友，對方確認加入後才會佔位。對局中也可加入，接替電腦空位並保留該座位牌局。</p><label class="setting-row">邀請網址<input id="invite-url" readonly></label><div class="join-buttons"><button class="modal-primary" id="copy-invite" aria-live="polite">複製邀請網址</button><button class="outline" id="room-leave">離開房間</button></div>');
+    $('room-leave').onclick = $('new-game').onclick;
+    $('room-leave').disabled = busy;
     $('invite-url').value = location.href;
     $('copy-invite').onclick = async () => {
       const button = $('copy-invite');
@@ -821,7 +829,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=chi-hand-selection-1');
+    const { MahjongTableView } = await import('./table3d.js?v=table-corners-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

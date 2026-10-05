@@ -3,9 +3,50 @@ import assert from 'node:assert/strict';
 import * as THREE from '../../ui/web/vendor/three.module.js';
 import { MahjongTableView } from '../../ui/web/table3d.js';
 
+test('table zoom uniformly enlarges projection and hit targets without accumulating on resize', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  Object.assign(view, {zoom:1.19, camera:new THREE.PerspectiveCamera(30,1,.1,180),
+    container:{clientWidth:1122,clientHeight:560},renderer:{setSize() {}},draw() {},
+    scene:new THREE.Scene(),handObjects:[]});
+  const tile = new THREE.Mesh(new THREE.BoxGeometry(1,1.4,.42));
+  tile.position.set(2,.77,10.9);
+  view.scene.add(tile); view.handObjects.push(tile);
+  for (const [width,height] of [[1122,560],[828,378],[651,363]]) {
+    Object.assign(view.container,{clientWidth:width,clientHeight:height});
+    view.resize();
+    if(width===1122){
+      // Approved preview starts at (100,77) and is 944 pixels wide.
+      const crop=view.camera.view;
+      assert.ok(Math.abs(crop.offsetX-100)<2,'keep the approved left margin');
+      assert.ok(Math.abs(crop.offsetY-77)<2,'keep the approved top margin');
+      assert.ok(Math.abs(crop.width-944)<2);
+    }
+    const points = [[-9,.77,10.9],[8,.77,10.9],[10.3,1.75,0],[0,1.75,-9.1]];
+    const zoomed = points.map(p => view.project(p));
+    const hit = view.hitBoxes()[0];
+    view.camera.clearViewOffset();
+    const original = points.map(p => view.project(p));
+    const originalHit = view.hitBoxes()[0];
+    for (let i=1;i<points.length;i++) {
+      for (const axis of ['x','y']) {
+        assert.ok(Math.abs((zoomed[i][axis]-zoomed[0][axis])-
+          1.19*(original[i][axis]-original[0][axis]))<1e-7,
+        'every seat must share the same 19 percent enlargement');
+      }
+    }
+    assert.ok(Math.abs(hit.width-originalHit.width*1.19)<1e-7);
+    assert.ok(Math.abs(hit.height-originalHit.height*1.19)<1e-7);
+    view.resize();
+    assert.deepEqual(points.map(p => view.project(p)),zoomed,
+      'repeated resizing must not compound zoom or shift hit targets');
+    assert.deepEqual(view.hitBoxes()[0],hit);
+  }
+});
+
 test('ting mode raises every eligible copy and drawn tile above ordinary selection', () => {
   const view = Object.create(MahjongTableView.prototype);
   const group = new THREE.Group();
+  view.seatPositions = [0,1,2,3];
   view.seatGroup = () => group;
   view.makeTile = (id, upright, action, selected) => {
     const tile = new THREE.Group();
@@ -132,7 +173,27 @@ test('discard frame and pointer appear only after the flying tile lands', async 
 });
 
 // Exercise the real tile builder and seat transforms without creating a WebGL renderer.
-function layout(meldCount, meldSize, flowerSeat, riverCount = 0) {
+test('chi restriction shades every forbidden copy and preserves disabled hit targets', () => {
+  const view = Object.create(MahjongTableView.prototype);
+  const originalFace = new THREE.MeshBasicMaterial({color:0xffffff});
+  Object.assign(view, {tiles:new THREE.Group(),handObjects:[],seatPositions:[0,1,2,3],
+    bodyGeometry:new THREE.BoxGeometry(1,1.4,.34),backGeometry:new THREE.BoxGeometry(1,1.4,.12),
+    faceGeometry:new THREE.PlaneGeometry(.9,1.3),ivory:new THREE.MeshBasicMaterial(),
+    jade:new THREE.MeshBasicMaterial(),faceMaterials:new Map([[2,originalFace],[3,originalFace]])});
+  view.addConcealed(0,{hand:[2,2,3],drawn:null,blocked_discards:[2],
+    legal_actions:[{type:'DISCARD',tile:3,from:'hand'}],players:[{melds:[],flowers:[]}]},null);
+  const tiles=view.tiles.children[0].children;
+  assert.equal(view.handObjects.length,3,'forbidden copies still have accessible disabled targets');
+  assert.deepEqual(tiles.map(t=>Boolean(t.userData.blocked)),[true,true,false]);
+  const shades=tiles.flatMap(t=>t.children.filter(mesh=>mesh.material===view.blockedShade));
+  assert.equal(shades.length,2);
+  assert.equal(shades[0].material,shades[1].material);
+  assert.equal(shades[0].material.opacity,.28);
+  assert.equal(originalFace.color.getHex(),0xffffff,'shared normal faces must remain unchanged');
+  assert.equal(tiles[2].children.length,3,'legal tiles have no dark overlay');
+});
+
+function layout(meldCount, meldSize, flowerSeat, riverCount = 0, drawn = false) {
   const view = Object.create(MahjongTableView.prototype);
   Object.assign(view, {
     tiles: new THREE.Group(), handObjects: [], seatPositions: [0, 1, 2, 3],
@@ -142,11 +203,11 @@ function layout(meldCount, meldSize, flowerSeat, riverCount = 0) {
     faceMaterials: new Map(),
   });
   const state = {
-    hand: Array(16 - 3 * meldCount).fill(0), drawn: null, legal_actions: [],
+    hand: Array(16 - 3 * meldCount).fill(0), drawn: drawn ? 3 : null, legal_actions: [],
     players: Array.from({length:4}, (_, pid) => ({
-      count:16 - 3 * meldCount,
+      count:16 - 3 * meldCount + Number(drawn), has_drawn:drawn,
       melds:Array.from({length:meldCount}, () => ({tiles:Array(meldSize).fill(0)})),
-      flowers:pid === flowerSeat ? Array.from({length:8}, (_, i) => i + 34) : [],
+      flowers:flowerSeat === -1 || pid === flowerSeat ? Array.from({length:8}, (_, i) => i + 34) : [],
     })),
   };
   for (let pid = 0; pid < 4; pid++) view.addConcealed(pid, state, null, [0,1,2,3]);
@@ -157,20 +218,37 @@ function layout(meldCount, meldSize, flowerSeat, riverCount = 0) {
   return view.tiles.children.flatMap((seat, pid) => seat.children
     .filter(tile => riverCount || tile.rotation.x !== 0)
     .map(tile => ({pid:seat.userData.riverPid ?? pid,
-      river:seat.userData.riverPid !== undefined,
+      river:seat.userData.riverPid !== undefined, upright:tile.rotation.x === 0,
       flower:tile.userData.id >= 34, box:new THREE.Box3().setFromObject(tile)})));
 }
 
-test('flowers never intersect their own or adjacent exposed melds in any seat', () => {
-  for (let flowerSeat = 0; flowerSeat < 4; flowerSeat++) {
+test('flowers remain readable, above the table and clear of exposed melds in every seat', () => {
+  for (const flowerSeat of [-1,0,1,2,3]) {
     for (let meldCount = 0; meldCount <= 5; meldCount++) {
       for (const meldSize of [3, 4]) {
         const tiles = layout(meldCount, meldSize, flowerSeat);
         for (const flower of tiles.filter(tile => tile.flower)) {
+          const size = flower.box.getSize(new THREE.Vector3());
+          assert.ok(Math.min(size.x, size.z) >= .75, 'flower faces must stay large enough to read');
+          assert.ok(flower.box.min.y >= 0, 'flowers must not sink into the table');
           for (const other of tiles.filter(tile => tile !== flower)) {
             assert.ok(!flower.box.intersectsBox(other.box),
               `flower seat ${flowerSeat} intersects seat ${other.pid}, ${meldCount} melds × ${meldSize}`);
           }
+        }
+      }
+    }
+  }
+});
+
+test('adjacent seats clear all melds, concealed tiles and drawn slots at table corners', () => {
+  for (let meldCount = 0; meldCount <= 5; meldCount++) {
+    for (const meldSize of [3, 4]) {
+      const tiles = layout(meldCount, meldSize, -1, 24, true);
+      for (let i = 0; i < tiles.length; i++) {
+        for (const other of tiles.slice(i + 1).filter(tile => tile.pid !== tiles[i].pid)) {
+          assert.ok(!tiles[i].box.intersectsBox(other.box),
+            `seat ${tiles[i].pid} intersects seat ${other.pid}, ${meldCount} melds × ${meldSize}`);
         }
       }
     }
@@ -260,13 +338,13 @@ test('melds stay anchored as concealed counts, draws and exposed groups change',
         view.addConcealed(pid, state, null, [0,1,2,3]);
         view.tiles.updateMatrixWorld(true);
         const group = view.tiles.children[0];
-        assert.equal(group.position.x, [0,10.3,0,-10.3][view.seatPositions[pid]]);
+        assert.equal(group.position.x, [0,11.2,0,-11.2][view.seatPositions[pid]]);
         const exposed = group.children.filter(tile => tile.rotation.x !== 0);
         const positions = exposed.map(tile => tile.getWorldPosition(new THREE.Vector3()).toArray());
         assert.deepEqual(positions.slice(0, previous.length), previous,
           'existing meld tiles must not move when another meld or drawn tile appears');
-        assert.equal(exposed[0].position.x, pid === 0 ? -9 - 1.045 : -7.84);
-        assert.ok(Math.abs(exposed[0].position.z - (pid === 0 ? 1.9 : -1)) < 1e-9);
+        assert.equal(exposed[0].position.x, -9.1);
+        assert.ok(Math.abs(exposed[0].position.z - (pid === 0 ? 1.31 : -.49)) < 1e-9);
         previous = positions;
       }
     }
@@ -388,15 +466,28 @@ test('table indicator has five panels and highlights the actor after seat change
 });
 
 
-test('three-row rivers clear hands, melds, flowers and other rivers in every seat', () => {
-  for (let flowerSeat = 0; flowerSeat < 4; flowerSeat++) {
+test('full and overflowing rivers clear hands, melds, flowers and rivers in every seat', () => {
+  for (const flowerSeat of [-1,0,1,2,3]) {
     for (let meldCount = 0; meldCount <= 5; meldCount++) {
       for (const meldSize of [3, 4]) {
-        const tiles = layout(meldCount, meldSize, flowerSeat, 18);
-        for (const river of tiles.filter(tile => tile.river)) {
-          for (const other of tiles.filter(tile => tile !== river)) {
-            assert.ok(!river.box.intersectsBox(other.box),
-              `river seat ${river.pid} intersects seat ${other.pid}, ${meldCount} melds × ${meldSize}`);
+        for (const riverCount of [18,19,24,30,64]) {
+          const tiles = layout(meldCount, meldSize, flowerSeat, riverCount, true);
+          assert.equal(tiles.filter(tile => tile.river).length, riverCount * 4);
+          for (let pid=0;pid<4;pid++) {
+            const row=tiles.filter(tile=>tile.pid===pid&&!tile.river&&!tile.flower);
+            const hand=row.find(tile=>tile.upright);
+            const edge=box=>[box.max.z,box.max.x,box.min.z,box.min.x][pid];
+            for (const meld of row.filter(tile=>!tile.upright)) {
+              assert.ok(Math.abs(edge(meld.box)-edge(hand.box))<1e-6,
+                'meld and hand bodies must align at their seat outer edge');
+            }
+          }
+          // 64 per seat is intentionally beyond a legal round to stress the layout.
+          for (const river of tiles.filter(tile => tile.river)) {
+            for (const other of tiles.filter(tile => tile !== river)) {
+              assert.ok(!river.box.intersectsBox(other.box),
+                `${riverCount} discards: river seat ${river.pid} intersects seat ${other.pid}, ${meldCount} melds × ${meldSize}`);
+            }
           }
         }
       }
