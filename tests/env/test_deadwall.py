@@ -25,7 +25,8 @@ def test_deadwall_fixed_flow():
 def test_deadwall_gang_plus_one():
     # 一槓一：base=16，每有 1 槓增加 1 留置
     env = Mahjong16Env(
-        Ruleset(include_flowers=False, dead_wall_mode="gang_plus_one", dead_wall_base=16),
+        Ruleset(include_flowers=False, dead_wall_mode="gang_plus_one", dead_wall_base=16,
+                allow_upstream_gang=True),
         seed=2,
     )
     env.reset()
@@ -72,9 +73,7 @@ def test_deadwall_gang_plus_one():
     env.wall = pool.remaining()
     # 讓牆剩 17 張；反應中產生 1 槓 → 補摸時也應因 16+1=17 留置而流局
     env.wall = env.wall[:17]
-    # P0 丟 X → P1 宣告 GANG → 其他 PASS
+    # P0 丟 X → P1 宣告 GANG；其他家無法改變結果，立即補摸。
     obs, _, _, _ = env.step({"type": "DISCARD", "tile": int(X), "from": "hand"})
-    obs, _, _, _ = env.step({"type": "GANG"})
-    obs, _, _, _ = env.step({"type": "PASS"})
-    obs, _, done, _ = env.step({"type": "PASS"})
+    obs, _, done, _ = env.step({"type": "GANG"})
     assert done, "因一槓一（16+1）而無法補摸，應流局"

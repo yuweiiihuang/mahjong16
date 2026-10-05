@@ -21,7 +21,7 @@ class TurnLoopMixin:
         acts: List[Action] = []
         if self._tsumo_available(pid):
             acts.append({"type": "HU", "source": "TSUMO"})
-        if me.drawn is not None:
+        if me.drawn is not None and me.drawn != me.chi_discard_lock:
             acts.append({"type": "DISCARD", "tile": me.drawn, "from": "drawn"})
         declared_ting = bool(getattr(me, "declared_ting", False))
         if not declared_ting:
@@ -70,6 +70,7 @@ class TurnLoopMixin:
         a_type = action.get("type")
         src = action.get("from", "hand")
         tile = action["tile"]
+        assert tile != self.players[pid].chi_discard_lock, "不能打出剛吃進的同牌種"
         if a_type == "TING":
             valid = any(
                 candidate["tile"] == tile and candidate.get("from") == src
@@ -88,6 +89,7 @@ class TurnLoopMixin:
         self.players[pid].river.append(tile)
         self.discard_pile.append(tile)
         self.discard_count += 1
+        self.players[pid].chi_discard_lock = None
         self.last_discard = {"pid": pid, "tile": tile}
         self._public_live_decrement(tile)
         if a_type == "TING":
@@ -173,6 +175,8 @@ class TurnLoopMixin:
         if not self.rules.allow_gang:
             return []
         me = self.players[pid]
+        if me.pong_waiting_draw:
+            return []
         pong_bases: List[int] = []
         for meld in (me.melds or []):
             if (meld.get("type") or "").upper() == "PONG":
@@ -197,7 +201,7 @@ class TurnLoopMixin:
             waits = waits_after_discard_17(me.hand, drawn, melds, tile, "hand", self.rules)
             if waits:
                 candidates.append({"type": "TING", "tile": tile, "from": "hand", "waits": waits})
-        if drawn is not None:
+        if drawn is not None and drawn != me.chi_discard_lock:
             waits = waits_after_discard_17(me.hand, drawn, melds, drawn, "drawn", self.rules)
             if waits:
                 candidates.append({"type": "TING", "tile": drawn, "from": "drawn", "waits": waits})
@@ -250,7 +254,8 @@ class TurnLoopMixin:
             break
 
     def _legal_discards(self, pid: int) -> List[int]:
-        return [t for t in self.players[pid].hand if not is_flower(t)]
+        me = self.players[pid]
+        return [t for t in me.hand if not is_flower(t) and t != me.chi_discard_lock]
 
 
 __all__ = ["TurnLoopMixin"]

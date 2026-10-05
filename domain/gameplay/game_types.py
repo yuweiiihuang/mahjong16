@@ -62,10 +62,10 @@ class Observation(TypedDict, total=False):
     flowers: List[int]
     melds: List[MeldPublic]
     declared_ting: bool
+    blocked_discards: List[int]
     melds_all: List[List[MeldPublic]]
     rivers: List[List[int]]
     live_public: List[int]
     n_remaining: int
     last_discard: Optional[DiscardPublic]
     legal_actions: List[Action]
-

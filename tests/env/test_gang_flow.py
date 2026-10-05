@@ -97,10 +97,8 @@ def test_kakan_triggers_qiang_gang_and_ron():
     obs, _, done, _ = env.step({"type": "KAKAN", "tile": int(Tile.D3)})
     assert not done and obs.get("phase") == "REACTION" and obs.get("player") == 1
     # P1 HU (qiang gang)
-    obs, _, _, _ = env.step({"type": "HU"})
-    # remaining reactors pass to resolve
-    obs, _, _, _ = env.step({"type": "PASS"})  # P2
-    _, _, done, _ = env.step({"type": "PASS"})  # P3
+    # Closest winning seat resolves immediately, including a robbed kong.
+    obs, _, done, _ = env.step({"type": "HU"})
     assert done
     assert env.winner == 1 and env.win_source == "RON"
     assert getattr(env, "win_by_qiang_gang", False) is True

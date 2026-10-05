@@ -57,13 +57,11 @@ def test_priority_pon_over_chi():
     env.last_discard = None
     # P0 模擬丟 5W
     obs, _, _, _ = env.step({"type": "DISCARD", "tile": int(Tile.W5), "from": "hand"})
-    # 反應視窗：先到 P1（可 CHI），我們選 CHI；再到 P2（可 PONG），我們也宣告 PONG；P3 PASS
+    # P1 選吃後等待可碰的 P2；P2 選碰後，不再等不能改變結果的 P3。
     # P1 選 CHI（3W,4W）
     obs, _, _, _ = env.step({"type": "CHI", "use": [int(Tile.W3), int(Tile.W4)]})
     # P2 宣告 PONG
     obs, _, _, _ = env.step({"type": "PONG"})
-    # P3 PASS
-    obs, _, _, _ = env.step({"type": "PASS"})
     # 結算應選擇 PONG 優先於 CHI，故輪到 P2，且 P2 手上應移除兩張 5W 並新增明刻
     assert env.turn == 2
     melds = env.players[2].melds

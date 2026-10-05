@@ -90,9 +90,7 @@ def test_public_live_updates_when_claiming_open_meld():
     assert obs_reaction["live_public"][tile] == 3
     assert obs_reaction["player"] == 1
 
-    env.step({"type": "PONG"})
-    env.step({"type": "PASS"})
-    obs_after_pong, _, _, _ = env.step({"type": "PASS"})
+    obs_after_pong, _, _, _ = env.step({"type": "PONG"})
     assert obs_after_pong["phase"] == "TURN"
     assert obs_after_pong["player"] == 1
     assert obs_after_pong["live_public"][tile] == 1

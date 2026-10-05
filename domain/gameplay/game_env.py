@@ -95,6 +95,7 @@ class MahjongEnvironment(TableSetupMixin, ReactionMixin, TurnLoopMixin):
             "flowers": list(me.flowers),
             "melds": [m if isinstance(m, dict) else list(m) for m in me.melds],
             "declared_ting": bool(getattr(me, "declared_ting", False)),
+            "blocked_discards": ([] if me.chi_discard_lock is None else [me.chi_discard_lock]),
             "melds_all": [[m if isinstance(m, dict) else list(m) for m in p.melds] for p in self.players],
             "rivers": [list(p.river) for p in self.players],
             "live_public": self._public_live_counts(),

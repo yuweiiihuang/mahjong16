@@ -19,6 +19,8 @@ class PlayerState:
     declared_ting: bool = False
     ting_declared_at: Optional[int] = None
     ting_declared_open_melds: Optional[int] = None
+    chi_discard_lock: Optional[int] = None
+    pong_waiting_draw: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """Return a shallow dictionary snapshot of the player state."""
@@ -34,4 +36,6 @@ class PlayerState:
             "declared_ting": self.declared_ting,
             "ting_declared_at": self.ting_declared_at,
             "ting_declared_open_melds": self.ting_declared_open_melds,
+            "chi_discard_lock": self.chi_discard_lock,
+            "pong_waiting_draw": self.pong_waiting_draw,
         }

@@ -33,6 +33,9 @@ class Ruleset:
       initial_hand: Initial concealed tiles per player (16 for Taiwan variant).
       max_rounds: Max number of rounds (not enforced by the environment yet).
       allow_chi/pong/gang/hu/zimo/ting: Action toggles.
+      allow_upstream_gang: Allow an exposed kong on the upstream player's discard.
+      allow_immediate_kakan_after_pong: Allow added kongs before the next normal draw.
+      allow_same_tile_discard_after_chi: Allow discarding the just-claimed tile kind.
       dead_wall_mode: 'fixed' or 'gang_plus_one' (one extra reserved per gang).
       dead_wall_base: Base reserved tiles for the dead wall (commonly 16).
       scoring_profile: Key used to load a scoring table from JSON.
@@ -56,6 +59,9 @@ class Ruleset:
     allow_hu: bool = True
     allow_zimo: bool = True
     allow_ting: bool = True
+    allow_upstream_gang: bool = False
+    allow_immediate_kakan_after_pong: bool = False
+    allow_same_tile_discard_after_chi: bool = False
 
     # 尾牌留置（流局）設定
     # - fixed: 固定留 N 張（預設 16）

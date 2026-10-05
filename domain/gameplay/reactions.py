@@ -36,6 +36,9 @@ class ReactionMixin:
             return acts
         tile = discard["tile"]
         player_state = self.players[actor]
+        from_upstream = (self._seat_index.get(actor)
+                         == (self._seat_index.get(discard["pid"], -999) + 1)
+                         % self.rules.n_players)
         ting_locked = bool(getattr(player_state, "declared_ting", False))
         if self.qiang_gang_mode:
             if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
@@ -43,14 +46,15 @@ class ReactionMixin:
             return acts
         if (
             (not ting_locked)
-            and (self._seat_index.get(actor) == (self._seat_index.get(discard["pid"], -999) + 1) % self.rules.n_players)
+            and from_upstream
             and self.rules.allow_chi
         ):
             for a, b in chi_options(tile, player_state.hand):
                 acts.append({"type": "CHI", "use": [a, b]})
         if (not ting_locked) and self.rules.allow_pong and player_state.hand.count(tile) >= 2:
             acts.append({"type": "PONG"})
-        if (not ting_locked) and self.rules.allow_gang and player_state.hand.count(tile) >= 3:
+        if ((not ting_locked) and self.rules.allow_gang and player_state.hand.count(tile) >= 3
+                and (not from_upstream or self.rules.allow_upstream_gang)):
             acts.append({"type": "GANG"})
         if self.rules.allow_hu and is_win_16(player_state.hand + [tile], player_state.melds, self.rules):
             acts.append({"type": "HU"})
@@ -62,8 +66,7 @@ class ReactionMixin:
         assert self.reaction_queue and 0 <= self.reaction_idx < len(self.reaction_queue), "reaction queue empty"
         if pid is None:
             pid = self.reaction_queue[self.reaction_idx]
-        else:
-            assert action in self.legal_actions(pid), "非法或已回應的操作"
+        assert action in self.legal_actions(pid), "非法或已回應的操作"
         assert pid in self.pending_reactions(), "玩家已回應或不在反應視窗"
         a_type = action.get("type")
         assert a_type in ("PASS", "CHI", "PONG", "GANG", "HU"), "反應期僅允許 PASS/CHI/PONG/GANG/HU"
@@ -85,6 +88,19 @@ class ReactionMixin:
         while (self.reaction_idx < len(self.reaction_queue)
                and self.reaction_queue[self.reaction_idx] in self.reaction_responses):
             self.reaction_idx += 1
+        best = self._resolve_claims()
+        if best is not None:
+            best_rank = (-best["priority"], best["distance"], best["pid"])
+            can_change = False
+            for candidate in self.pending_reactions():
+                distance = (self._seat_index[candidate]
+                            - self._seat_index[self.last_discard["pid"]]) % self.rules.n_players
+                if any((-PRIORITY[a["type"]], distance, candidate) < best_rank
+                       for a in self._reaction_phase_actions(candidate) if a["type"] != "PASS"):
+                    can_change = True
+                    break
+            if not can_change:
+                return self._resolve_reaction_window()
         if self.reaction_idx < len(self.reaction_queue):
             next_pid = self.reaction_queue[self.reaction_idx]
             return self._obs(next_pid), [0] * self.rules.n_players, False, {}
@@ -131,6 +147,7 @@ class ReactionMixin:
         self.phase = "TURN"
         base_idx = self._seat_index.get(self.last_discard["pid"], 0)
         self.turn = self.seating_order[(base_idx + 1) % self.rules.n_players]
+        self.players[self.turn].pong_waiting_draw = False
         self._draw_to_drawn(self.turn)
         if self.players[self.turn].drawn is None:
             self.done = True
@@ -164,6 +181,8 @@ class ReactionMixin:
         self._public_live_consume([use[0], use[1]])
         self.total_open_melds += 1
         self.players[claimer].drawn = None
+        if not self.rules.allow_same_tile_discard_after_chi:
+            self.players[claimer].chi_discard_lock = tile
         self.turn = claimer
         self.phase = "TURN"
         info = {"resolved_claim": {"pid": claimer, "type": "CHI", "tile": tile, "from_pid": discarder, "use": list(use)}}
@@ -178,6 +197,8 @@ class ReactionMixin:
         self._public_live_decrement(tile, amount=2)
         self.total_open_melds += 1
         self.players[claimer].drawn = None
+        if not self.rules.allow_immediate_kakan_after_pong:
+            self.players[claimer].pong_waiting_draw = True
         self.turn = claimer
         self.phase = "TURN"
         info = {"resolved_claim": {"pid": claimer, "type": "PONG", "tile": tile, "from_pid": discarder}}
