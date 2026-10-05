@@ -239,6 +239,14 @@ class WebTable:
         result['ting_waits'] = wait_details(waits_for_hand_16(
             result['hand'], result['melds'], env.rules
         )) if not env.done and (result['declared_ting'] or result['drawn'] is None) else []
+        if env.done:
+            # Reveal complete player perspectives only after the hand has finished.
+            result['final_hands'] = [
+                {'hand': list(player.hand), 'drawn': player.drawn,
+                 'melds': deepcopy(player.melds), 'flowers': list(player.flowers)}
+                for pid, player in enumerate(env.players)
+            ]
+            result['win_tile'] = env.win_tile
         if env.done and env.winner is not None:
             winner = env.players[env.winner]
             if env.flower_win_type:

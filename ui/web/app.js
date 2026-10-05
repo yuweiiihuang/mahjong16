@@ -466,28 +466,95 @@ function modal(title, content, className = ''){
   $('modal-content').innerHTML=`<h2>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
   if(!$('modal').open)$('modal').showModal();}
 function showResult(){
-  const winner=state.winner;
-  const result = state.settlement;
+  const winner = state.winner, result = state.settlement;
   const flower = {qi_qiang_yi:'七搶一', ba_xian:'八仙過海'}[result.flower_win_type];
-  modal(winner===null?'本局流局':`${names[winner]}${flower || (state.win_source==='TSUMO'?'自摸':'胡牌')}`,`<p>${winner===null?'本局無輸贏，莊家續莊。':`${result.tai} 台 · 底 ${result.base_points} 點／每台 ${result.tai_points} 點${result.payer!==null?` · ${escapeHtml(names[result.payer])} 放銃`:''}`}</p><div class="result-hand" id="result-hand"></div><div id="score-breakdown"></div><table class="settlement-table"><thead><tr><th>玩家</th><th>本局</th><th>累積點數</th></tr></thead><tbody id="score-players"></tbody></table><p>莊家付款可能另含莊家台。</p><button class="modal-primary" id="result-new">下一局　→</button>`, 'result-dialog');
-  for(const id of state.winning_hand||[])$('result-hand').append(tile(id));
-  if(winner!==null && !result.flower_win_type)melds(winner,$('result-hand'));
-  for (const item of result.breakdown) {
-    const row = document.createElement('div'); row.className = 'score-row';
-    const label = document.createElement('span'); label.textContent = item.label;
-    const count = document.createElement('strong'); count.textContent = `${item.points} 台`;
-    row.append(label, count); $('score-breakdown').append(row);
-  }
-  names.forEach((name, pid) => {
-    const row = document.createElement('tr');
-    for (const text of [name, `${result.payments[pid] > 0 ? '+' : ''}${result.payments[pid]}`, state.totals[pid]]) {
-      const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
+  const title = winner === null ? '流局' : flower || (state.win_source === 'TSUMO' ? '自摸' : '胡牌');
+  const seats = [...state.seating_order];
+  const start = winner === null ? 0 : seats.indexOf(winner);
+  const order = [...seats.slice(start), ...seats.slice(0, start)];
+  modal(title, `<p class="result-caption">第 ${state.round} 局 · ${winner === null ? '本局無輸贏' : `底 ${result.base_points} · 每台 ${result.tai_points}`}</p><div id="result-players"></div><div class="result-actions"><button class="modal-primary" id="result-new">下一局　→</button></div>`, 'result-dialog');
+  for (const pid of order) {
+    const player = state.final_hands?.[pid];
+    const card = document.createElement('section');
+    card.className = `result-player${pid === winner ? ' result-winner' : ''}`;
+    const header = document.createElement('div'); header.className = 'result-player-heading';
+    const name = escapeHtml(names[pid]);
+    const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
+    header.innerHTML = `<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><strong title="${name}">${name}</strong><span class="result-wind" aria-label="${wind}家">${wind}</span>${pid === winner ? '<span class="result-badge">胡</span>' : ''}${state.dealer === pid ? '<span class="dealer">莊</span>' : ''}${pid === result.payer ? '<span class="result-payer">放槍</span>' : ''}`;
+    const points = document.createElement('div'); points.className = 'result-points';
+    for (const [label, value] of [['本局', result.payments[pid]], ['累積', state.totals[pid]]]) {
+      const amount = document.createElement('span');
+      const caption = document.createElement('small'); caption.textContent = label;
+      const number = document.createElement('strong');
+      number.textContent = `${label === '本局' && value > 0 ? '+' : ''}${value}`;
+      if (label === '本局') number.className = value > 0 ? 'points-positive' : value < 0 ? 'points-negative' : '';
+      amount.append(caption, number); points.append(amount);
     }
-    $('score-players').append(row);
-  });
+    header.append(points); card.append(header);
+    const tiles = document.createElement('div'); tiles.className = 'result-tiles';
+    const melds = player?.melds ?? state.players[pid].melds.filter(m => m.tiles.every(id => id !== null));
+    const meldOrder = sortHand(melds.map(m => Math.min(...m.tiles)), sortOrder);
+    const sortedMelds = [...melds].sort((a, b) =>
+      meldOrder.indexOf(Math.min(...a.tiles)) - meldOrder.indexOf(Math.min(...b.tiles)));
+    const addGroup = (ids, kind, label) => {
+      if (!ids.length) return;
+      const group = document.createElement('div'); group.className = `result-group result-${kind}`;
+      group.setAttribute('role', 'group'); group.setAttribute('aria-label', label); group.title = label;
+      if (kind === 'meld' && ids.length === 4) group.classList.add('result-kong');
+      for (const id of ids) {
+        const face = tile(id);
+        if (kind === 'flowers' && pid === winner && id === state.win_tile) face.classList.add('result-winning-tile');
+        group.append(face);
+      }
+      tiles.append(group);
+    };
+    if (player) {
+      addGroup([...player.flowers].sort((a, b) => a - b), 'flowers', '花牌');
+      for (const meld of sortedMelds) addGroup(sortHand(meld.tiles, sortOrder), 'meld', labels[meld.type] || meld.type);
+      addGroup(sortHand(player.hand, sortOrder), 'concealed', '手牌');
+      const winning = pid === winner && state.win_tile !== null
+        && !(result.flower_win_type && player.flowers.includes(state.win_tile));
+      if (player.drawn !== null && (!winning || player.drawn !== state.win_tile)) addGroup([player.drawn], 'drawn', '摸牌');
+      if (winning) addGroup([state.win_tile], 'winning', title);
+    } else {
+      // Older running tables can still show the previously available winner tiles.
+      addGroup([...(pid === winner && result.flower_win_type ? state.winning_hand || [] : state.players[pid].flowers)].sort((a, b) => a - b), 'flowers', '花牌');
+      for (const meld of sortedMelds) addGroup(sortHand(meld.tiles, sortOrder), 'meld', labels[meld.type]);
+      if (pid === winner && !result.flower_win_type) addGroup(sortHand(state.winning_hand || [], sortOrder), 'concealed', '手牌');
+    }
+    card.append(tiles);
+    if (pid === winner || (winner !== null && pid === state.dealer)) {
+      const expandable = pid === winner
+        ? result.tai > 0 && result.breakdown.length > 0 : result.payments[pid] < 0;
+      const details = document.createElement(expandable ? 'details' : 'div');
+      details.className = 'result-scoring';
+      const summary = document.createElement(expandable ? 'summary' : 'span');
+      const streak = state.dealer_streak || 0;
+      summary.textContent = pid === winner ? `胡牌 ${result.tai} 台`
+        : `莊・連 ${streak}　${result.payments[pid] < 0 ? `加 ${2 * streak + 1} 台` : '本局未收付'}`;
+      details.append(summary);
+      const addScore = (label, value) => {
+        const row = document.createElement('div'); row.className = 'score-row';
+        const caption = document.createElement('span'); caption.textContent = label;
+        const amount = document.createElement('strong'); amount.textContent = value;
+        row.append(caption, amount); details.append(row);
+      };
+      if (pid === winner && expandable) {
+        for (const item of result.breakdown) addScore(item.label, `${item.points} 台`);
+      } else if (result.payments[pid] < 0) {
+        const basic = result.base_points + result.tai * result.tai_points;
+        const payment = -result.payments[pid];
+        addScore('基本收付', `${basic}`);
+        addScore(`莊家加台　${2 * streak + 1} × ${result.tai_points}`, `${payment - basic}`);
+        addScore(`付給 ${names[winner]}`, `${payment}`);
+      }
+      card.append(details);
+    }
+    $('result-players').append(card);
+  }
   $('result-new').disabled = !!state.room && !state.room.host;
   if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
-  $('result-new').onclick=()=>newGame(true);
+  $('result-new').onclick = () => newGame(true);
 }
 $('help').onclick=()=>modal('遊戲說明',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，點「吃」後再選擇牌組。</li><li>花牌會自動補花。可聽牌時，右下角會顯示提示。按「聽」讓候選牌跳起，再點一張即可出牌並宣告聽牌。再按「聽」可取消選擇模式。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。提示牌面旁的數字代表未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
 $('table-nav').onclick=()=>$('modal').close();

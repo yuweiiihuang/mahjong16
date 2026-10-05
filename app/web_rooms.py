@@ -80,6 +80,8 @@ class WebRoom:
         order = [(viewer + i) % 4 for i in range(4)]
         for key in ('players', 'melds_all', 'rivers', 'seat_winds', 'totals'):
             state[key] = [state[key][pid] for pid in order]
+        if 'final_hands' in state:
+            state['final_hands'] = [state['final_hands'][pid] for pid in order]
         for key in ('player', 'actor', 'winner', 'dealer'):
             state[key] = relative(state[key])
         state['seating_order'] = [relative(pid) for pid in state['seating_order']]
@@ -91,6 +93,10 @@ class WebRoom:
                 event['from_pid'] = relative(event['from_pid'])
         for melds in state['melds_all']:
             for meld in melds:
+                if 'from_pid' in meld:
+                    meld['from_pid'] = relative(meld['from_pid'])
+        for player in state.get('final_hands', []):
+            for meld in player['melds']:
                 if 'from_pid' in meld:
                     meld['from_pid'] = relative(meld['from_pid'])
         state['melds'] = deepcopy(state['melds_all'][0])

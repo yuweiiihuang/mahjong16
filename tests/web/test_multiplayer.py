@@ -154,6 +154,16 @@ def test_four_players_complete_round_with_engine_parity_and_rotated_payments(see
         for viewer, sid in enumerate(room.seats):
             state = room.snapshot(sid)
             assert state['settlement']['payments'] == payments[viewer:] + payments[:viewer]
+            for relative_pid, final in enumerate(state['final_hands']):
+                original = room.table.env.players[(viewer + relative_pid) % 4]
+                assert final['hand'] == original.hand
+                assert final['drawn'] == original.drawn
+                assert final['flowers'] == original.flowers
+                for meld, actual in zip(original.melds, final['melds']):
+                    assert actual['tiles'] == meld['tiles']
+                    if 'from_pid' in meld:
+                        assert actual['from_pid'] == (meld['from_pid'] - viewer) % 4
+
         totals = list(room.table.totals)
         room.table.settle()
         assert room.table.totals == totals

@@ -138,3 +138,32 @@ def test_unseen_hints_ignore_opponent_concealed_kong_identity():
     assert table.snapshot()['ting_waits'] == [
         {'tile': 0, 'unseen': 4}, {'tile': 3, 'unseen': 1}
     ]
+
+
+def test_final_hands_reveal_only_after_done_and_keep_player_groups():
+    table = WebTable(42, human_pids={0, 1, 2, 3})
+    env = table.env
+    env.players[2].hand = [9, 2, 1, 27]
+    env.players[2].drawn = 18
+    env.players[2].flowers = [35, 34]
+    env.players[2].melds = [
+        {'type': 'CHI', 'tiles': [3, 4, 5], 'from_pid': 1},
+        {'type': 'ANGANG', 'tiles': [6, 6, 6, 6]},
+    ]
+    before = table.snapshot(0)
+    assert 'final_hands' not in before
+    assert before['players'][2]['melds'][1]['tiles'] == [None] * 4
+    env.done = True
+    env.winner = 2
+    env.win_source = 'TSUMO'
+    env.win_tile = 18
+    final = table.snapshot(0)
+    assert final['final_hands'][2] == {
+        'hand': [9, 2, 1, 27], 'drawn': 18, 'flowers': [35, 34],
+        'melds': [{'type': 'CHI', 'tiles': [3, 4, 5], 'from_pid': 1},
+                  {'type': 'ANGANG', 'tiles': [6, 6, 6, 6]}],
+    }
+    assert final['win_tile'] == 18
+    assert [p['hand'] for p in final['final_hands']] == [p.hand for p in env.players]
+    final['final_hands'][2]['hand'].clear()
+    assert env.players[2].hand == [9, 2, 1, 27]
