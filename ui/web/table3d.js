@@ -197,14 +197,18 @@ export class MahjongTableView {
       const face=new THREE.Mesh(this.faceGeometry,this.faceMaterials.get(id));
       face.position.z=.216;group.add(face);
     }
-    if(blocked) {
-      this.blockedShade ||= new THREE.MeshBasicMaterial({color:0x000000,transparent:true,
-        opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-      const shade=new THREE.Mesh(this.faceGeometry,this.blockedShade);
-      shade.position.z=.218;group.add(shade);
-    }
     const back=new THREE.Mesh(this.backGeometry,this.jade);back.position.z=-.17;
     back.castShadow=true;back.receiveShadow=true;group.add(back);
+    if(blocked) {
+      this.blockedMaterials ||= new WeakMap();
+      for(const mesh of group.children) {
+        if(!this.blockedMaterials.has(mesh.material)) {
+          const dark=mesh.material.clone();dark.color.multiplyScalar(.55);
+          this.blockedMaterials.set(mesh.material,dark);
+        }
+        mesh.material=this.blockedMaterials.get(mesh.material);
+      }
+    }
     if(upright){group.rotation.x=0;group.position.y=.705+(selected?.22:0);}
     else{group.rotation.x=-Math.PI/2;group.position.y=.235;}
     group.userData={id,action,selected,blocked};

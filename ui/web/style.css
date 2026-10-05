@@ -45,7 +45,12 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 .ting-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:12px;color:#315f4c;cursor:pointer;list-style:none}.ting-heading::-webkit-details-marker{display:none}.ting-heading::after{content:'＋';font-size:16px;line-height:1}#ting-panel[open] .ting-heading{margin-bottom:5px}#ting-panel[open] .ting-heading::after{content:'−'}.ting-heading:focus-visible{outline:2px solid #8b7036;outline-offset:3px;border-radius:3px}
 .ting-row{display:flex;align-items:center;gap:9px;padding:5px 0}.ting-row+.ting-row{border-top:1px solid #dfe5d5}.ting-row>.tile{background:#e3efe6;border-color:#94bba3}.ting-arrow{font-size:17px;color:#73927c}
 .wait-tiles{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.wait-tile{position:relative;display:flex}.wait-tile small{position:absolute;bottom:-2px;right:-3px;min-width:17px;height:17px;border-radius:9px;background:#315f4c;color:#fff;font:600 11px sans-serif;display:grid;place-items:center;border:1px solid #f7f7ed}
+#ting-panel{--ting-chrome:48px;max-height:var(--ting-max-height)}
+.ting-body{max-height:max(0px,calc(var(--ting-max-height,400px) - var(--ting-chrome)));overflow-y:auto;overscroll-behavior:contain;padding:2px 4px 3px 0}
+.ting-body:focus-visible{outline:1px solid #8b7036;outline-offset:1px;border-radius:3px}
+.ting-body .wait-tiles{min-width:0;flex:1}
 @media(max-width:950px) and (orientation:landscape){#ting-panel{right:14px;padding:6px 8px;max-width:220px}.ting-row{padding:3px 0;gap:6px}#ting-panel .tile.small{width:22px;height:30px}.ting-heading{font-size:10px;margin-bottom:3px}.wait-tile small{min-width:14px;height:14px;font-size:9px}}
+@media(max-width:950px) and (orientation:landscape){#ting-panel{--ting-chrome:40px}}
 dialog{max-height:85dvh;overflow-y:auto}
 .result-dialog{padding:24px}.result-dialog h2{margin-bottom:14px}.result-dialog p{margin:10px 0;font-size:12px;line-height:1.5}
 .result-dialog .result-hand{margin:12px 0}.result-dialog .result-hand .tile{width:30px;height:42px;padding:2px}

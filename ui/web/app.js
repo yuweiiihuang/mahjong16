@@ -160,6 +160,11 @@ function syncProjection(view) {
     `${view.height-view.project([0,1.475,10.9]).y+16}px`;
   actionBar.style.top = `${actionY}px`;
   $('ting-panel').style.top = `${actionY}px`;
+  $('ting-panel').style.setProperty('--ting-max-height',
+    `${Math.max(0, (actionY-12)/(view.zoom || 1))}px`);
+  const panel = $('ting-panel');
+  actionBar.style.right = panel.hidden ? '' :
+    `${parseFloat(getComputedStyle(panel).right)+panel.offsetWidth*(view.zoom || 1)+12}px`;
   const positions = {2:[0,2.5,-10.3],3:[-12.2,2.2,-3.1],1:[12.2,2.2,-3.1]};
   const order = state.seating_order;
   for (const pid of [1,2,3]) {
@@ -168,6 +173,7 @@ function syncProjection(view) {
     el.style.left=`${p.x}px`;el.style.top=`${p.y}px`;
   }
 }
+$('ting-panel').ontoggle = () => { if (tableView) syncProjection(tableView); };
 function actionButton(text, action, primary=false) {
   const button=document.createElement('button');button.textContent=text;
   button.className=primary?'primary':'';button.disabled=busy;
@@ -317,6 +323,9 @@ function renderTing() {
   const label = document.createElement('span'); label.textContent = '聽牌提示';
   header.title = '數字是未見牌數，包含對手手牌及尾牌，不代表牌牆可摸張數。';
   header.append(label); target.append(header);
+  const body = document.createElement('div'); body.className = 'ting-body';
+  body.tabIndex = 0; body.setAttribute('role', 'region');
+  body.setAttribute('aria-label', '聽牌選項'); target.append(body);
   for (const option of options) {
     const row = document.createElement('div'); row.className = 'ting-row';
     if (option.tile !== undefined) {
@@ -331,7 +340,7 @@ function renderTing() {
       item.setAttribute('aria-label', `${tileName(wait.tile)}，未見 ${wait.unseen} 張`);
       item.append(tile(wait.tile, true), count); waits.append(item);
     }
-    row.append(waits); target.append(row);
+    row.append(waits); body.append(row);
   }
 }
 function render(){
@@ -829,7 +838,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=table-corners-1');
+    const { MahjongTableView } = await import('./table3d.js?v=whole-tile-dim-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

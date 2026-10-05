@@ -98,13 +98,15 @@ for (const declared of [false, true]) test(`ting hints remain visible during pla
 
 
 test('local identity position stays fixed when drawn and raised tile bounds change', () => {
-  const node = () => ({children:[],style:{},dataset:{},classList:{add() {}},
+  const node = () => ({children:[],style:{setProperty(key,value) { this[key]=value; }},dataset:{},classList:{add() {}},
     replaceChildren() {},setAttribute() {},
     insertBefore(button) { this.children.push(button); }});
   const elements = Object.fromEntries(['hand','ting-panel','seat-1','seat-2','seat-3']
     .map(id => [id,node()]));
   const heading=node(),bar=node();
+  elements['ting-panel'].offsetWidth = 150;
   const ctx=vm.createContext({state:{hand:[],seating_order:[0,1,2,3]},busy:false,
+    getComputedStyle:() => ({right:'22px'}),
     tingMode:false,chiSelection:null,selected:null,sortOrder:null,
     $:id => elements[id],tile:node,tileName:String,sortHand:hand => hand,
     selectHandTile() {},document:{querySelector:selector =>
@@ -120,4 +122,12 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
     ctx.syncProjection(view);
     assert.equal(heading.style.bottom,baseline);
   }
+  view.zoom = 1.19;
+  ctx.syncProjection(view);
+  assert.ok(Math.abs(parseFloat(elements['ting-panel'].style['--ting-max-height'])*1.19-288)<1e-9,
+    'expanded hints must leave a top margin after table scaling');
+  assert.equal(bar.style.right,'212.5px','actions must reserve the full scaled hint width');
+  elements['ting-panel'].hidden = true;
+  ctx.syncProjection(view);
+  assert.equal(bar.style.right,'','hidden hints must release the reserved space');
 });

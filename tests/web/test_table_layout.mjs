@@ -185,12 +185,17 @@ test('chi restriction shades every forbidden copy and preserves disabled hit tar
   const tiles=view.tiles.children[0].children;
   assert.equal(view.handObjects.length,3,'forbidden copies still have accessible disabled targets');
   assert.deepEqual(tiles.map(t=>Boolean(t.userData.blocked)),[true,true,false]);
-  const shades=tiles.flatMap(t=>t.children.filter(mesh=>mesh.material===view.blockedShade));
-  assert.equal(shades.length,2);
-  assert.equal(shades[0].material,shades[1].material);
-  assert.equal(shades[0].material.opacity,.28);
+  for(let i=0;i<3;i++) {
+    const dark=tiles[0].children[i],normal=tiles[2].children[i];
+    assert.notEqual(dark.material,normal.material);
+    assert.equal(dark.material,tiles[1].children[i].material,'blocked copies share materials');
+    assert.equal(dark.geometry,normal.geometry,'dimming must not add a face-only overlay');
+    assert.ok(Math.abs(dark.material.color.r-normal.material.color.r*.55)<1e-9);
+    assert.ok(Math.abs(dark.material.color.g-normal.material.color.g*.55)<1e-9);
+    assert.ok(Math.abs(dark.material.color.b-normal.material.color.b*.55)<1e-9);
+  }
   assert.equal(originalFace.color.getHex(),0xffffff,'shared normal faces must remain unchanged');
-  assert.equal(tiles[2].children.length,3,'legal tiles have no dark overlay');
+  assert.ok(tiles.every(tile=>tile.children.length===3),'all tiles retain the same shape');
 });
 
 function layout(meldCount, meldSize, flowerSeat, riverCount = 0, drawn = false) {
