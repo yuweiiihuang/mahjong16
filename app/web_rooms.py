@@ -48,16 +48,20 @@ class WebRoom:
         self.changed.notify_all()
 
     def join(self, sid: str, name: str = '') -> None:
-        """Reserve a lobby seat, or reconnect to an already reserved seat."""
+        """Take an unreserved bot seat without changing its game state, or reconnect."""
         name = player_name(name)
         if sid not in self.seats:
-            if self.started:
-                raise ValueError('本桌已開局，請等下一桌再加入。')
             if None not in self.seats:
                 raise ValueError('房間已滿。')
             seat = self.seats.index(None)
             self.seats[seat] = sid
             self.names[sid] = name or f'玩家 {seat + 1}'
+            if not self.owner:
+                self.owner = sid
+            if self.thinking and self.event == {'pid': seat, 'type': 'THINK'}:
+                self.thinking = False
+                self.event = None
+                self.ready_at = 0
             self.publish()
         self.touch(sid)
 
@@ -242,7 +246,7 @@ class RoomRegistry:
             return room
 
     def join(self, sid: str, code: str, name: str = '') -> WebRoom:
-        """Join an existing lobby without assigning one identity to multiple rooms."""
+        """Join a free seat without assigning one identity to multiple rooms."""
         with self.lock:
             room = self.rooms.get(code)
             if room is None:

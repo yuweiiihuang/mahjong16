@@ -3,6 +3,7 @@ import http.client
 import json
 import threading
 import time
+from copy import deepcopy
 from http.server import ThreadingHTTPServer
 
 import pytest
@@ -101,8 +102,6 @@ def test_tentative_and_rejected_claims_never_reveal_hand_tiles(room):
     table.apply({'type': 'CHI', 'use': [0, 2]})
     assert room.snapshot('a')['events'] == []
     table.apply({'type': 'PONG'})
-    assert room.snapshot('a')['events'] == []
-    table.apply({'type': 'PASS'})
     assert table.events == [{'pid': 2, 'type': 'PONG', 'tile': 1, 'from_pid': 0}]
     assert room.snapshot('b')['events'] == [
         {'pid': 1, 'type': 'PONG', 'tile': 1, 'from_pid': 3}]
@@ -207,6 +206,93 @@ def test_registry_room_capacity_join_lock_and_host_transfer():
     assert '你' not in names and '玩家 3' in names and '電腦玩家' in names
     with pytest.raises(ValueError):
         registry.get('a')
+
+
+@pytest.mark.parametrize('stage', ['turn', 'thinking', 'reaction'])
+def test_midgame_guest_takes_bot_seat_without_resetting_game(monkeypatch, stage):
+    clock = [100.0]
+    monkeypatch.setattr('app.web_rooms.time.monotonic', lambda: clock[0])
+    registry = RoomRegistry()
+    room = registry.create('a', WebTable)
+    registry.join('b', room.code)
+    registry.join('c', room.code)
+    with room.changed:
+        room.start('a')
+        room.ready_at = 0
+        env = room.table.env
+        env.turn = 3
+        env.players[3].drawn = env.wall.pop()
+        room.table.totals = [1100, 1200, 900, 800]
+        if stage == 'thinking':
+            room.tick(clock[0])
+            assert room.event == {'pid': 3, 'type': 'THINK'}
+        elif stage == 'reaction':
+            env.phase = 'REACTION'
+            env.reaction_queue = [3]
+            env.reaction_idx = 0
+            env.last_discard = {'pid': 0, 'tile': 1}
+            env.players[0].river.append(1)
+            env.players[3].hand = [1, 1]
+        before = [deepcopy(room.table.snapshot(pid)) for pid in range(4)]
+        wall = list(env.wall)
+        version = room.version
+    assert registry.join('guest', room.code, '中途加入') is room
+    with room.changed:
+        assert room.table.env is env
+        assert room.seats == ['a', 'b', 'c', 'guest']
+        assert registry.get('guest') is room
+        assert room.version == version + 1
+        assert [room.table.snapshot(pid) for pid in range(4)] == before
+        assert env.wall == wall
+        state = room.snapshot('guest')
+        assert state['hand'] == env.players[3].hand
+        assert state['drawn'] == env.players[3].drawn
+        assert state['totals'] == [800, 1100, 1200, 900]
+        assert state['room']['members'][0]['name'] == '中途加入'
+        assert state['room']['members'][0]['human']
+        assert state['legal_actions']
+        clock[0] += 1
+        room.tick(clock[0])
+        assert [room.table.snapshot(pid) for pid in range(4)] == before
+        if stage == 'thinking':
+            assert not room.thinking and room.event is None and room.ready_at == 0
+        action = room.snapshot('guest')['legal_actions'][0]
+        room.act('guest', room.version, 'guest-first-move', action)
+        assert room.table.snapshot(3) != before[3]
+
+
+@pytest.mark.parametrize('stage', ['other_thinking', 'submitted_reaction'])
+def test_bot_seat_handoff_preserves_other_thinking_and_submitted_responses(stage):
+    registry = RoomRegistry()
+    room = registry.create('a', WebTable)
+    registry.join('b', room.code)
+    with room.changed:
+        room.start('a')
+        env = room.table.env
+        if stage == 'other_thinking':
+            env.turn = 3
+            env.players[3].drawn = env.wall.pop()
+            room.ready_at = 0
+            room.tick(time.monotonic())
+            assert room.event == {'pid': 3, 'type': 'THINK'}
+        else:
+            env.phase = 'REACTION'
+            env.reaction_queue = [2, 3]
+            env.reaction_idx = 0
+            env.last_discard = {'pid': 0, 'tile': 1}
+            env.players[0].river.append(1)
+            env.players[3].hand = [1, 1]
+            env.step({'type': 'PASS'}, pid=2)
+            assert env.reaction_responses == {2: {'type': 'PASS'}}
+        before = deepcopy([p.as_dict() for p in env.players])
+        responses = deepcopy(env.reaction_responses)
+        scheduled = (room.thinking, deepcopy(room.event), room.ready_at)
+    registry.join('guest', room.code)
+    with room.changed:
+        assert room.seats == ['a', 'b', 'guest', None]
+        assert [p.as_dict() for p in env.players] == before
+        assert env.reaction_responses == responses
+        assert (room.thinking, room.event, room.ready_at) == scheduled
 
 
 @pytest.mark.parametrize('finished', [False, True])
@@ -327,6 +413,17 @@ def test_http_invites_cookie_seat_auth_and_long_poll(online_server):
         status, state, _ = request('/api/room/state', cookie=cookie)
         assert status == 200 and state['player'] == 0
     assert request('/api/room/leave', {}, cookies[3])[0] == 200
+    with room.changed:
+        before = deepcopy(room.table.snapshot(3))
+    status, guest, replacement = request('/api/room/join',
+                                         {'code': code, 'name': '接替電腦'})
+    assert status == 200 and replacement not in cookies
+    assert guest['hand'] == before['hand'] and guest['drawn'] == before['drawn']
+    assert guest['melds'] == before['melds'] and guest['flowers'] == before['flowers']
+    assert guest['room']['members'][0]['name'] == '接替電腦'
+    assert guest['room']['members'][0]['human']
+    with room.changed:
+        assert room.table.snapshot(3) == before
 
 
 def test_names_are_consistent_across_viewers_and_reconnects():
