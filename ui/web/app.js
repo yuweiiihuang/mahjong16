@@ -109,11 +109,12 @@ function tile(id, small = false, action = null, font = tileFont) {
 function person(pid, sidebar = false) {
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
   const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong>${escapeHtml(names[pid])}${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${wind}家 · ${state.totals[pid]} 點${state.players[pid].ting?' · 已宣告聽牌':''}</small></div>`;
-  if (state.room) {
+  const name = escapeHtml(names[pid]);
+  const detail = `${sidebar ? `${wind}家 · ` : ''}${state.totals[pid]} 點${state.players[pid].ting ? '<span class="ting-status"> · 聽牌</span>' : ''}`;
+  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span>${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${detail}</small></div>`;
+  if (sidebar && state.room) {
     const member = state.room.members[pid];
-    const detail = wrap.querySelector('small');
-    detail.textContent += member.human ? (member.connected ? ' · 真人' : ' · 暫時離線') : ' · 電腦';
+    wrap.querySelector('small').append(member.human ? (member.connected ? ' · 真人' : ' · 暫時離線') : ' · 電腦');
   }
   return wrap;
 }
@@ -170,7 +171,8 @@ function syncProjection(view) {
   for (const pid of [1,2,3]) {
     const seat = (order.indexOf(pid) - order.indexOf(0) + 4) % 4;
     const p=view.project(positions[seat]); const el=$(`seat-${pid}`);
-    el.style.left=`${p.x}px`;el.style.top=`${p.y}px`;
+    el.style.left=`${p.x}px`;
+    el.style.top=`${Math.max(p.y, el.offsetHeight*(view.zoom || 1)/2+8)}px`;
   }
 }
 $('ting-panel').ontoggle = () => { if (tableView) syncProjection(tableView); };
@@ -455,7 +457,7 @@ async function newGame(next = false){
   tingPassed = false;
   if (roomMode) return roomCommand('/api/room/next');
   if(busy)return;busy=true;$('new-game').disabled=true;
-  try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done)toast(next?'下一局開始，點數已保留。':'新牌桌開始，每位玩家 1,000 點。');}
+  try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done && !next)toast('新牌桌開始，每位玩家 1,000 點。');}
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = ''){
@@ -761,7 +763,7 @@ function rememberPlayerName(name) {
   localStorage.setItem('qinghe-player-name',name);
 }
 function nameField() {
-  return '<label class="setting-row player-name-row" for="player-name">玩家名稱（可選）<span><input id="player-name" maxlength="20" autocomplete="nickname" placeholder="留空使用預設名稱"><button id="random-name" class="name-random" type="button">隨機</button></span></label>';
+  return '<label class="setting-row player-name-row" for="player-name">玩家名稱（可選）<span><input id="player-name" autocomplete="nickname" placeholder="留空使用預設名稱"><button id="random-name" class="name-random" type="button">隨機</button></span></label>';
 }
 function setupNameField(name = playerName) {
   $('player-name').value = name;

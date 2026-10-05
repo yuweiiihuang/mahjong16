@@ -16,8 +16,8 @@ def player_name(value: str) -> str:
     if not isinstance(value, str):
         raise ValueError('玩家名稱必須是文字。')
     name = value.strip()
-    if len(name) > 20 or any(ord(char) < 32 or ord(char) == 127 for char in name):
-        raise ValueError('玩家名稱最多 20 個字，不能包含換行或控制字元。')
+    if any(ord(char) < 32 or ord(char) == 127 for char in name):
+        raise ValueError('玩家名稱不能包含換行或控制字元。')
     return name
 
 

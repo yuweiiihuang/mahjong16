@@ -98,7 +98,7 @@ for (const declared of [false, true]) test(`ting hints remain visible during pla
 
 
 test('local identity position stays fixed when drawn and raised tile bounds change', () => {
-  const node = () => ({children:[],style:{setProperty(key,value) { this[key]=value; }},dataset:{},classList:{add() {}},
+  const node = () => ({children:[],offsetHeight:0,style:{setProperty(key,value) { this[key]=value; }},dataset:{},classList:{add() {}},
     replaceChildren() {},setAttribute() {},
     insertBefore(button) { this.children.push(button); }});
   const elements = Object.fromEntries(['hand','ting-panel','seat-1','seat-2','seat-3']
@@ -130,4 +130,10 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
   elements['ting-panel'].hidden = true;
   ctx.syncProjection(view);
   assert.equal(bar.style.right,'','hidden hints must release the reserved space');
+  elements['seat-2'].offsetHeight = 40;
+  view.project = point => ({x:100,y:point[2] === -10.3 ? -10 : 300});
+  ctx.syncProjection(view);
+  assert.ok(Math.abs(parseFloat(elements['seat-2'].style.top)-31.8)<1e-9,
+    'the scaled opposite identity must keep eight pixels inside the table');
+  assert.equal(elements['seat-1'].style.top,'300px','unclipped seats keep their position');
 });

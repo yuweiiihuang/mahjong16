@@ -446,7 +446,16 @@ def test_names_are_consistent_across_viewers_and_reconnects():
     assert 'guest' not in room.names
 
 
-@pytest.mark.parametrize('name', [None, [], 1, '字' * 21, '玩家\n名稱', '玩家\x00'])
+def test_long_names_remain_complete_for_all_viewers():
+    registry = RoomRegistry()
+    name = '很長的玩家名字🌿' * 20
+    room = registry.create('host', WebTable, name)
+    registry.join('guest', room.code, name + '客人')
+    assert room.snapshot('guest')['room']['members'][3]['name'] == name
+    assert room.snapshot('host')['room']['members'][1]['name'] == name + '客人'
+
+
+@pytest.mark.parametrize('name', [None, [], 1, '玩家\n名稱', '玩家\x00'])
 def test_invalid_names_do_not_reserve_seats_or_replace_existing_names(name):
     registry = RoomRegistry()
     with pytest.raises(ValueError):
