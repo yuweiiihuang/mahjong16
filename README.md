@@ -34,6 +34,14 @@ pytest -q
 
 亦可使用 `python -m domain.gameplay.game_env` 進行匯入檢查或撰寫最小化實驗。
 
+### Codex 本機環境與工作樹
+
+先在本機安裝 `uv`；需要分享牌桌時另安裝 `cloudflared`。
+`.codex/environments/environment.toml` 的設定指令碼會在建立新工作樹時執行
+`uv sync --locked`，依 `.python-version` 與 `uv.lock` 建立獨立 `.venv` 並安裝依賴。
+既有工作樹也可在專案根目錄手動執行同一指令。
+本機牌桌與遠端連線由動作按鈕手動啟動；多個工作樹不能同時占用 8000 埠。
+
 ## 電腦網頁牌桌
 
 本專案的主要 Web UI 為「青禾」桌面：簡約青綠風格的繁體中文單人練習桌，直接使用現有規則引擎與三位 Greedy 電腦玩家。
