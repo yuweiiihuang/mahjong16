@@ -217,7 +217,7 @@ def test_failed_handoff_does_not_reserve_a_ghost_seat(store, monkeypatch):
         7, **kwargs, record_store=store, defer_recording=True))
 
 
-@pytest.mark.parametrize('command', ['record', 'export', 'backup'])
+@pytest.mark.parametrize('command', ['record', 'export', 'backup', 'dataset'])
 def test_private_cli_outputs_reject_public_root(store, tmp_path, monkeypatch, command):
     table = WebTable(7, human_pids={0, 1, 2, 3}, record_store=store)
     public = tmp_path / 'ui/web'
@@ -228,7 +228,7 @@ def test_private_cli_outputs_reject_public_root(store, tmp_path, monkeypatch, co
     args = ['replay', command, str(target)]
     if command != 'record':
         args += ['--db', str(store.path)]
-    if command == 'export':
+    if command in ('export', 'dataset'):
         args += ['--hand-id', _document(store, table)['hand_id']]
     monkeypatch.setattr('sys.argv', args)
     with pytest.raises(SystemExit) as failure:
@@ -238,12 +238,12 @@ def test_private_cli_outputs_reject_public_root(store, tmp_path, monkeypatch, co
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX permissions; Windows uses host ACLs')
-@pytest.mark.parametrize('command', ['record', 'export'])
+@pytest.mark.parametrize('command', ['record', 'export', 'dataset'])
 def test_private_json_created_with_owner_only_permissions(store, tmp_path, monkeypatch, command):
     table = WebTable(7, human_pids={0, 1, 2, 3}, record_store=store)
     target = tmp_path / f'{command}.json'
     args = ['replay', command, str(target)]
-    if command == 'export':
+    if command in ('export', 'dataset'):
         args += ['--db', str(store.path), '--hand-id', _document(store, table)['hand_id']]
     monkeypatch.setattr('sys.argv', args)
     previous = os.umask(0o022)

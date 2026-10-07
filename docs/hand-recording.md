@@ -1,7 +1,7 @@
 # 離線牌譜紀錄與驗證
 
 已完成引擎紀錄、版本化 JSON 格式、離線重播，以及 SQLite 網頁自動保存。
-玩家跨次戰績、研究觀察匯出及重啟續局仍未實作。
+已提供玩家視角的 JSONL 決策匯出；玩家跨次戰績、RL 轉移與重啟續局仍未實作。
 
 ## 網路牌桌自動保存
 
@@ -40,6 +40,44 @@ SQLite 的資料庫交易保證保存前綴一致，但不會將引擎記憶體�
 第一版用單一 hands 表保存完整 JSON，每步重寫目前這一局，沿用已驗證格式。
 這是少量朋友對局的簡化；若實測寫入成本過高，再把 steps 拆成逐筆資料表。
 不提供網頁下載完整私有牌譜的 API。
+
+## 訓練資料匯出
+
+```bash
+# 預設：所有完成牌局中的真人操作。
+uv run --locked python -m app.replay dataset data/human-decisions.jsonl --db data/hands.sqlite3
+# 包含 bot/自動/未知來源，或只讀一份離線牌譜。
+uv run --locked python -m app.replay dataset data/all-decisions.jsonl --db data/hands.sqlite3 --source all
+uv run --locked python -m app.replay dataset data/prefix.jsonl --record /tmp/hand.json --source all --include-incomplete
+```
+
+`--hand-id` 可指定 SQLite 中的單局。來源可選 human、bot、auto_pass、auto_ting、unknown、all。
+不含來源紀錄的舊版/引擎牌譜標為 unknown，不猜成真人。
+預設排除未完成局；`--include-incomplete` 納入已保存前綴，最終收付分為 null。
+每份牌譜需先通過完整重播驗證，操作來源的步驟/座位亦需一致；驗證失敗不建立輸出。
+不改 domain 程式碼，因此此匯出器不改變先前牌譜的引擎指紋。
+
+JSONL 每行一筆實際提交的決策，包括：
+
+- `observation`：決策前玩家自己的手牌/摸牌、副露、公開牌河、各家牌數/花牌/宣告狀態、
+  風位、莊家與本人合法操作。對手暗槓牌面遮蔽，沒有牌牆、其他人的暗牌、
+  隱藏反應資格/已提交選擇，也不使用會暴露暗槓身份的引擎 live_public 計數。
+- `action`、`source`、`has_choice`：實際操作、控制來源及是否有多種合法操作。
+  action 使用當時合法操作的標準表示，補齊歷史預設欄位，聽牌 waits 由引擎重建，
+  不複製原始請求附帶的未驗證資料。
+  被高順位蓋過的吃仍是實際選擇；未回覆者不會被補成 PASS 樣本。
+- 局 ID、桌 ID、步驟、座位、玩家代號、反應窗口、格式/引擎版本與牌局狀態。
+  這些是追溯欄位，不是模型可見觀察；不匯出玩家名稱或 cookie。
+- `final_seat_payment`：該座位整局收付分，屬於未來結果標籤，不能放入模型輸入。
+  同一座位可能換人或被 bot 接管，不能直接當成某個人的 reward。
+
+尚不產生 next_obs、RL reward、同玩家轉移或最優動作標籤。
+訓練/驗證切分至少以整局為單位，避免同一局不同決策跨到兩組。
+資料先在記憶體驗證後寫入，適用少量朋友對局；大量資料時再改成暫存串流輸出。
+匯出是私有離線檔案，沿用公開目錄拒絕、POSIX 0600 及不覆寫保護。
+JSON/JSONL 先寫入同目錄私有暫存檔，完成後才以不覆寫的 hard link 發布。
+寫入失敗不留下部分的目標檔；強制終止可能留下隱藏的暫存檔，可在程序停止後清理。
+輸出磁碟需支援 hard link（例如 APFS、NTFS、ext4），不支援時回報失敗。
 
 ## 本機使用
 
@@ -88,7 +126,7 @@ WebTable 的持久化 recorder 只保留目前一局，舊局留在 SQLite。
   `rewards` 是 env.step 的原始回傳，並不等於最終收付分或已定義的 RL reward。
 - 輸出是私有完整牌譜，含暗牌及牌牆，不能放在 ui/web 或送進玩家 snapshot。
 - 核心格式不含身份與控制來源；網頁保存的 `metadata` 增補應用層資訊。
-  玩家可見觀察與 RL next_obs 仍未匯出，不能直接把下一個 actor 的觀察當成同玩家轉移。
+  dataset 可匯出玩家可見觀察；RL next_obs 尚未產生，不能把下一個 actor 的觀察當成同玩家轉移。
 - `incomplete` 只代表已錄下的步驟前綴，不能算成流局、輸局或可恢復房間。
 - 重播只接受相同格式與 domain 原始碼版本；SHA-256 用來識別版本與偵測不一致，
   不是簽章，也不是防止惡意偽造牌譜的認證機制。

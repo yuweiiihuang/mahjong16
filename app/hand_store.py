@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 import os
 from pathlib import Path
 import sqlite3
 import threading
-from typing import TYPE_CHECKING
+import tempfile
+from typing import TYPE_CHECKING, Iterator, TextIO
 
 from domain.gameplay.recording import HandRecorder
 
@@ -33,11 +34,28 @@ def private_record_path(path: Path) -> Path:
     return target
 
 
-def write_private_record(path: Path, document: dict) -> None:
-    """Create an owner-only JSON record without overwriting existing files."""
+@contextmanager
+def open_private_record(path: Path) -> Iterator[TextIO]:
+    """Publish a complete owner-only output atomically, without replacing existing files."""
     target = private_record_path(path)
-    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+    if target.exists():
+        raise FileExistsError(f'輸出檔案已存在：{target}')
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f'.{target.name}.', suffix='.tmp', dir=target.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+            yield handle
+            handle.flush()
+            os.fsync(handle.fileno())
+        # A same-directory hard link publishes without clobbering a concurrent output.
+        os.link(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def write_private_record(path: Path, document: dict) -> None:
+    """Write a private JSON hand record."""
+    with open_private_record(path) as handle:
         json.dump(document, handle, ensure_ascii=False, indent=2)
 
 

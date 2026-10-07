@@ -5,7 +5,10 @@ import argparse
 import json
 import sqlite3
 from pathlib import Path
-from app.hand_store import backup_database, stored_hand, stored_hands, write_private_record
+from app.hand_store import (
+    backup_database, open_private_record, stored_hand, stored_hands, write_private_record,
+)
+from app.training_export import SOURCES, decision_samples
 
 from bots.greedy import GreedyBotStrategy
 from domain.gameplay.game_env import Mahjong16Env
@@ -30,8 +33,35 @@ def main() -> None:
     backup = commands.add_parser("backup", help="一致性備份 SQLite（不覆寫）")
     backup.add_argument("path", type=Path)
     backup.add_argument("--db", type=Path, required=True)
+    dataset = commands.add_parser('dataset', help='匯出玩家視角的 JSONL 決策資料')
+    dataset.add_argument('path', type=Path)
+    inputs = dataset.add_mutually_exclusive_group(required=True)
+    inputs.add_argument('--db', type=Path)
+    inputs.add_argument('--record', type=Path)
+    dataset.add_argument('--hand-id', help='只匯出 SQLite 的指定牌局')
+    dataset.add_argument('--source', choices=(*SOURCES, 'all'), default='human')
+    dataset.add_argument('--include-incomplete', action='store_true')
     args = parser.parse_args()
     try:
+        if args.command == 'dataset':
+            if args.hand_id and not args.db:
+                raise ValueError('--hand-id 只能搭配 --db。')
+            if args.db:
+                ids = ([args.hand_id] if args.hand_id else
+                       [row['hand_id'] for row in stored_hands(args.db)
+                        if args.include_incomplete or row['status'] == 'completed'])
+                documents = [stored_hand(args.db, hand_id) for hand_id in ids]
+            else:
+                documents = [json.loads(args.record.read_text(encoding='utf-8'))]
+            # ponytail: validate this small friends' dataset in memory before writing;
+            # use a temporary streaming output if archives become too large for memory.
+            rows = [row for document in documents for row in decision_samples(
+                document, source=args.source, include_incomplete=args.include_incomplete)]
+            with open_private_record(args.path) as handle:
+                for row in rows:
+                    handle.write(json.dumps(row, ensure_ascii=False) + '\n')
+            print(f'已匯出 {len(rows)} 筆決策（來源：{args.source}）。')
+            return
         if args.command == 'list':
             print(json.dumps(stored_hands(args.db), ensure_ascii=False, indent=2))
             return
