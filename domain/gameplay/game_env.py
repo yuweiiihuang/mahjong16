@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from ..tiles import N_TILES
 from ..rules.ruleset import Ruleset
@@ -11,15 +11,22 @@ from ..table.deal import TableSetupMixin
 from .reactions import ReactionMixin
 from .turns import TurnLoopMixin
 
+if TYPE_CHECKING:
+    from .recording import HandRecorder
+
 
 class MahjongEnvironment(TableSetupMixin, ReactionMixin, TurnLoopMixin):
     """Taiwan 16-tile Mahjong single-table environment."""
 
-    def __init__(self, rules: Ruleset, seed: Optional[int] = None):
+    def __init__(
+        self, rules: Ruleset, seed: Optional[int] = None, *,
+        recorder: HandRecorder | None = None,
+    ):
         self.rules = rules
         self.rng = random.Random(seed)
         self.reset_rng_seed = seed
         self._public_live: List[int] = [4] * N_TILES
+        self.recorder = recorder
 
     # ====== 尾牌留置（流局）判斷 ======
     def _dead_wall_reserved(self) -> int:
@@ -36,7 +43,11 @@ class MahjongEnvironment(TableSetupMixin, ReactionMixin, TurnLoopMixin):
     def reset(self) -> Observation:
         self._reset_round_state()
         self._assign_seats_and_dealer()
+        if self.recorder is not None:
+            self.recorder.begin(self)
         self._deal_initial_hands()
+        if self.recorder is not None:
+            self.recorder.initialized(self)
         return self._obs(self.turn)
 
     def legal_actions(self, pid: Optional[int] = None) -> List[Action]:
@@ -52,10 +63,15 @@ class MahjongEnvironment(TableSetupMixin, ReactionMixin, TurnLoopMixin):
     ) -> Tuple[Observation, List[int], bool, Dict[str, Any]]:
         """Apply a turn or collect one seat's reaction, in any arrival order."""
         assert not self.done, "episode is done"
+        recorded = self.recorder.before_step(self, action, pid) if self.recorder else None
         if self.phase == "TURN":
             assert pid is None or pid == self.turn, "尚未輪到此玩家"
-            return self._handle_turn_action(action)
-        return self._handle_reaction_action(action, pid)
+            result = self._handle_turn_action(action)
+        else:
+            result = self._handle_reaction_action(action, pid)
+        if self.recorder is not None:
+            self.recorder.after_step(self, recorded, result)
+        return result
 
     # ====== 內部輔助 ======
     def _resolve_flower_win(
