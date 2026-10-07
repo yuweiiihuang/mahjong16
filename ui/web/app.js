@@ -354,9 +354,7 @@ function render(){
   names = state.room ? state.room.members.map(member => member.name)
     : [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
   $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
-  $('table-title').textContent = state.room ? (state.room.started ? '朋友牌桌' : '等待朋友入座') : '練習牌桌';
   $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
-  $('table-caption').textContent = state.room ? '台灣十六張 · 朋友連線' : '台灣十六張 · 單人練習';
   $('connection-status').textContent = state.room ? '房間已連線' : '練習模式';
   $('new-game').textContent = state.room ? '離開房間' : '↻　重新開桌';
   $('remaining').textContent=state.remaining;
@@ -556,8 +554,6 @@ function showResult(){
   if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick = () => newGame(true);
 }
-$('help').onclick=()=>modal('遊戲說明',`<p>${roomMode ? "與朋友和電腦玩家同桌，操作與計分由伺服器同步。" : "與三位電腦玩家一起練習台灣十六張麻將。"}</p><ol><li>每家起手 16 張，輪到你時會自動摸牌。</li><li>點選手牌或摸牌，再點一次已選中的同一張牌出牌，兩次點擊不限制速度。</li><li>有人出牌時，符合規則的吃、碰、槓、胡與過會出現在右下方。吃牌有多種組合時，點「吃」後再選擇牌組。</li><li>花牌會自動補花。可聽牌時，右下角會顯示提示。按「聽」讓候選牌跳起，再點一張即可出牌並宣告聽牌。再按「聽」可取消選擇模式。</li><li>五組面子與一對將眼即可胡牌。牌牆保留尾牌；可摸牌用盡則流局。</li></ol><p>本局結束會顯示台數明細與四家輸贏；下一局保留點數，依結果連莊或輪莊。提示牌面旁的數字代表未見張數。重新開桌會清除累積點數。${roomMode ? "斷線後保留座位，超過 90 秒由電腦接手；回到原瀏覽器即可繼續。" : "這是單人練習桌，不含帳戶與金流。"}</p>`);
-$('table-nav').onclick=()=>$('modal').close();
 $('close-modal').onclick=()=>$('modal').close();
 $('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
 $('sound').onclick=()=>{sound=!sound;localStorage.setItem('qinghe-sound',sound);updateSound();beep();toast(sound?'音效已開啟':'音效已關閉');};
@@ -762,17 +758,6 @@ $('settings').onclick=()=>{
     toast('設定已儲存');
   };
 };
-$('history').onclick=()=>{
-  modal('對局紀錄','<div class="history-scroll" id="history-list"></div>');
-  if(!state.events.length)$('history-list').innerHTML='<p>對局剛開始，出牌後就會出現紀錄。</p>';
-  for(const event of [...state.events].reverse()){
-    if(event.type==='PASS')continue;
-    const row=document.createElement('div');row.className='history-row';
-    const label=document.createElement('span');label.textContent=`${names[event.pid]} · ${labels[event.type]||event.type}`;row.append(label);
-    if(event.tile!==undefined && !(event.pid!==0 && event.type==='ANGANG'))row.append(tile(event.tile,true));
-    for(const id of event.use||[])row.append(tile(id,true));$('history-list').append(row);
-  }
-};
 $('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
@@ -907,7 +892,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=whole-tile-dim-1');
+    const { MahjongTableView } = await import('./table3d.js?v=full-window-zoom-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

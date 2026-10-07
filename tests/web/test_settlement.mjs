@@ -33,7 +33,7 @@ function settlementView(winSource = 'TSUMO', flowerWin = null) {
     escapeHtml:value=>String(value).replaceAll('<','&lt;').replaceAll('>','&gt;'),
     labels:{CHI:'吃',ANGANG:'暗槓'},tile:id=>Object.assign(node('tile'),{id}),
     modal:(title,html)=>{content = html;}, newGame() {}});
-  vm.runInContext(source.slice(source.indexOf('function showResult(){'),source.indexOf("$('help').onclick")),ctx);
+  vm.runInContext(source.slice(source.indexOf('function showResult(){'),source.indexOf("$('close-modal').onclick")),ctx);
   ctx.showResult();
   return {elements,state,ctx,content};
 }

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'utf8');
 const handler = source.slice(source.indexOf("  $('save-settings').onclick=async"),
-  source.indexOf("\n};\n$('history').onclick"));
+  source.indexOf("\n};\n$('new-game').onclick"));
 
 test('a delayed settings save closes its own dialog but preserves a newer dialog', async () => {
   for (const [replaced, roomMode] of [[false,false], [true,false], [false,true]]) {

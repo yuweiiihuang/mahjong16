@@ -6,21 +6,18 @@ import { MahjongTableView } from '../../ui/web/table3d.js';
 test('table zoom uniformly enlarges projection and hit targets without accumulating on resize', () => {
   const view = Object.create(MahjongTableView.prototype);
   Object.assign(view, {zoom:1.19, camera:new THREE.PerspectiveCamera(30,1,.1,180),
-    container:{clientWidth:1122,clientHeight:560},renderer:{setSize() {}},draw() {},
+    container:{clientWidth:1122,clientHeight:560,style:{setProperty(name,value) {this[name]=value;}}},renderer:{setSize() {}},draw() {},
     scene:new THREE.Scene(),handObjects:[]});
   const tile = new THREE.Mesh(new THREE.BoxGeometry(1,1.4,.42));
   tile.position.set(2,.77,10.9);
   view.scene.add(tile); view.handObjects.push(tile);
-  for (const [width,height] of [[1122,560],[828,378],[651,363]]) {
+  for (const [width,height] of [[1384,774],[1024,768],[828,378],[651,363],[1384,774]]) {
     Object.assign(view.container,{clientWidth:width,clientHeight:height});
     view.resize();
-    if(width===1122){
-      // Approved preview starts at (100,77) and is 944 pixels wide.
-      const crop=view.camera.view;
-      assert.ok(Math.abs(crop.offsetX-100)<2,'keep the approved left margin');
-      assert.ok(Math.abs(crop.offsetY-77)<2,'keep the approved top margin');
-      assert.ok(Math.abs(crop.width-944)<2);
-    }
+    const expectedZoom=width>950&&width/height>1.6?1.30:1.19;
+    assert.equal(view.zoom,expectedZoom);
+    assert.equal(view.container.style['--table-zoom'],view.zoom,
+      'DOM overlays must use the same zoom as the camera after every resize');
     const points = [[-9,.77,10.9],[8,.77,10.9],[10.3,1.75,0],[0,1.75,-9.1]];
     const zoomed = points.map(p => view.project(p));
     const hit = view.hitBoxes()[0];
@@ -30,12 +27,12 @@ test('table zoom uniformly enlarges projection and hit targets without accumulat
     for (let i=1;i<points.length;i++) {
       for (const axis of ['x','y']) {
         assert.ok(Math.abs((zoomed[i][axis]-zoomed[0][axis])-
-          1.19*(original[i][axis]-original[0][axis]))<1e-7,
-        'every seat must share the same 19 percent enlargement');
+          expectedZoom*(original[i][axis]-original[0][axis]))<1e-7,
+        'every seat must share the same enlargement');
       }
     }
-    assert.ok(Math.abs(hit.width-originalHit.width*1.19)<1e-7);
-    assert.ok(Math.abs(hit.height-originalHit.height*1.19)<1e-7);
+    assert.ok(Math.abs(hit.width-originalHit.width*expectedZoom)<1e-7);
+    assert.ok(Math.abs(hit.height-originalHit.height*expectedZoom)<1e-7);
     view.resize();
     assert.deepEqual(points.map(p => view.project(p)),zoomed,
       'repeated resizing must not compound zoom or shift hit targets');

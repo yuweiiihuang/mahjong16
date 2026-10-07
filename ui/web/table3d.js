@@ -18,8 +18,6 @@ const RIVERS = [[0, 3.3], [4.45, 0], [0, -3.3], [-4.45, 0]];
 export class MahjongTableView {
   constructor(container, onPick, faceFont = DEFAULT_TILE_FONT) {
     this.container = container;
-    this.zoom = 1.19;
-    container.style.setProperty('--table-zoom', this.zoom);
     this.onPick = onPick;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, .1, 180);
@@ -450,6 +448,9 @@ export class MahjongTableView {
   resize() {
     this.width=this.container.clientWidth;this.height=this.container.clientHeight;
     if(!this.width||!this.height)return;
+    const wideDesktop=this.width>950&&this.width/this.height>1.6;
+    this.zoom=wideDesktop?1.30:1.19;
+    this.container.style.setProperty('--table-zoom',this.zoom);
     this.renderer.setSize(this.width,this.height);
     this.camera.clearViewOffset();
     this.camera.aspect=this.width/this.height;
@@ -474,7 +475,7 @@ export class MahjongTableView {
     }
     // Crop the same perspective uniformly, including projected hit targets.
     this.camera.setViewOffset(this.width,this.height,
-      (this.width-this.width/this.zoom)/2+this.width*.01,this.height*.1375,
+      (this.width-this.width/this.zoom)/2+this.width*.01,this.height*(wideDesktop?.20:.1375),
       this.width/this.zoom,this.height/this.zoom);
     this.camera.updateMatrixWorld();
     this.draw();

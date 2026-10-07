@@ -190,3 +190,48 @@ dialog{max-height:85dvh;overflow-y:auto}
 .result-points small{font-size:9px;color:#738773}
 .result-points strong{font-size:13px;font-variant-numeric:tabular-nums}
 @media(max-width:950px) and (orientation:landscape){.result-points{gap:12px}.result-points strong{font-size:12px}}
+
+/* One full-window table, with compact controls and an optional room drawer. */
+html,body{height:100%;overflow:hidden}
+.layout{display:block;min-height:0;height:100dvh}
+main{height:100%;padding:0}
+.table{width:100%;height:100%;min-height:0;border-radius:0}
+.table-toolbar{position:absolute;inset:12px 14px auto;height:32px;padding:0;border:0;gap:16px;z-index:6;pointer-events:none}
+.table-toolbar .brand,.table-toolbar .header-right{pointer-events:auto}
+.table-toolbar .brand{display:flex;margin-left:40px;gap:8px;font-size:16px;letter-spacing:1px;color:#e7edda}
+.table-toolbar .brandmark{width:26px;height:30px;font-size:19px}
+.table-toolbar .header-right{gap:8px;color:#d2dfc7}
+.table-toolbar .connection{display:flex;font-size:11px;color:#d2dfc7}
+.table-toolbar .room-link{background:#153e32b3;border-color:#afc69b55}
+.table-toolbar .icon{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#153e32b3}
+.table-toolbar .icon svg{width:19px;height:19px}
+.room-panel{position:fixed;top:12px;left:14px;z-index:8;max-width:calc(100vw - 28px)}
+.room-panel>summary{display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid #afc69b55;border-radius:7px;list-style:none;cursor:pointer;background:#153e32b3;color:#d2dfc7;font-size:18px}
+.room-panel>summary svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.room-panel>summary::-webkit-details-marker{display:none}
+.room-panel>summary:focus-visible{outline:2px solid #d6ba75;outline-offset:3px}
+.room-panel aside{display:flex;width:240px;max-width:100%;max-height:calc(100dvh - 100px);overflow-y:auto;overscroll-behavior:contain;margin-top:6px;padding:16px;border:1px solid #d9dece;border-radius:10px;background:#f8f7f2f2;box-shadow:0 8px 24px #0b2c3440}
+.room-panel h2{font-size:13px;margin-bottom:12px}
+.room-panel .room{padding:12px}
+.room-panel .room-name{font-size:13px}
+.room-panel .room p{font-size:11px;margin:12px 0;padding-bottom:12px}
+.room-panel .detail{font-size:11px;gap:10px;margin-top:10px}
+.room-panel .detail strong{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room-panel .aside-divider{margin:16px 0 12px}
+.room-panel h3{margin-bottom:12px}
+.room-panel .player-row{gap:9px;margin-bottom:12px}
+.room-panel .avatar{width:30px;height:30px;font-size:16px}
+.room-panel .player-info strong{font-size:12px}
+.room-panel .player-info small{font-size:10px}
+.room-panel .aside-bottom{padding-top:10px}
+@media(max-width:950px) and (orientation:landscape){
+ .table-toolbar{inset:8px 12px auto;height:30px;gap:8px}
+ .table-toolbar .brand{font-size:12px;gap:6px}
+ .table-toolbar .brandmark{width:23px;height:26px;font-size:17px}
+ .table-toolbar .header-right{gap:6px}
+ .table-toolbar .connection{font-size:9px;gap:4px}
+ .table-toolbar .room-link{font-size:10px;padding:6px 8px}
+ .room-panel{top:8px;left:12px;max-width:calc(100vw - 24px)}
+ .room-panel>summary{width:30px;height:30px}
+ .room-panel aside{max-height:calc(100dvh - 88px)}
+}
