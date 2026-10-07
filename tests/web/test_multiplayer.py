@@ -1,5 +1,6 @@
 """Online-room privacy, concurrency, reconnect and actual HTTP contracts."""
 import http.client
+import hmac
 import json
 import threading
 import time
@@ -352,6 +353,102 @@ def online_server():
     server.server_close()
     scheduler.join(timeout=2)
     thread.join(timeout=2)
+
+
+def test_http_access_gate_covers_static_api_and_all_methods(online_server):
+    address, handler = online_server
+    handler.access_authorization = b'Basic ZnJpZW5kOnRlc3QtcGFzcw=='
+
+    def request(method, path, authorization=''):
+        connection = http.client.HTTPConnection(*address, timeout=3)
+        connection.request(method, path, '{}' if method == 'POST' else None,
+                           {'Authorization': authorization, 'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        result = response.status, response.getheader('WWW-Authenticate'), response.read()
+        connection.close()
+        return result
+
+    status, challenge, body = request('GET', '/')
+    assert status == 200 and challenge is None and b'/access/login' in body
+    assert request('HEAD', '/')[0] == 200
+    for method, path in [('GET', '/app.js'),
+                         ('GET', '/api/state'), ('GET', '/api/room/state'),
+                         ('POST', '/api/rooms'), ('POST', '/api/action'), ('OPTIONS', '/')]:
+        status, challenge, _ = request(method, path)
+        assert status == 401 and challenge is None
+    assert handler.sessions == {} and handler.rooms.rooms == {}
+    assert request('GET', '/api/state', 'Basic wrong')[0] == 401
+    assert request('GET', '/api/state', 'Basic \xff')[0] == 401
+    for method, path in [('GET', '/'), ('HEAD', '/'), ('GET', '/api/state'),
+                         ('POST', '/api/rooms')]:
+        assert request(method, path, 'Basic ZnJpZW5kOnRlc3QtcGFzcw==')[0] == 200
+
+
+def test_http_form_login_cookie_and_request_boundaries(online_server):
+    address, handler = online_server
+    handler.access_authorization = b'Basic ZnJpZW5kOnRlc3QtcGFzcw=='
+
+    def request(method, path, body=None, cookie='', origin=None, host=None):
+        headers = {'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie}
+        if origin:
+            headers['Origin'] = origin
+        if host:
+            headers['Host'] = host
+        connection = http.client.HTTPConnection(*address, timeout=3)
+        connection.request(method, path, body, headers)
+        response = connection.getresponse()
+        result = response.status, dict(response.getheaders()), response.read()
+        connection.close()
+        return result
+
+    status, headers, body = request('POST', '/access/login', 'password=wrong')
+    assert status == 401 and 'WWW-Authenticate' not in headers and b'<form' in body
+    assert 'Set-Cookie' not in headers and handler.sessions == {}
+    assert request('POST', '/access/login', 'password=test-pass',
+                   origin='https://other.example')[0] == 403
+    assert request('POST', '/access/login', 'password=' + 'x' * 4096)[0] == 400
+    status, headers, _ = request('POST', '/access/login', 'password=test-pass',
+                                origin='https://table.example', host='table.example')
+    assert status == 303 and headers['Location'] == '/'
+    cookie = headers['Set-Cookie']
+    flags = ('HttpOnly', 'SameSite=Strict', 'Secure', 'Max-Age=86400')
+    assert all(flag in cookie for flag in flags)
+    cookie = cookie.split(';')[0]
+    assert request('GET', '/', cookie=cookie)[0] == 200
+    assert request('GET', '/api/state', cookie=cookie)[0] == 200
+    assert request('GET', '/api/state', cookie=cookie + 'x')[0] == 401
+    expired_signature = hmac.new(handler.access_authorization, b'1', 'sha256').hexdigest()
+    assert request('GET', '/api/state',
+                   cookie=f'qinghe_access_{address[1]}=1.{expired_signature}')[0] == 401
+    assert request('GET', '/api/state', cookie=f'qinghe_access_{address[1]}=123.\xff')[0] == 401
+
+
+def test_http_static_files_hide_private_paths_and_outside_links(online_server, tmp_path,
+                                                               monkeypatch):
+    import app.web
+
+    root = tmp_path / 'web'
+    root.mkdir()
+    (root / 'index.html').write_text('table')
+    (root / '.env').write_text('SECRET')
+    (root / 'assets').mkdir()
+    (root / 'assets' / 'tile.svg').write_text('tile')
+    secret = tmp_path / 'secret.txt'
+    secret.write_text('SECRET')
+    (root / 'linked.txt').symlink_to(secret)
+    (root / 'nested').mkdir()
+    (root / 'nested' / 'index.html').symlink_to(secret)
+    monkeypatch.setattr(app.web, 'WEB_ROOT', root)
+    address, _ = online_server
+    for path, status in [('/', 200), ('/assets/tile.svg', 200), ('/assets/', 404),
+                         ('/.env', 404), ('/%2eenv', 404), ('/linked.txt', 404),
+                         ('/../secret.txt', 404), ('/nested/', 404)]:
+        connection = http.client.HTTPConnection(*address, timeout=3)
+        connection.request('GET', path)
+        response = connection.getresponse()
+        body = response.read()
+        assert response.status == status and b'SECRET' not in body
+        connection.close()
 
 
 def test_http_invites_cookie_seat_auth_and_long_poll(online_server):

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
 from copy import deepcopy
 import json
 import secrets
 import threading
 import time
-from http.cookies import SimpleCookie
+from http.cookies import CookieError, SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from app.web_rooms import RoomRegistry
 
@@ -266,13 +268,119 @@ class WebHandler(SimpleHTTPRequestHandler):
     session_seen: dict[str, float] = {}
     session_lock = threading.Lock()
     rooms = RoomRegistry()
+    access_authorization = b''
 
     def __init__(self, request, client_address, server):
         # Cookies ignore ports: isolate local test servers from the user's live table.
         self.cookie_name = f'qinghe_{server.server_port}'
+        self.access_cookie = f'qinghe_access_{server.server_port}'
         self.sid = ''
         self.new_identity = False
         super().__init__(request, client_address, server, directory=str(WEB_ROOT))
+
+    def parse_request(self) -> bool:
+        """Check access before dispatching any HTTP method or allocating a game."""
+        if not super().parse_request():
+            return False
+        if not self.access_authorization:
+            return True
+        path = urlsplit(self.path).path
+        if self.command == 'POST' and path == '/access/login':
+            self.access_login()
+            return False
+        supplied = self.headers.get('Authorization', '').encode('utf-8')
+        cookies = SimpleCookie()
+        try:
+            cookies.load(self.headers.get('Cookie', ''))
+        except CookieError:
+            cookies.clear()
+        token = cookies[self.access_cookie].value if self.access_cookie in cookies else ''
+        expires, _, signature = token.partition('.')
+        valid_cookie = (expires.isascii() and expires.isdigit() and len(expires) <= 10
+                        and time.time() < int(expires) <= time.time() + 86400
+                        and signature.isascii()
+                        and secrets.compare_digest(signature, self.access_signature(expires)))
+        if not valid_cookie and not secrets.compare_digest(supplied, self.access_authorization):
+            if self.command in ('GET', 'HEAD') and path in ('/', '/access/login'):
+                self.access_form()
+                return False
+            self.send_response(401)
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            self.close_connection = True
+            return False
+        return True
+
+    def access_signature(self, expires: str) -> str:
+        """Sign the access expiry with the configured passcode."""
+        return hmac.new(self.access_authorization, expires.encode(), 'sha256').hexdigest()
+
+    def access_form(self, status: int = 200) -> None:
+        """Show the passcode form without triggering a browser auth dialog."""
+        page = (WEB_ROOT / 'access.html').read_text(encoding='utf-8')
+        page = page.replace('<!--error-->', '通行碼不正確，請再試一次。' if status == 401 else '')
+        payload = page.encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(payload)
+        self.close_connection = True
+
+    def access_login(self) -> None:
+        """Use a native HTML form and a signed cookie, without browser auth dialogs."""
+        origin = self.headers.get('Origin')
+        if (self.headers.get_content_type() != 'application/x-www-form-urlencoded' or
+                (origin and urlsplit(origin).netloc != self.headers.get('Host'))):
+            self.send_error(403)
+            return
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            if not 0 < length <= 4096:
+                raise ValueError
+            password = parse_qs(self.rfile.read(length).decode('utf-8')).get('password', [''])[0]
+        except (ValueError, UnicodeError):
+            self.send_error(400)
+            return
+        supplied = b'Basic ' + base64.b64encode(f'friend:{password}'.encode('utf-8'))
+        if not secrets.compare_digest(supplied, self.access_authorization):
+            self.access_form(401)
+            return
+        expires = str(int(time.time()) + 86400)
+        host = urlsplit('http://' + self.headers.get('Host', '')).hostname
+        secure = '' if host in ('127.0.0.1', 'localhost', '::1') else '; Secure'
+        self.send_response(303)
+        self.send_header('Location', '/')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Set-Cookie',
+                         f'{self.access_cookie}={expires}.{self.access_signature(expires)}; '
+                         f'HttpOnly; SameSite=Strict; Path=/; Max-Age=86400{secure}')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+        self.close_connection = True
+
+    def send_head(self):
+        """Serve only public files within the web root, including resolved links."""
+        path = unquote(urlsplit(self.path).path)
+        target = Path(self.translate_path(self.path)).resolve()
+        if target.is_dir():
+            for index in ('index.html', 'index.htm'):
+                candidate = target / index
+                if candidate.is_file():
+                    target = candidate.resolve()
+                    break
+        if (any(part.startswith('.') for part in path.split('/') if part) or
+                not target.is_relative_to(WEB_ROOT.resolve())):
+            self.send_error(404)
+            return None
+        return super().send_head()
+
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
 
     def identity(self) -> str:
         if self.sid:
@@ -443,7 +551,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--access-password-file', type=Path,
+                        help='Protect all requests with a passcode read from this file.')
     args = parser.parse_args()
+    if args.access_password_file:
+        try:
+            password = args.access_password_file.read_text(encoding='utf-8').strip()
+        except (OSError, UnicodeError):
+            parser.error('Cannot read access password file.')
+        if len(password) < 16:
+            parser.error('Access password must contain at least 16 characters.')
+        WebHandler.access_authorization = b'Basic ' + base64.b64encode(
+            f'friend:{password}'.encode('utf-8'))
     server = ThreadingHTTPServer((args.host, args.port), WebHandler)
     server.daemon_threads = True
     stop = threading.Event()

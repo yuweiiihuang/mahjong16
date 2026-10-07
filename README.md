@@ -34,6 +34,17 @@ pytest -q
 
 亦可使用 `python -m domain.gameplay.game_env` 進行匯入檢查或撰寫最小化實驗。
 
+對外分享時可啟用全站通行碼：
+
+```bash
+uv run --locked python -m app.web --port 8000 --access-password-file /path/to/password.txt
+```
+
+通行碼檔案須放在專案與網頁目錄之外，限制只有服務帳號可讀，至少 16 字元；
+建議使用隨機長密碼。網頁內輸入通行碼後，登入保留一天；網頁及所有 API
+皆需驗證。自動化工具仍可用帳號 `friend` 的 HTTP Basic 驗證。
+僅透過 HTTPS 隧道對外提供服務；未指定檔案時維持本機免登入模式。
+
 ### Codex 本機環境與工作樹
 
 先在本機安裝 `uv`；需要分享牌桌時另安裝 `cloudflared`。
