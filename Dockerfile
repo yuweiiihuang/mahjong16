@@ -15,6 +15,7 @@ COPY domain/ domain/
 COPY bots/ bots/
 COPY ui/ ui/
 COPY configs/ configs/
+RUN mkdir -p /var/lib/mahjong16 && chown 10001:10001 /var/lib/mahjong16 && chmod 700 /var/lib/mahjong16
 USER 10001:10001
 EXPOSE 8000
-CMD ["python", "-m", "app.web", "--host", "0.0.0.0", "--port", "8000", "--access-password-file", "/run/secrets/access_password"]
+CMD ["python", "-m", "app.web", "--host", "0.0.0.0", "--port", "8000", "--access-password-file", "/run/secrets/access_password", "--record-db", "/var/lib/mahjong16/hands.sqlite3"]

@@ -7,14 +7,17 @@ import hmac
 from copy import deepcopy
 import json
 import secrets
+import sqlite3
 import threading
 import time
 from http.cookies import CookieError, SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
+from uuid import uuid4
 
 from app.web_rooms import RoomRegistry
+from app.hand_store import HandStore, PersistentHandRecorder, RecordingError, _now
 
 from domain.gameplay.game_env import Mahjong16Env
 from domain.rules.ruleset import Ruleset
@@ -32,9 +35,20 @@ WEB_ROOT = Path(__file__).resolve().parents[1] / 'ui' / 'web'
 class WebTable:
     """Engine-backed table with private viewer snapshots and legal human actions."""
 
-    def __init__(self, seed: int | None = None, human_pids: set[int] | None = None):
+    def __init__(self, seed: int | None = None, human_pids: set[int] | None = None, *,
+                 record_store: HandStore | None = None, defer_recording: bool = False):
         self.human_pids = {0} if human_pids is None else set(human_pids)
         self.auto_ting_discard = [True] * 4
+        self.record_store = record_store
+        self.recording_enabled = record_store is not None and not defer_recording
+        self.recording_error = False
+        self.table_id = str(uuid4())
+        self.record_players = [
+            {'player_id': str(uuid4()) if pid in self.human_pids else None,
+             'name': '玩家' if pid in self.human_pids else '電腦玩家',
+             'human': pid in self.human_pids} for pid in range(4)
+        ]
+        self.record_source = 'practice'
         self.env = Mahjong16Env(Ruleset(randomize_seating_and_dealer=False), seed=seed)
         self.bot = GreedyBotStrategy()
         self.events: list[dict] = []
@@ -44,8 +58,12 @@ class WebTable:
         )
         self.new_table()
 
-    def new_table(self) -> None:
+    def new_table(self, *, activate_recording: bool = False) -> None:
         """Start a fresh practice table with fixed initial seats and 1,000 points each."""
+        self.check_recording()
+        self.interrupt_recording('new_table')
+        if activate_recording:
+            self.recording_enabled = self.record_store is not None
         self.manager = TableManager(self.env.rules, seed=self.env.reset_rng_seed)
         self.manager.state = TableState(
             seat_winds=['E', 'S', 'W', 'N'], seating_order=[0, 1, 2, 3]
@@ -56,11 +74,56 @@ class WebTable:
 
     def start_hand(self, playback: list | None = None) -> None:
         """Deal the next hand using the shared dealer and round-wind manager."""
+        self.check_recording()
         self.round += 1
         self.events = []
         self.settlement = None
-        self.manager.start_hand(self.env)
+        if self.recording_enabled:
+            metadata = {
+                'table_id': self.table_id, 'hand_index': self.round,
+                'started_at': _now(), 'source': self.record_source,
+                'totals_before': list(self.totals),
+                'players': deepcopy(self.record_players), 'seat_events': [], 'decisions': [],
+            }
+            self.env.recorder = PersistentHandRecorder(self.record_store, metadata)
+        try:
+            self.manager.start_hand(self.env)
+        except RecordingError:
+            self.recording_error = True
+            raise
         self.advance(playback)
+
+    def check_recording(self) -> None:
+        """Keep failed tables stopped, without blocking other rooms or hiding the error."""
+        if self.recording_error:
+            raise RecordingError('牌譜保存失敗，本桌已暫停；請聯絡管理者。')
+
+    def interrupt_recording(self, reason: str) -> None:
+        """Retain a durable prefix when a table is discarded or replaced."""
+        recorder = self.env.recorder
+        if isinstance(recorder, PersistentHandRecorder) and recorder.records:
+            try:
+                self.record_store.interrupt(recorder.records[-1]['hand_id'], reason)
+            except (OSError, sqlite3.Error) as error:
+                self.recording_error = True
+                raise RecordingError('牌譜保存失敗，本桌已暫停；請聯絡管理者。') from error
+
+    def record_seat(self, pid: int, player: dict) -> None:
+        """Record pseudonymous seat ownership changes without storing session credentials."""
+        if self.record_players[pid] == player:
+            return
+        self.record_players[pid] = deepcopy(player)
+        recorder = self.env.recorder
+        if isinstance(recorder, PersistentHandRecorder) and not self.env.done:
+            recorder.metadata['seat_events'].append({
+                'after_seq': len(recorder.records[-1]['steps']),
+                'at': _now(), 'pid': pid, **deepcopy(player),
+            })
+            try:
+                recorder.persist()
+            except RecordingError:
+                self.recording_error = True
+                raise
 
     def next_hand(self) -> dict:
         """Continue a completed hand without clearing accumulated points."""
@@ -89,6 +152,15 @@ class WebTable:
             'payer': self.env.turn_at_win if self.env.win_source == 'RON' else None,
             'flower_win_type': self.env.flower_win_type,
         }
+        if isinstance(self.env.recorder, PersistentHandRecorder):
+            self.env.recorder.metadata.update({
+                'totals_after': list(self.totals), 'settlement': deepcopy(self.settlement),
+            })
+            try:
+                self.env.recorder.persist()
+            except RecordingError:
+                self.recording_error = True
+                raise
         self.manager.finish_hand(self.env)
 
     def actor(self) -> int:
@@ -98,11 +170,22 @@ class WebTable:
         return self.env.turn
 
     def apply(
-        self, action: dict, playback: list | None = None, pid: int | None = None
+        self, action: dict, playback: list | None = None, pid: int | None = None,
+        *, source: str = 'human',
     ) -> None:
         """Apply and record an already validated action."""
+        self.check_recording()
         pid, phase = self.actor() if pid is None else pid, self.env.phase
-        _, _, _, info = self.env.step(action, pid=pid)
+        if isinstance(self.env.recorder, PersistentHandRecorder):
+            self.env.recorder.step_context = {
+                'pid': pid, 'source': source,
+                'player_id': self.record_players[pid]['player_id'],
+            }
+        try:
+            _, _, _, info = self.env.step(action, pid=pid)
+        except RecordingError:
+            self.recording_error = True
+            raise
         resolved = info.get('resolved_claim')
         # Tentative or rejected claims can contain tiles still hidden in a player's hand.
         if resolved:
@@ -149,23 +232,25 @@ class WebTable:
                 if automatic is None:
                     return
                 action = self.bot.choose(self.env._obs(automatic))
-                self.apply(action, playback, pid=automatic)
+                self.apply(action, playback, pid=automatic,
+                           source=('auto_pass' if self.env.legal_actions(automatic)
+                                   == [{'type': 'PASS'}] else 'bot'))
                 continue
             pid = self.actor()
             actions = self.env.legal_actions(pid)
             ting_discard = self.ting_discard() if auto_discard_ting else None
             if ting_discard is not None:
-                self.apply(ting_discard, playback)
+                self.apply(ting_discard, playback, source='auto_ting')
                 continue
             if pid in self.human_pids:
                 if actions == [{'type': 'PASS'}]:
-                    self.apply(actions[0], playback)
+                    self.apply(actions[0], playback, source='auto_pass')
                     continue
                 return
             action = self.bot.choose(self.env._obs(pid))
             if self.env.phase == 'TURN':
                 self.record_frame(playback, pid, 'THINK')
-            self.apply(action, playback)
+            self.apply(action, playback, source='bot')
         if playback is not None and (not playback or not playback[-1]['state']['done']):
             self.record_frame(playback, self.env.winner or 0,
                               'HU' if self.env.winner is not None else 'DRAW_GAME')
@@ -183,6 +268,7 @@ class WebTable:
 
     def snapshot(self, viewer: int = 0) -> dict:
         """Expose public table state and the selected player's own hand."""
+        self.check_recording()
         env = self.env
         result = deepcopy(env._obs(viewer))
         result.update({
@@ -269,6 +355,7 @@ class WebHandler(SimpleHTTPRequestHandler):
     session_lock = threading.Lock()
     rooms = RoomRegistry()
     access_authorization = b''
+    record_store: HandStore | None = None
 
     def __init__(self, request, client_address, server):
         # Cookies ignore ports: isolate local test servers from the user's live table.
@@ -394,6 +481,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if len(self.sessions) >= 1000:
                     for expired, seen in list(self.session_seen.items()):
                         if now - seen > 3600:
+                            table = self.sessions.get(expired)
+                            if table is not None:
+                                with table.lock:
+                                    table.interrupt_recording('session_expired')
                             self.sessions.pop(expired, None)
                             self.session_seen.pop(expired, None)
                     if len(self.sessions) >= 1000:
@@ -409,7 +500,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         sid = self.identity()
         with self.session_lock:
             if self.sessions[sid] is None:
-                self.sessions[sid] = WebTable()
+                self.sessions[sid] = WebTable(record_store=self.record_store)
             return sid, self.sessions[sid]
 
     def respond(self, data: dict, sid: str, status: int = 200) -> None:
@@ -459,6 +550,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     room.touch(sid)
                     data = room.snapshot(sid)
                 self.respond(data, sid)
+        except RecordingError as error:
+            self.respond({'error': str(error)}, sid, 503)
         except (ValueError, TypeError) as error:
             self.respond({'error': str(error)}, sid, 400)
 
@@ -504,7 +597,10 @@ class WebHandler(SimpleHTTPRequestHandler):
             if self.path.startswith('/api/room'):
                 sid = self.identity()
                 if self.path == '/api/rooms':
-                    room = self.rooms.create(sid, WebTable, body.get('name', ''))
+                    room = self.rooms.create(
+                        sid, lambda **kwargs: WebTable(
+                            **kwargs, record_store=self.record_store, defer_recording=True),
+                        body.get('name', ''))
                 elif self.path == '/api/room/join':
                     code = body.get('code')
                     if not isinstance(code, str) or len(code) != 8:
@@ -538,6 +634,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                 else:
                     data = table.act(body)
                 self.respond(data, sid)
+        except RecordingError as error:
+            self.respond({'error': str(error)}, sid, 503)
         except (ValueError, TypeError, KeyError) as error:
             self.respond({'error': str(error)}, sid, 400)
 
@@ -551,6 +649,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--record-db', type=Path, default=Path('data/hands.sqlite3'),
+                        help='Private SQLite hand records, outside the public web root.')
     parser.add_argument('--access-password-file', type=Path,
                         help='Protect all requests with a passcode read from this file.')
     args = parser.parse_args()
@@ -563,8 +663,16 @@ def main() -> None:
             parser.error('Access password must contain at least 16 characters.')
         WebHandler.access_authorization = b'Basic ' + base64.b64encode(
             f'friend:{password}'.encode('utf-8'))
-    server = ThreadingHTTPServer((args.host, args.port), WebHandler)
-    server.daemon_threads = True
+    try:
+        WebHandler.record_store = HandStore(args.record_db)
+    except (OSError, ValueError, sqlite3.Error) as error:
+        parser.error(f'Cannot open hand-record database: {error}')
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), WebHandler)
+    except OSError:
+        WebHandler.record_store.close()
+        raise
+    server.daemon_threads = False
     stop = threading.Event()
     scheduler = threading.Thread(target=WebHandler.rooms.run, args=(stop,), daemon=True)
     scheduler.start()
@@ -573,7 +681,9 @@ def main() -> None:
         server.serve_forever()
     finally:
         stop.set()
+        scheduler.join()
         server.server_close()
+        WebHandler.record_store.close()
 
 
 if __name__ == '__main__':

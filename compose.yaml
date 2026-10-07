@@ -6,6 +6,8 @@ services:
       - "127.0.0.1:${MAHJONG_PORT:-8000}:8000"
     secrets:
       - access_password
+    volumes:
+      - hand-records:/var/lib/mahjong16
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -28,3 +30,5 @@ services:
 secrets:
   access_password:
     file: ${MAHJONG_PASSWORD_FILE:?Set MAHJONG_PASSWORD_FILE to a passcode file outside the repository}
+volumes:
+  hand-records:

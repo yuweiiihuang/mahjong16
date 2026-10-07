@@ -88,7 +88,7 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 
 - 容器使用 UID 10001、唯讀檔案系統，移除 Linux capabilities，限制 CPU、記憶體與程序數。
 - 對外埠只綁主機 `127.0.0.1`；透過 Funnel 提供 HTTPS，SSH 仍經 Tailscale 管理。
-- Compose 只掛載通行碼檔案；不掛載整個專案、SSH 金鑰或 Docker socket。
+- Compose 掛載通行碼檔案及私有牌譜 volume；不掛載整個專案、SSH 金鑰或 Docker socket。
 - Mac Docker Desktop 已實測 `0600` 通行碼檔案可由容器 UID 10001 讀取；Windows
   已實測受限制 ACL 的通行碼檔案可正常登入。原生 Linux 的 bind mount 會保留主機 UID，須另行對齊檔案擁有者，
   不應將通行碼改成所有人可讀。此文件的部署目標是 Mac／Windows Docker Desktop。
@@ -96,6 +96,19 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 - 健康檢查確認登入頁可讀，不建立牌局；登入與多人操作由 smoke check 驗證。
 - `restart: unless-stopped` 需 Docker 引擎先運行；不代表 Windows 未登入就能自動啟動。
 - 牌局仍在記憶體中，容器重啟／換版會清除牌局。健康檢查失敗也不會自行重啟容器。
+- SQLite 自動紀錄位於 `/var/lib/mahjong16/hands.sqlite3`，使用 UID 10001 可寫的
+  `hand-records` named volume。替換容器保留紀錄，但不恢復進行中的牌局。
+  沿用相同 Compose project 名稱才能沿用同一資料卷，不要對正式環境執行 `down -v`。
+- 牌譜含暗牌及牌牆；只允許管理者存取。可用下列命令列出與一致性備份，
+  再將備份複製到主機或另一個儲存位置；volume 本身不是備份：
+
+  ```bash
+  docker compose exec web python -m app.replay list --db /var/lib/mahjong16/hands.sqlite3
+  docker compose exec web python -m app.replay backup /var/lib/mahjong16/backup.sqlite3 --db /var/lib/mahjong16/hands.sqlite3
+  docker compose cp web:/var/lib/mahjong16/backup.sqlite3 ./hands-backup.sqlite3
+  ```
+
+  備份檔已存在時請換新檔名，不會自動覆寫。功能與界線見 [牌譜文件](hand-recording.md)。
 - 日誌限制每檔 10 MB、保留三檔。使用 `docker compose logs --tail 100 web` 診斷。
 - Docker 與通行碼減少風險，不能證明主機絕對安全；獨立入口限流與驗證留待下一階段。
 

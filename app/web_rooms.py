@@ -5,7 +5,9 @@ from copy import deepcopy
 import secrets
 import threading
 import time
+from uuid import uuid4
 from typing import TYPE_CHECKING, Callable
+from app.hand_store import RecordingError
 
 if TYPE_CHECKING:
     from app.web import WebTable
@@ -41,6 +43,18 @@ class WebRoom:
         self.last_active = time.monotonic()
         self.requests: dict[tuple[str, str], int] = {}
         self.changed = threading.Condition()
+        self.record_ids = {owner: str(uuid4())}
+        self.table.record_source = 'multiplayer'
+
+    def record_seat(self, pid: int) -> None:
+        """Keep private pseudonyms separate from cookie credentials and display names."""
+        sid = self.seats[pid]
+        if sid and sid not in self.record_ids:
+            self.record_ids[sid] = str(uuid4())
+        self.table.record_seat(pid, {
+            'player_id': self.record_ids[sid] if sid else None,
+            'name': self.names[sid] if sid else '電腦玩家', 'human': sid is not None,
+        })
 
     def publish(self) -> None:
         """Wake waiting clients after an authoritative change (lock must be held)."""
@@ -49,6 +63,7 @@ class WebRoom:
 
     def join(self, sid: str, name: str = '') -> None:
         """Take an unreserved bot seat without changing its game state, or reconnect."""
+        self.table.check_recording()
         name = player_name(name)
         if sid not in self.seats:
             if None not in self.seats:
@@ -56,6 +71,15 @@ class WebRoom:
             seat = self.seats.index(None)
             self.seats[seat] = sid
             self.names[sid] = name or f'玩家 {seat + 1}'
+            if self.started:
+                try:
+                    self.record_seat(seat)
+                except RecordingError:
+                    self.seats[seat] = None
+                    self.names.pop(sid)
+                    self.record_ids.pop(sid, None)
+                    self.publish()
+                    raise
             if not self.owner:
                 self.owner = sid
             if self.thinking and self.event == {'pid': seat, 'type': 'THINK'}:
@@ -140,6 +164,7 @@ class WebRoom:
         self.touch(sid)
         if sid != self.owner:
             raise ValueError('請由房主開局。')
+        self.table.check_recording()
         if next_hand:
             if not self.started or not self.table.env.done:
                 raise ValueError('本局尚未結束。')
@@ -147,7 +172,9 @@ class WebRoom:
         elif self.started:
             raise ValueError('本桌已開局。')
         else:
-            self.table.new_table()
+            for pid in range(4):
+                self.record_seat(pid)
+            self.table.new_table(activate_recording=True)
         self.started = True
         self.event = None
         self.thinking = False
@@ -157,6 +184,7 @@ class WebRoom:
     def act(self, sid: str, version: int, request_id: str, action: dict) -> None:
         """Apply a legal current-seat action once; acknowledge already accepted retries."""
         pid = self.touch(sid)
+        self.table.check_recording()
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 80:
             raise ValueError('無效操作編號。')
         if (sid, request_id) in self.requests:
@@ -171,14 +199,18 @@ class WebRoom:
         if len(self.requests) > 256:
             self.requests.pop(next(iter(self.requests)))
 
-    def apply(self, action: dict, pid: int | None = None) -> None:
+    def apply(self, action: dict, pid: int | None = None, *, source: str = 'human') -> None:
         """Apply a validated move, settle forced passes and publish its resolved event."""
         collecting = self.table.env.phase == 'REACTION'
         pid = self.table.actor() if pid is None else pid
         frames = []
-        self.table.apply(action, frames, pid=pid)
-        # Automatic ting discards run in tick, preserving the shared action delay.
-        self.table.advance(frames, auto_discard_ting=False)
+        try:
+            self.table.apply(action, frames, pid=pid, source=source)
+            # Automatic ting discards run in tick, preserving the shared action delay.
+            self.table.advance(frames, auto_discard_ting=False)
+        except RecordingError:
+            self.publish()
+            raise
         if collecting and self.table.env.phase == 'REACTION':
             # A private reply does not change the shared revision or wake other seats.
             # Other replies based on this same discard remain valid.
@@ -196,7 +228,8 @@ class WebRoom:
             if replacement:
                 self.owner = replacement
                 self.publish()
-        if not self.started or self.table.env.done or now < self.ready_at:
+        if (self.table.recording_error or not self.started or self.table.env.done
+                or now < self.ready_at):
             return
         if self.ready_at and not self.thinking:
             self.ready_at = 0
@@ -205,7 +238,7 @@ class WebRoom:
         pid = self.table.actor()
         ting_discard = self.table.ting_discard()
         if ting_discard is not None:
-            self.apply(ting_discard, pid=pid)
+            self.apply(ting_discard, pid=pid, source='auto_ting')
             return
         if self.table.env.phase == 'REACTION':
             pid = next((candidate for candidate in self.table.env.pending_reactions()
@@ -223,7 +256,7 @@ class WebRoom:
             self.ready_at = now + .7
             self.publish()
             return
-        self.apply(self.table.bot.choose(self.table.env._obs(pid)), pid=pid)
+        self.apply(self.table.bot.choose(self.table.env._obs(pid)), pid=pid, source='bot')
 
 
 class RoomRegistry:
@@ -278,12 +311,14 @@ class RoomRegistry:
             room = self.rooms.get(self.memberships.pop(sid, None))
             if room:
                 with room.changed:
-                    room.seats[room.seats.index(sid)] = None
+                    pid = room.seats.index(sid)
+                    room.seats[pid] = None
                     room.seen.pop(sid, None)
                     room.names.pop(sid, None)
                     if room.owner == sid:
                         room.owner = next((s for s in room.seats if s), '')
                     room.publish()
+                    room.record_seat(pid)
 
     def run(self, stop: threading.Event) -> None:
         """Schedule bot turns and expire empty or idle rooms until shutdown."""
@@ -292,10 +327,19 @@ class RoomRegistry:
             now = time.monotonic()
             with self.lock:
                 for code, room in list(self.rooms.items()):
+                    if stop.is_set():
+                        break
                     with room.changed:
                         if now - room.last_active > 3600 or not any(room.seats):
+                            try:
+                                room.table.interrupt_recording('room_expired')
+                            except RecordingError:
+                                pass  # The durable prefix remains active until restart recovery.
                             for sid in room.seats:
                                 self.memberships.pop(sid, None)
                             del self.rooms[code]
                             continue
-                        room.tick(now)
+                        try:
+                            room.tick(now)
+                        except RecordingError:
+                            pass  # Failed room already wakes clients; other rooms keep running.
