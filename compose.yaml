@@ -1,0 +1,30 @@
+services:
+  web:
+    build: .
+    image: ${MAHJONG_IMAGE:-mahjong16:local}
+    ports:
+      - "127.0.0.1:${MAHJONG_PORT:-8000}:8000"
+    secrets:
+      - access_password
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
+    cpus: 2
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3); assert r.status == 200 and b'/access/login' in r.read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+secrets:
+  access_password:
+    file: ${MAHJONG_PASSWORD_FILE:?Set MAHJONG_PASSWORD_FILE to a passcode file outside the repository}
