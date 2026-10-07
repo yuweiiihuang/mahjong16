@@ -475,7 +475,7 @@ export class MahjongTableView {
     }
     // Crop the same perspective uniformly, including projected hit targets.
     this.camera.setViewOffset(this.width,this.height,
-      (this.width-this.width/this.zoom)/2+this.width*.01,this.height*(wideDesktop?.20:.1375),
+      (this.width-this.width/this.zoom)/2,this.height*(wideDesktop?.20:.1375),
       this.width/this.zoom,this.height/this.zoom);
     this.camera.updateMatrixWorld();
     this.draw();

@@ -18,6 +18,8 @@ test('table zoom uniformly enlarges projection and hit targets without accumulat
     assert.equal(view.zoom,expectedZoom);
     assert.equal(view.container.style['--table-zoom'],view.zoom,
       'DOM overlays must use the same zoom as the camera after every resize');
+    assert.ok(Math.abs(view.project([0,0,0]).x-width/2)<1e-7,
+      'the physical table center must stay on the viewport horizontal center');
     const points = [[-9,.77,10.9],[8,.77,10.9],[10.3,1.75,0],[0,1.75,-9.1]];
     const zoomed = points.map(p => view.project(p));
     const hit = view.hitBoxes()[0];
