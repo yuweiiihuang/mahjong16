@@ -405,21 +405,26 @@ async function request(path,body){
   if(!response.ok){const error=new Error(data.error||'連線失敗');error.status=response.status;throw error;}
   return data;
 }
-async function present(result) {
+async function present(result, previewedAction = null) {
   const {playback = [], ...finalState} = result;
   selected = null;
   try {
     for (const frame of playback) {
+      const alreadyShown = previewedAction && frame.pid===0 &&
+        frame.type===previewedAction.type && frame.state.last_discard?.tile===previewedAction.tile;
+      previewedAction = null;
       playbackFrame = frame;
       state = {...frame.state, actor:frame.pid};
       render();
-      if (['DISCARD','TING'].includes(frame.type)) {
+      if (['DISCARD','TING'].includes(frame.type) && !alreadyShown) {
         beep();
         await tableView.animateDiscard(frame.pid);
-      } else if (frame.type !== 'THINK') beep();
+      } else if (frame.type !== 'THINK' && !alreadyShown) beep();
       const delay = frame.type === 'THINK' ? 500 + Math.random()*250
         : frame.state.done ? 1200 : ['DISCARD','TING'].includes(frame.type) ? 450 : 700;
-      await new Promise(resolve => setTimeout(resolve, delay * {fast:.35,natural:1,relaxed:1.6}[pace]));
+      if (!alreadyShown) {
+        await new Promise(resolve => setTimeout(resolve, delay * {fast:.35,natural:1,relaxed:1.6}[pace]));
+      }
     }
   } finally {
     playbackFrame = null;
@@ -432,23 +437,35 @@ async function perform(action){
   if(!action||busy)return;
   pendingReaction = state.phase === 'REACTION' ? action : null;
   chiSelection=null;tingMode=false;tingPassed=false;busy=true;renderActions();renderHand();
+  const before = state;
+  const preview = ['DISCARD','TING'].includes(action.type) ? tableView.previewDiscard(action) : null;
+  if (preview) beep();
   try{
     const move = Object.fromEntries(Object.entries(action).filter(([key])=>key!=='index'));
     if (roomMode) {
-      state = await request('/api/room/action', {action:move, version:state.version, request_id:crypto.randomUUID()});
+      const result = await request('/api/room/action', {action:move, version:state.version, request_id:crypto.randomUUID()});
+      await preview;
+      state = result;
       pendingReaction = null;
       selected = null;
       render();
-      if (['DISCARD','TING'].includes(state.display_event?.type)) {
+      const event = state.display_event;
+      const alreadyShown = preview && event?.pid===0 && event.type===action.type && event.tile===action.tile;
+      if (['DISCARD','TING'].includes(event?.type) && !alreadyShown) {
         beep(); await tableView.animateDiscard(state.display_event.pid);
       }
     } else {
       const result = await request('/api/action', move);
+      await preview;
       pendingReaction = null;
-      await present(result);
+      await present(result, preview ? action : null);
     }
   }
-  catch(e){toast(e.message);try{state=await request(roomMode ? '/api/room/state' : '/api/state');selected=null;}catch{}}
+  catch(e){
+    await preview;
+    state=before;selected=null;render();toast(e.message);
+    try{state=await request(roomMode ? '/api/room/state' : '/api/state');}catch{}
+  }
   finally{pendingReaction=null;busy=false;render();if(roomMode && state.done)showResult();}
 }
 async function newGame(next = false){

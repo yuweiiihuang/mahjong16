@@ -4,7 +4,7 @@
 Mac 本地驗證後，Windows 再部署指定版本。此階段手動建置與部署，尚未接 GitHub
 Actions、GHCR、自動更新或獨立入口驗證。登入仍由牌桌程式處理。
 
-2026-10-07 Windows 現行映像為 `mahjong16:617094b-centered`，在 `617094b`
+2026-10-07 Windows 首次置中更新映像為 `mahjong16:617094b-centered`，在 `617094b`
 基準上移除鏡頭的水平偏移。Funnel 指向 8002；舊 Python 服務已停止且排程已停用。
 
 ## Mac 驗證

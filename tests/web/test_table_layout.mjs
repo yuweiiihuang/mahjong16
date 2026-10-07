@@ -171,6 +171,42 @@ test('discard frame and pointer appear only after the flying tile lands', async 
   } finally { globalThis.requestAnimationFrame = original; }
 });
 
+test('discard preview uses the picked tile and never mutates the authoritative hand', async () => {
+  const original = globalThis.requestAnimationFrame;
+  const callbacks=[];
+  globalThis.requestAnimationFrame=callback=>{callbacks.push(callback);return callbacks.length;};
+  try {
+    for (const [type,from] of [['DISCARD','hand'],['DISCARD','drawn'],
+      ['TING','hand'],['TING','drawn']]) {
+      const tile=from==='hand'?4:5;
+      const action={type,tile,from};
+      const state={hand:[4,4,9],drawn:5,legal_actions:[action],
+        players:[{},{},{},{}],seating_order:[0,1,2,3],rivers:[[1],[],[],[]]};
+      const before=JSON.stringify(state);
+      const view=Object.create(MahjongTableView.prototype);
+      const scene=new THREE.Scene(),tiles=new THREE.Group(),picked=new THREE.Group();
+      scene.add(tiles);tiles.add(picked);picked.position.set(3,.925,10.9);
+      picked.userData={id:tile,action};
+      Object.assign(view,{snapshot:state,scene,tiles,handObjects:[picked],
+        draw() {},updateIndicator() {},addConcealed() {},markLatest() {},
+        makeTile(id) {const t=new THREE.Group();t.position.y=.235;t.userData={id};return t;}});
+      const motion=view.previewDiscard(action);
+      assert.ok(motion,'a legal picked tile must begin moving immediately');
+      assert.deepEqual(view.snapshot.hand,from==='hand'?[4,9,5]:[4,4,9]);
+      assert.equal(view.snapshot.drawn,null);
+      assert.deepEqual(view.snapshot.rivers[0],[1,tile]);
+      assert.equal(JSON.stringify(state),before,'prediction cannot mutate server state');
+      const river=view.tiles.children.find(g=>g.userData.riverPid===0);
+      scene.updateMatrixWorld(true);
+      const position=river.children.at(-1).getWorldPosition(new THREE.Vector3());
+      assert.ok(position.distanceTo(new THREE.Vector3(3,.925,10.9))<1e-9);
+      callbacks.shift()(performance.now()+251);
+      await motion;
+      assert.equal(view.discardAnimating,false);
+    }
+  } finally {globalThis.requestAnimationFrame=original;}
+});
+
 // Exercise the real tile builder and seat transforms without creating a WebGL renderer.
 test('chi restriction shades every forbidden copy and preserves disabled hit targets', () => {
   const view = Object.create(MahjongTableView.prototype);

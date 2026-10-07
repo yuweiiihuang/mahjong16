@@ -7,6 +7,64 @@ const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'ut
 const handlers = source.slice(source.indexOf('function actionButton('),
   source.indexOf('function renderActions('));
 
+test('discard starts before acknowledgement and restores authoritative state on rejection', async () => {
+  for (const roomMode of [false,true]) {
+    const before={version:1,phase:'TURN',hand:[4],drawn:5,rivers:[[],[],[],[]]};
+    const action={type:'DISCARD',tile:4,from:'hand',index:0};
+    const calls=[];
+    let resolve,reject;
+    const ctx=vm.createContext({
+      state:before,selected:action,busy:false,roomMode,tingMode:false,tingPassed:false,
+      chiSelection:null,pendingReaction:null,crypto:{randomUUID:()=> 'once'},
+      renderActions() {},renderHand() {},beep() {},showResult() {},toast() {},
+      tableView:{previewDiscard() {calls.push('preview');return Promise.resolve();},
+        animateDiscard() {calls.push('replay');return Promise.resolve();}},
+      render() {calls.push(ctx.state===before?'restore':'confirmed');},
+      request:path=>path.endsWith('/action')?new Promise((a,b)=>{
+        calls.push('request');resolve=a;reject=b;
+      }):Promise.resolve(before),
+      present:async (result,previewed)=>{calls.push(previewed?'skip-preview':'replay');ctx.state=result;},
+    });
+    vm.runInContext(source.slice(source.indexOf('async function perform('),
+      source.indexOf('async function newGame(')),ctx);
+    const pending=ctx.perform(action);
+    assert.deepEqual(calls.slice(0,2),['preview','request']);
+    assert.equal(ctx.state,before,'visual prediction must not advance the engine state');
+    assert.equal(ctx.busy,true);
+    resolve({...before,version:2,display_event:{type:'DISCARD',pid:0,tile:4}});
+    await pending;
+    assert.ok(!calls.includes('replay'),'acknowledgement must not animate the same discard twice');
+    assert.equal(ctx.busy,false);
+    ctx.state=before;
+    const failed=ctx.perform(action);
+    reject(new Error('stale'));
+    await failed;
+    assert.equal(ctx.state,before);
+    assert.equal(calls.at(-1),'restore');
+    assert.equal(ctx.busy,false);
+  }
+});
+
+test('practice playback skips only the confirmed preview and keeps other players moving', async () => {
+  const action={type:'DISCARD',tile:4,from:'hand'};
+  const final={done:false};
+  const animations=[],delays=[];
+  const ctx=vm.createContext({state:{},selected:action,playbackFrame:null,pace:'natural',
+    render() {},beep() {},showResult() {},
+    tableView:{animateDiscard:async pid=>animations.push(pid)},
+    setTimeout(resolve,delay) {delays.push(delay);resolve();}});
+  vm.runInContext(source.slice(source.indexOf('async function present('),
+    source.indexOf('async function perform(')),ctx);
+  await ctx.present({...final,playback:[
+    {pid:0,type:'DISCARD',state:{last_discard:{pid:0,tile:4}}},
+    {pid:1,type:'DISCARD',state:{last_discard:{pid:1,tile:9}}},
+  ]},action);
+  assert.deepEqual(animations,[1]);
+  assert.deepEqual(delays,[450]);
+  assert.equal(ctx.state.done,false);
+  assert.equal(ctx.playbackFrame,null);
+});
+
 test('available reactions group by type, keep order after submission, and choose exact chi', () => {
   const sent = [], choices = [];
   const node = () => ({dataset:{},children:[],classList:{add() {}},

@@ -393,14 +393,37 @@ export class MahjongTableView {
     this.draw();
   }
 
-  animateDiscard(pid) {
+  previewDiscard(action) {
+    const state = this.snapshot;
+    if (this.discardAnimating || !['DISCARD','TING'].includes(action.type) ||
+        !state?.legal_actions.some(a => a.type===action.type &&
+          a.tile===action.tile && a.from===action.from)) return null;
+    const source = this.handObjects.find(tile => tile.userData.id===action.tile &&
+      tile.userData.action.from===action.from &&
+      (action.index===undefined || tile.userData.index===action.index));
+    if (!source) return null;
+    this.scene.updateMatrixWorld(true);
+    const start = source.getWorldPosition(new THREE.Vector3());
+    const hand = [...state.hand];
+    if (action.from==='hand') {
+      hand.splice(hand.indexOf(action.tile),1);
+      if (state.drawn!==null && state.drawn!==undefined) hand.push(state.drawn);
+    }
+    const rivers = state.rivers.map((river,pid) => pid===0?[...river,action.tile]:river);
+    // Visual prediction only: the caller retains the authoritative state until acknowledgement.
+    this.update({...state,hand,drawn:null,rivers,legal_actions:[],
+      last_discard:{pid:0,tile:action.tile}},null,this.sortOrder);
+    return this.animateDiscard(0,start);
+  }
+
+  animateDiscard(pid, startPoint) {
     const river = this.tiles.children.find(group => group.userData.riverPid === pid);
     const tile = river?.children.find(child =>
       child.userData.riverIndex === this.snapshot.rivers[pid].length-1);
     if (!tile) return Promise.resolve();
     const end = tile.position.clone(), seat = this.seatPositions[pid];
     this.scene.updateMatrixWorld(true);
-    const start = river.worldToLocal(new THREE.Vector3(SEATS[seat][0],.8,
+    const start = river.worldToLocal(startPoint?.clone() || new THREE.Vector3(SEATS[seat][0],.8,
       SEATS[seat][1]+(seat===0?OWN_HAND_Z:0)));
     const markers = tile.userData.latestMarkers || [];
     this.discardAnimating = true;
