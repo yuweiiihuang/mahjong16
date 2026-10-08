@@ -86,6 +86,46 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 
 ## 邊界與維護
 
+### Windows 主機端備份
+
+`deploy/windows/backup-hands.ps1` 使用目前正式容器的確切映像與資料卷，
+啟動無網路、非管理員身分的短期備份容器。原資料卷以唯讀掛載；
+輸出至主機的 `C:\ProgramData\Qinghe\backups`，並執行 SQLite 完整性檢查。
+備份與檢查各有容器內的 240 秒期限；即使排程程序被強制結束，
+容器內的期限仍有效。正常錯誤另外會清理有識別名稱的備份容器。
+只有完整性檢查通過後才改為正式 `.sqlite3` 檔名；被中斷的 `.partial`
+檔案不算成功備份，不應拿來還原。
+正式牌桌容器不掛載此目錄，備份工具也不取得通行碼。
+不需要重啟牌桌；不是直接複製可能正在寫入的 SQLite 檔案。
+
+在使用 Docker Desktop 的 Windows 帳號下執行
+`deploy/windows/install-backup.ps1`，建立 `Mahjong16-HandBackup` 每小時排程，
+並立即執行一次。保留系統原有的 PowerShell 執行原則，不修改為全域放行。
+部署目錄須維持本人與 SYSTEM 的限制；安裝程式會重建備份目錄與既有檔案的
+存取權限，只保留本人與 SYSTEM，遇到連結或 junction 則拒絕安裝。
+安裝程式只限制備份目錄，
+不替任意既有部署目錄重新設定所有權限。
+
+```powershell
+Get-ScheduledTaskInfo -TaskName Mahjong16-HandBackup
+Get-Content C:\ProgramData\Qinghe\backup-last-run.log
+```
+
+成功的 `LastTaskResult` 為 `0`，日誌包含 `Verified backup`。
+排程需要該帳號已登入且 Docker 引擎運行；它不會將 Windows 設成無人登入伺服器。
+目前不自動刪除歷史備份，需定期檢查磁碟容量並將成功備份複製至另一台裝置。
+同一台 Windows 上的備份能抵禦牌桌容器直接刪除，但不能抵禦整台主機失守或磁碟故障。
+修正回歸可執行 `tests/web/windows_backup.ps1`，使用隔離的目錄與短期容器，
+確認寬鬆權限會移除、超時會回報失敗且不留下容器，不操作正式牌局。
+
+2026-10-08 已在 `DESKTOP-388MJBR` 實測備份、完整性檢查與排程成功。
+正式容器隔離設定與 loopback 埠已核對；SSH 防火牆限制至管理 Mac 的 Tailscale IP。
+獨立測試已驗證雙網路入口可連到內部服務，而內部服務無法連到外部 IP。
+正式網路尚未切換，前置驗證服務尚未安裝。不能直接將現有網路改成
+`internal: true`：實測該內部網路沒有提供原本的主機映射埠，需連同閘道部署。
+
+### 容器設定
+
 - 容器使用 UID 10001、唯讀檔案系統，移除 Linux capabilities，限制 CPU、記憶體與程序數。
 - 對外埠只綁主機 `127.0.0.1`；透過 Funnel 提供 HTTPS，SSH 仍經 Tailscale 管理。
 - Compose 掛載通行碼檔案及私有牌譜 volume；不掛載整個專案、SSH 金鑰或 Docker socket。
