@@ -1,0 +1,12 @@
+# Prepare on loopback first. This file does not configure or enable Funnel.
+services:
+  gateway:
+    ports: !override
+      - "127.0.0.1:${MAHJONG_GATEWAY_PORT:-8003}:8080"
+    volumes:
+      - ./Caddyfile.funnel:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
+  auth:
+    restart: unless-stopped
+  web:
+    restart: unless-stopped

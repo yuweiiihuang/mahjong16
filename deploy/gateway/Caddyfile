@@ -1,0 +1,20 @@
+{
+    admin off
+    skip_install_trust
+    auto_https disable_redirects
+    servers {
+        max_header_size 32KB
+        timeouts {
+            read_header 10s
+            read_body 15s
+            write 30s
+            idle 30s
+        }
+    }
+}
+
+# Staging uses an internal TLS certificate; Funnel is not connected to this listener.
+https://{$MAHJONG_GATEWAY_HOST}:8443 {
+    tls internal
+    import /etc/caddy/routes.caddy
+}

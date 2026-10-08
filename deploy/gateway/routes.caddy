@@ -1,0 +1,24 @@
+    request_body {
+        max_size 128KB
+    }
+    header Cache-Control no-store
+    redir /auth /auth/ 308
+    handle /auth/* {
+        reverse_proxy auth:9091 {
+            header_up X-Forwarded-Proto https
+        }
+    }
+    handle {
+        forward_auth auth:9091 {
+            uri /auth/api/authz/forward-auth
+            header_up X-Forwarded-Proto https
+        }
+        reverse_proxy web:8000 {
+            header_up X-Forwarded-Proto https
+            header_up Authorization "{$MAHJONG_BACKEND_AUTHORIZATION}"
+            header_up -Remote-User
+            header_up -Remote-Groups
+            header_up -Remote-Email
+            header_up -Remote-Name
+        }
+    }

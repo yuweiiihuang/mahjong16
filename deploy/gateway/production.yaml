@@ -1,0 +1,6 @@
+# Add only during approved cutover, after stopping the old web container.
+# The existing backup job continues to read this same external records volume.
+volumes:
+  stage-records:
+    external: true
+    name: ${MAHJONG_RECORDS_VOLUME:?Set the existing production records volume}

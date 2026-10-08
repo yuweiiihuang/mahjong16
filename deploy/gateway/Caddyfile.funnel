@@ -1,0 +1,25 @@
+{
+    admin off
+    auto_https off
+    servers {
+        max_header_size 32KB
+        timeouts {
+            read_header 10s
+            read_body 15s
+            write 30s
+            idle 30s
+        }
+    }
+}
+
+# Only the host-loopback Funnel proxy may reach this HTTP listener.
+http://{$MAHJONG_GATEWAY_HOST}:8080 {
+    route {
+        # Do not accept client-controlled forwarding metadata as identity.
+        request_header -X-Forwarded-For
+        request_header -X-Real-IP
+        request_header X-Forwarded-Proto https
+        request_header X-Forwarded-Host {$MAHJONG_GATEWAY_HOST}
+        import /etc/caddy/routes.caddy
+    }
+}

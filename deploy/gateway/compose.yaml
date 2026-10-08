@@ -1,0 +1,98 @@
+# Separate staging project and records. Never attach production hand-records here.
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+services:
+  permissions:
+    image: ${MAHJONG_IMAGE:-mahjong16:7c16004}
+    user: "0:0"
+    command: ["python", "-c", "import os; [os.chown(p, 10001, 10001) for p in ['/gateway-data', '/gateway-config', '/auth-data']]"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    mem_limit: 64m
+    cpus: 1
+    pids_limit: 16
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - gateway-data:/gateway-data
+      - gateway-config:/gateway-config
+      - auth-data:/auth-data
+  gateway:
+    logging: *bounded-logging
+    image: caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+    user: "10001:10001"
+    environment:
+      MAHJONG_GATEWAY_HOST: ${MAHJONG_GATEWAY_HOST:?Set the staging host}
+    env_file:
+      - ${MAHJONG_GATEWAY_CONFIG:?Set the private staging config directory}/gateway.env
+    ports:
+      - "127.0.0.1:${MAHJONG_GATEWAY_PORT:-8003}:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./routes.caddy:/etc/caddy/routes.caddy:ro
+      - gateway-data:/data
+      - gateway-config:/config
+    read_only: true
+    cap_drop: [ALL]
+    # The official Caddy binary has this file capability, required even on port 8443.
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 1
+    pids_limit: 64
+    networks: [edge, auth, game]
+  auth:
+    logging: *bounded-logging
+    image: authelia/authelia:4.39@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+    user: "10001:10001"
+    volumes:
+      - ${MAHJONG_GATEWAY_CONFIG}/configuration.yml:/config/configuration.yml:ro
+      - ${MAHJONG_GATEWAY_CONFIG}/users.yml:/config/users.yml:ro
+      - auth-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1770,size=16m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 64
+    networks: [auth]
+  web:
+    logging: *bounded-logging
+    image: ${MAHJONG_IMAGE:-mahjong16:7c16004}
+    secrets: [access_password]
+    volumes:
+      - stage-records:/var/lib/mahjong16
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    mem_limit: 512m
+    cpus: 2
+    pids_limit: 128
+    networks: [game]
+secrets:
+  access_password:
+    file: ${MAHJONG_GATEWAY_CONFIG}/backend-password.txt
+volumes:
+  gateway-data:
+  gateway-config:
+  auth-data:
+  stage-records:
+networks:
+  edge:
+  auth:
+    internal: true
+  game:
+    internal: true
