@@ -25,6 +25,28 @@ function Invoke-BackupHelper {
     }
 }
 
+function Get-ExpiredHandBackup([string]$Directory, [datetime]$Now = (Get-Date)) {
+    if ((Get-Item -LiteralPath $Directory).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw 'Backup directory must not be a link or junction'
+    }
+    $daily = @{}
+    foreach ($file in Get-ChildItem -LiteralPath $Directory -File | Sort-Object Name -Descending) {
+        if ($file.Name -notmatch '^hands-(\d{8}-\d{6})-[a-f0-9]{32}\.sqlite3$' -or
+            ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+        $created = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($Matches[1], 'yyyyMMdd-HHmmss',
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::None, [ref]$created)) { continue }
+        if ($created -ge $Now.AddHours(-48)) { continue }
+        $day = $created.ToString('yyyyMMdd')
+        if ($created -ge $Now.AddDays(-30) -and -not $daily.ContainsKey($day)) {
+            $daily[$day] = $true
+            continue
+        }
+        $file
+    }
+}
+
 $info = (Invoke-Docker inspect $Container | ConvertFrom-Json)[0]
 $records = @($info.Mounts | Where-Object {
     $_.Type -eq 'volume' -and $_.Destination -eq '/var/lib/mahjong16'
@@ -51,3 +73,8 @@ Invoke-BackupHelper `
 
 [IO.File]::Move((Join-Path $BackupDirectory $pending), (Join-Path $BackupDirectory $name))
 Write-Output "Verified backup: $BackupDirectory\$name"
+# Only prune completed backups after the new snapshot passes integrity verification.
+foreach ($file in Get-ExpiredHandBackup $BackupDirectory) {
+    Remove-Item -LiteralPath $file.FullName -ErrorAction Stop
+    Write-Output "Removed expired backup: $($file.Name)"
+}
