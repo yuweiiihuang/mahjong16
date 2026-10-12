@@ -162,7 +162,7 @@ function syncProjection(view) {
   actionBar.style.top = `${actionY}px`;
   $('ting-panel').style.top = `${actionY}px`;
   $('ting-panel').style.setProperty('--ting-max-height',
-    `${Math.max(0, (actionY-12)/(view.zoom || 1))}px`);
+    `${Math.max(0, (actionY-(view.safeFrame?view.safeFrame.top+38:12))/(view.zoom || 1))}px`);
   const panel = $('ting-panel');
   actionBar.style.right = panel.hidden ? '' :
     `${parseFloat(getComputedStyle(panel).right)+panel.offsetWidth*(view.zoom || 1)+12}px`;
@@ -171,8 +171,13 @@ function syncProjection(view) {
   for (const pid of [1,2,3]) {
     const seat = (order.indexOf(pid) - order.indexOf(0) + 4) % 4;
     const p=view.project(positions[seat]); const el=$(`seat-${pid}`);
-    el.style.left=`${p.x}px`;
-    el.style.top=`${Math.max(p.y, el.offsetHeight*(view.zoom || 1)/2+8)}px`;
+    const halfWidth=el.offsetWidth*(view.zoom || 1)/2;
+    const halfHeight=el.offsetHeight*(view.zoom || 1)/2;
+    const frame=view.safeFrame;
+    el.style.left=`${frame?Math.max(frame.left+halfWidth,
+      Math.min(p.x,frame.right-halfWidth)):p.x}px`;
+    el.style.top=`${frame?Math.max(frame.top+halfHeight,
+      Math.min(p.y,frame.bottom-halfHeight)):Math.max(p.y,halfHeight+8)}px`;
   }
 }
 $('ting-panel').ontoggle = () => { if (tableView) syncProjection(tableView); };
@@ -909,7 +914,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=full-window-zoom-1');
+    const { MahjongTableView } = await import('./table3d.js?v=mobile-safe-area-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

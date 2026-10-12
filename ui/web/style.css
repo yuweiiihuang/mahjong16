@@ -17,21 +17,21 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 /* Dialog thumbnails are flat, readable illustrations rather than a second camera. */
 .tile{position:relative;display:flex;align-items:center;justify-content:center;background:#faf9f0;border:1px solid #dad8c6;border-radius:4px;width:49px;height:68px;flex-shrink:0;padding:4px}.tile .tile-face{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}.tile.small{width:27px;height:37px;padding:2px}.meld-group{display:flex;gap:2px}.result-hand{display:flex;gap:3px;flex-wrap:wrap;margin:20px 0}dialog{border:1px solid #d9dece;border-radius:18px;padding:36px;width:min(640px,90vw);background:var(--paper);color:var(--ink);box-shadow:0 25px 80px #0b2c3440}dialog::backdrop{background:#0d292bb3;backdrop-filter:blur(5px)}dialog h2{font:600 24px 'Noto Serif CJK TC','Songti TC',serif;margin-bottom:22px}dialog p,dialog li{font-size:13px;line-height:1.9;color:#697c6b}dialog .close{position:absolute;right:16px;top:10px;font-size:26px;color:#738773}.history-row{display:flex;align-items:center;gap:12px;border-bottom:1px solid #dde2d5;padding:10px 0;font-size:12px}.history-scroll{max-height:420px;overflow:auto}.modal-primary{background:var(--ink);color:#f3f5e9;border-radius:24px;padding:12px 25px;margin-top:20px}.setting-row{display:flex;align-items:center;justify-content:space-between;padding:15px 0;border-bottom:1px solid #dce2d4;font-size:14px}.setting-row input{accent-color:#2d614c}#toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background:#f9f9e9;color:#214938;border:1px solid #c9d1bd;padding:12px 22px;z-index:30;border-radius:10px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .2s}#toast.visible{opacity:1}.rotate-prompt{display:none}.context-lost:after{content:'顯示暫停，正在恢復牌桌…';position:absolute;inset:0;display:grid;place-items:center;background:#1b4438;z-index:10;font-size:16px}
 @media(max-width:1100px){.layout{grid-template-columns:175px 1fr}aside{padding:24px 15px}main{padding:20px 15px 10px}.brand{font-size:21px}.table{min-height:440px}.my-heading{bottom:74px}.seat-person .avatar{width:28px;height:28px}.seat-person small{font-size:8px}}
-@media(max-width:950px) and (orientation:landscape){header{height:42px;padding:0 18px;gap:24px}.brand{font-size:17px;gap:8px;letter-spacing:1px}.brandmark{width:23px;height:28px;font-size:17px}nav{padding-left:20px;gap:24px}nav button{font-size:11px}.nav-active:after{bottom:4px}.header-right{gap:15px}.icon svg{width:18px;height:18px}.connection{display:none}.layout{display:block;min-height:0}aside{display:none}main{padding:6px 8px}footer,.table-top{display:none}.table{height:calc(100dvh - 54px);min-height:260px;border-radius:10px}.seat-person{background:none;padding:0;gap:4px}.seat-person .avatar{width:23px;height:23px;font-size:12px}.seat-person strong{font-size:9px}.seat-person small{display:none}.seat-person .dealer{font-size:7px}.compass{width:43px;height:43px;border-radius:5px}.wind{font-size:8px}.wind-top{top:1px}.wind-bottom{bottom:1px}.wind-left{left:2px}.wind-right{right:2px}.remaining small{display:none}.remaining strong{font-size:16px}.my-heading{left:12px;bottom:54px;gap:7px}.action-bar{bottom:10px;left:14px;right:14px;min-height:29px;gap:10px}#actions{gap:6px}#actions button{padding:6px 16px;min-width:60px;font-size:10px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){header{height:42px;padding:0 18px;gap:24px}.brand{font-size:17px;gap:8px;letter-spacing:1px}.brandmark{width:23px;height:28px;font-size:17px}nav{padding-left:20px;gap:24px}nav button{font-size:11px}.nav-active:after{bottom:4px}.header-right{gap:15px}.icon svg{width:18px;height:18px}.connection{display:none}.layout{display:block;min-height:0}aside{display:none}main{padding:6px 8px}footer,.table-top{display:none}.table{height:calc(100dvh - 54px);min-height:260px;border-radius:10px}.seat-person{background:none;padding:0;gap:4px}.seat-person .avatar{width:23px;height:23px;font-size:12px}.seat-person strong{font-size:9px}.seat-person small{display:none}.seat-person .dealer{font-size:7px}.compass{width:43px;height:43px;border-radius:5px}.wind{font-size:8px}.wind-top{top:1px}.wind-bottom{bottom:1px}.wind-left{left:2px}.wind-right{right:2px}.remaining small{display:none}.remaining strong{font-size:16px}.my-heading{left:12px;bottom:54px;gap:7px}.action-bar{bottom:10px;left:14px;right:14px;min-height:29px;gap:10px}#actions{gap:6px}#actions button{padding:6px 16px;min-width:60px;font-size:10px}}
 @media(max-width:950px) and (orientation:portrait){html,body{height:100dvh;overflow:hidden}header,.layout{visibility:hidden}.rotate-prompt{display:flex;position:fixed;inset:0;z-index:20;background:#1d5144;color:#eef1df;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:32px}.rotate-prompt svg{width:85px;height:85px;fill:none;stroke:#bcd1a6;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;margin-bottom:30px}.rotate-prompt h2{font:600 25px 'Noto Serif CJK TC','Songti TC',serif;letter-spacing:3px;margin:0 0 18px}.rotate-prompt p{font-size:14px;line-height:1.9;color:#b5c9af;margin:0}.rotate-prompt .rotate-brand{position:absolute;top:35px;font:18px 'Noto Serif CJK TC','Songti TC',serif;letter-spacing:3px;color:#ccddc0}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
-@media(max-width:950px) and (orientation:landscape){
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
  header{position:absolute;top:8px;right:14px;left:auto;height:30px;padding:0;border:0;z-index:6;gap:0}
  header .brand,header nav{display:none}.header-right{gap:8px;color:#d2dfc7}.icon{padding:5px;background:#194a3a99;border-radius:50%}
  .table{height:calc(100dvh - 12px)}
 }
 
-.wind-top,.wind-bottom{left:50%;transform:translateX(-50%)}.wind-left,.wind-right{top:50%;transform:translateY(-50%)}.remaining small{display:none}.my-heading{bottom:17px;left:22px}.action-bar{left:245px}@media(max-width:950px) and (orientation:landscape){.my-heading{bottom:10px;left:12px}.action-bar{left:95px}}
+.wind-top,.wind-bottom{left:50%;transform:translateX(-50%)}.wind-left,.wind-right{top:50%;transform:translateY(-50%)}.remaining small{display:none}.my-heading{bottom:17px;left:22px}.action-bar{left:245px}@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.my-heading{bottom:10px;left:12px}.action-bar{left:95px}}
 
 @media(min-width:951px){.table{height:min(calc(100dvh - 202px),calc((100vw - 262px)/2));min-height:400px}}
 
-.compass{width:56px;height:56px}.remaining strong{font-size:18px}.wind{font-size:10px}.wind-top{top:2px}.wind-bottom{bottom:2px}.wind-left{left:3px}.wind-right{right:3px}@media(max-width:950px) and (orientation:landscape){.compass{width:34px;height:34px}.remaining strong{font-size:12px}.wind{font-size:7px}.wind-top{top:1px}.wind-bottom{bottom:1px}.wind-left{left:1px}.wind-right{right:1px}}
+.compass{width:56px;height:56px}.remaining strong{font-size:18px}.wind{font-size:10px}.wind-top{top:2px}.wind-bottom{bottom:2px}.wind-left{left:3px}.wind-right{right:3px}@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.compass{width:34px;height:34px}.remaining strong{font-size:12px}.wind{font-size:7px}.wind-top{top:1px}.wind-bottom{bottom:1px}.wind-left{left:1px}.wind-right{right:1px}}
 
 .sort-order{display:flex;gap:12px;justify-content:center;padding:12px 0}
 .sort-group{padding:0;background:none;cursor:grab;touch-action:none;user-select:none}
@@ -50,8 +50,8 @@ main{padding:22px 26px 10px;min-width:0}.table-top{display:flex;justify-content:
 .ting-body{max-height:max(0px,calc(var(--ting-max-height,400px) - var(--ting-chrome)));overflow-y:auto;overscroll-behavior:contain;padding:2px 4px 3px 0}
 .ting-body:focus-visible{outline:1px solid #8b7036;outline-offset:1px;border-radius:3px}
 .ting-body .wait-tiles{min-width:0;flex:1}
-@media(max-width:950px) and (orientation:landscape){#ting-panel{right:14px;padding:6px 8px;max-width:220px}.ting-row{padding:3px 0;gap:6px}#ting-panel .tile.small{width:22px;height:30px}.ting-heading{font-size:10px;margin-bottom:3px}.wait-tile small{min-width:14px;height:14px;font-size:9px}}
-@media(max-width:950px) and (orientation:landscape){#ting-panel{--ting-chrome:40px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){#ting-panel{right:14px;padding:6px 8px;max-width:220px}.ting-row{padding:3px 0;gap:6px}#ting-panel .tile.small{width:22px;height:30px}.ting-heading{font-size:10px;margin-bottom:3px}.wait-tile small{min-width:14px;height:14px;font-size:9px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){#ting-panel{--ting-chrome:40px}}
 dialog{max-height:85dvh;overflow-y:auto}
 .result-dialog{padding:24px}.result-dialog h2{margin-bottom:14px}.result-dialog p{margin:10px 0;font-size:12px;line-height:1.5}
 .result-dialog .result-hand{margin:12px 0}.result-dialog .result-hand .tile{width:30px;height:42px;padding:2px}
@@ -79,8 +79,8 @@ dialog{max-height:85dvh;overflow-y:auto}
 .chi-picker .tile.small{width:28px;height:39px}.chi-picker .chi-discard{background:#d8eddd;border-color:#7fab8a;box-shadow:none}
 .chi-empty{display:grid;place-items:center;width:28px;height:39px;border:1px dashed #8eab94;border-radius:4px;color:#72917a;font-size:18px}
 #actions .chi-confirm,#actions .chi-cancel,.chi-icon-confirm{font-weight:600;white-space:nowrap;color:#315f4c;background:#d8eddd;border:1px solid #7fab8a;box-shadow:none}#actions .chi-confirm,#actions .chi-cancel{padding:9px 14px;border-radius:7px;font-size:14px;min-width:64px;height:51px}#actions .chi-confirm:hover:not(:disabled){background:#cddfce}#actions .chi-cancel{background:#e7ebe7;border-color:#bac4bd;color:#64716c}#actions .chi-cancel:hover{background:#d8dfd8}.chi-picker button:disabled{opacity:.45}
-@media(max-width:950px) and (orientation:landscape){.chi-picker{gap:5px}.chi-picker .tile.small,.chi-empty{width:22px;height:31px}#actions .chi-confirm,#actions .chi-cancel{padding:7px 10px;font-size:12px;min-width:52px;height:43px}}
-@media(max-width:950px) and (orientation:landscape){#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]){min-width:56px;height:40px;padding:0 10px;font-size:20px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.chi-picker{gap:5px}.chi-picker .tile.small,.chi-empty{width:22px;height:31px}#actions .chi-confirm,#actions .chi-cancel{padding:7px 10px;font-size:12px;min-width:52px;height:43px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]){min-width:56px;height:40px;padding:0 10px;font-size:20px}}
 /* All settings share the same controls, spacing and tabletop previews. */
 .settings-dialog{width:min(680px,92vw);padding:26px 30px;max-height:92dvh}
 .settings-dialog h2{font-size:22px;margin:0 0 12px}
@@ -117,13 +117,13 @@ dialog{max-height:85dvh;overflow-y:auto}
 .settings-dialog select:disabled{background:#e5e7df;border-color:#c2c8ba;color:#747c70;-webkit-text-fill-color:#747c70;opacity:1;cursor:not-allowed}
 .pace-label{display:flex;flex-direction:column;gap:4px}.pace-label small{font-size:11px;font-weight:400;color:#697c6b;line-height:1.5}
 
-@media(max-width:950px) and (orientation:landscape){.seat-person{background:#153e3280;padding:4px 6px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.seat-person{background:#153e3280;padding:4px 6px}}
 
 /* Table overlays follow the same magnification as the camera crop. */
 .seat{transform:translate(-50%,-50%) scale(var(--table-zoom,1))}
 .my-heading{left:9%;top:auto;bottom:17px;transform:scale(var(--table-zoom,1));transform-origin:bottom left}
 .action-bar,#ting-panel{transform:translateY(-100%) scale(var(--table-zoom,1));transform-origin:bottom right}
-@media(max-width:950px) and (orientation:landscape){.my-heading{left:10.8%;bottom:10px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.my-heading{left:10.8%;bottom:10px}}
 
 /* Keep all four table identities bounded, with points and declared ting visible. */
 .player-info{min-width:0}
@@ -133,7 +133,7 @@ dialog{max-height:85dvh;overflow-y:auto}
 .seat-person .player-name{max-width:6em}
 .seat-person .dealer{flex-shrink:0}
 .seat-person small{display:block;white-space:nowrap}
-@media(max-width:950px) and (orientation:landscape){
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
  .seat-person .player-info{max-width:70px}
  .seat-person small{display:block;font-size:7px;line-height:1;margin-top:1px}
 
@@ -171,7 +171,7 @@ dialog{max-height:85dvh;overflow-y:auto}
 .points-positive{color:#315f4c;font-weight:600}.points-negative{color:#9b6550}
 .result-actions{position:sticky;bottom:-24px;padding:8px 0 0;background:var(--paper);text-align:right}
 .result-dialog .result-actions .modal-primary{margin-top:0}
-@media(max-width:950px) and (orientation:landscape){
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
  .result-dialog{padding:16px;width:96vw;max-height:92dvh}
  .result-player{display:block;padding:8px 10px}
  .result-player-heading{font-size:11px;margin-bottom:7px}
@@ -189,7 +189,7 @@ dialog{max-height:85dvh;overflow-y:auto}
 .result-points>span{display:grid;gap:2px}
 .result-points small{font-size:9px;color:#738773}
 .result-points strong{font-size:13px;font-variant-numeric:tabular-nums}
-@media(max-width:950px) and (orientation:landscape){.result-points{gap:12px}.result-points strong{font-size:12px}}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.result-points{gap:12px}.result-points strong{font-size:12px}}
 
 /* One full-window table, with compact controls and an optional room drawer. */
 html,body{height:100%;overflow:hidden}
@@ -224,7 +224,7 @@ main{height:100%;padding:0}
 .room-panel .player-info strong{font-size:12px}
 .room-panel .player-info small{font-size:10px}
 .room-panel .aside-bottom{padding-top:10px}
-@media(max-width:950px) and (orientation:landscape){
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
  .table-toolbar{inset:8px 12px auto;height:30px;gap:8px}
  .table-toolbar .brand{font-size:12px;gap:6px}
  .table-toolbar .brandmark{width:23px;height:26px;font-size:17px}
@@ -234,4 +234,21 @@ main{height:100%;padding:0}
  .room-panel{top:8px;left:12px;max-width:calc(100vw - 24px)}
  .room-panel>summary{width:30px;height:30px}
  .room-panel aside{max-height:calc(100dvh - 88px)}
+}
+
+/* Paint edge to edge; reserve the system gesture area for background only. */
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
+ html,body{background:#173e32}
+ .table{
+  --table-mobile:1;
+  --safe-left:env(safe-area-inset-left,0px);
+  --safe-right:env(safe-area-inset-right,0px);
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+ }
+ .table-toolbar{top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(env(safe-area-inset-left,0px) + 12px);right:calc(env(safe-area-inset-right,0px) + 12px)}
+ .room-panel{top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(env(safe-area-inset-left,0px) + 12px);max-width:calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px) - 24px)}
+ .room-panel aside{max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 58px)}
+ #ting-panel{right:calc(env(safe-area-inset-right,0px) + 14px)}
+ .my-heading{left:calc(env(safe-area-inset-left,0px) + 10.8%)}
 }

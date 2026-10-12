@@ -136,4 +136,16 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
   assert.ok(Math.abs(parseFloat(elements['seat-2'].style.top)-31.8)<1e-9,
     'the scaled opposite identity must keep eight pixels inside the table');
   assert.equal(elements['seat-1'].style.top,'300px','unclipped seats keep their position');
+  view.safeFrame={left:70,right:804,top:8,bottom:371};
+  for(const id of ['seat-1','seat-2','seat-3'])elements[id].offsetWidth=100;
+  view.project=point=>({x:point[0]<0?-20:point[0]>0?900:100,
+    y:point[2]===-10.3?-10:300});
+  ctx.syncProjection(view);
+  assert.equal(parseFloat(elements['seat-3'].style.left),129.5,
+    'side identities remain inside the notch safe area');
+  assert.equal(parseFloat(elements['seat-1'].style.left),744.5);
+  assert.ok(Math.abs(parseFloat(elements['seat-2'].style.top)-31.8)<1e-9,
+    'the far identity shares the toolbar row within the safe area');
+  assert.ok(Math.abs(parseFloat(elements['ting-panel'].style['--ting-max-height'])*1.19-254)<1e-9,
+    'expanded hints respect the same safe top as the toolbar');
 });

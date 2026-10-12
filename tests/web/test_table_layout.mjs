@@ -1,9 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as THREE from '../../ui/web/vendor/three.module.js';
 import { MahjongTableView } from '../../ui/web/table3d.js';
 
-test('table zoom uniformly enlarges projection and hit targets without accumulating on resize', () => {
+test('safe-area CSS includes wide landscape touch phones without matching wide desktops', () => {
+  const css=readFileSync(new URL('../../ui/web/style.css',import.meta.url),'utf8');
+  const safeArea=css.slice(0,css.indexOf('--table-mobile:1'));
+  const media=safeArea.slice(safeArea.lastIndexOf('@media'),safeArea.lastIndexOf('{'));
+  assert.match(media,/\(pointer:coarse\) and \(max-height:600px\) and \(orientation:landscape\)/,
+    'phones wider than 950px must still receive safe-area framing');
+});
+
+test('table zoom uniformly enlarges projection and hit targets without accumulating on resize', t => {
+  const originalStyle=globalThis.getComputedStyle;
+  globalThis.getComputedStyle=()=>({getPropertyValue:()=>''});
+  t.after(()=>{globalThis.getComputedStyle=originalStyle;});
   const view = Object.create(MahjongTableView.prototype);
   Object.assign(view, {zoom:1.19, camera:new THREE.PerspectiveCamera(30,1,.1,180),
     container:{clientWidth:1122,clientHeight:560,style:{setProperty(name,value) {this[name]=value;}}},renderer:{setSize() {}},draw() {},
@@ -39,6 +51,56 @@ test('table zoom uniformly enlarges projection and hit targets without accumulat
     assert.deepEqual(points.map(p => view.project(p)),zoomed,
       'repeated resizing must not compound zoom or shift hit targets');
     assert.deepEqual(view.hitBoxes()[0],hit);
+  }
+});
+
+test('mobile framing keeps four full hands and draws above the system gesture area', t => {
+  const originalStyle=globalThis.getComputedStyle;
+  globalThis.getComputedStyle=container=>({getPropertyValue:name=>
+    name==='--table-mobile'?'1':String(container.insets[name]||0)});
+  t.after(()=>{globalThis.getComputedStyle=originalStyle;});
+  const view=Object.create(MahjongTableView.prototype);
+  Object.assign(view,{camera:new THREE.PerspectiveCamera(30,1,.1,180),
+    container:{style:{setProperty() {}}},renderer:{setSize() {}},draw() {},
+    scene:new THREE.Scene(),handObjects:[]});
+  for(const [width,height,left,right,bottom] of [
+    [874,340,62,62,21],[874,378,62,62,21],[874,402,62,62,21],
+    [956,440,62,62,21],[956,378,62,62,21],
+    [667,320,0,0,0],[874,402,62,62,21],
+  ]){
+    Object.assign(view.container,{clientWidth:width,clientHeight:height,
+      insets:{'--safe-left':left,'--safe-right':right,'--safe-bottom':bottom}});
+    view.resize();
+    const frame=view.safeFrame;
+    assert.deepEqual(frame,{left:left+8,right:width-right-8,top:8,
+      bottom:height-bottom-10});
+    // Independent physical bounds: full hands plus reserved meld and drawn slots.
+    const points=[];
+    for(const [sx,sz,angle,own] of [[0,9.1,0,true],[11.2,0,Math.PI/2,false],
+      [0,-9.1,Math.PI,false],[-11.2,0,-Math.PI/2,false]]){
+      for(const x of [-9.6,9.98])for(const y of [0,1.4]){
+        for(const z of [own?1.1:-.7,own?2:.2]){
+          points.push([sx+x*Math.cos(angle)+z*Math.sin(angle),y,
+            sz-x*Math.sin(angle)+z*Math.cos(angle)]);
+        }
+      }
+    }
+    const projected=points.map(p=>view.project(p));
+    for(const p of projected){
+      assert.ok(p.x>=frame.left-1e-6&&p.x<=frame.right+1e-6,
+        'no seat may be cropped by a side safe inset');
+      assert.ok(p.y>=frame.top+32*view.zoom-1e-6&&p.y<=frame.bottom+1e-6,
+        'hands leave room for the far identity and Home gesture strip');
+    }
+    view.camera.clearViewOffset();
+    const unscaled=points.map(p=>view.project(p));
+    for(let i=1;i<points.length;i++)for(const axis of ['x','y']){
+      assert.ok(Math.abs(projected[i][axis]-projected[0][axis]-
+        view.zoom*(unscaled[i][axis]-unscaled[0][axis]))<1e-6,
+        'every seat and axis must use one uniform scale');
+    }
+    view.resize();
+    assert.deepEqual(points.map(p=>view.project(p)),projected);
   }
 });
 
