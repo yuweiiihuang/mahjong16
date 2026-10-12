@@ -469,7 +469,8 @@ async function perform(action){
       selected = null;
       render();
       const event = state.display_event;
-      const alreadyShown = preview && event?.pid===0 && event.type===action.type && event.tile===action.tile;
+      const alreadyShown = preview && event?.pid===0 && event.type===action.type &&
+        state.last_discard?.pid===0 && state.last_discard.tile===action.tile;
       if (['DISCARD','TING'].includes(event?.type) && !alreadyShown) {
         beep(); await tableView.animateDiscard(state.display_event.pid);
       }

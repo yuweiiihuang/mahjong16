@@ -8,9 +8,9 @@ const handlers = source.slice(source.indexOf('function actionButton('),
   source.indexOf('function renderActions('));
 
 test('discard starts before acknowledgement and restores authoritative state on rejection', async () => {
-  for (const roomMode of [false,true]) {
+  for (const roomMode of [false,true]) for (const type of ['DISCARD','TING']) {
     const before={version:1,phase:'TURN',hand:[4],drawn:5,rivers:[[],[],[],[]]};
-    const action={type:'DISCARD',tile:4,from:'hand',index:0};
+    const action={type,tile:4,from:'hand',index:0};
     const calls=[];
     let resolve,reject;
     const ctx=vm.createContext({
@@ -31,10 +31,32 @@ test('discard starts before acknowledgement and restores authoritative state on 
     assert.deepEqual(calls.slice(0,2),['preview','request']);
     assert.equal(ctx.state,before,'visual prediction must not advance the engine state');
     assert.equal(ctx.busy,true);
-    resolve({...before,version:2,display_event:{type:'DISCARD',pid:0,tile:4}});
+    resolve({...before,version:2,last_discard:{pid:0,tile:4},
+      display_event:{type,pid:0}});
     await pending;
     assert.ok(!calls.includes('replay'),'acknowledgement must not animate the same discard twice');
     assert.equal(ctx.busy,false);
+    if (roomMode) {
+      const actionRequest=ctx.request,confirmed=ctx.state;
+      let polls=0;
+      ctx.pollGeneration=0;
+      ctx.request=async()=>{if(++polls===2)ctx.roomMode=false;return confirmed;};
+      vm.runInContext(source.slice(source.indexOf('async function pollRoom('),
+        source.indexOf('async function roomCommand(')),ctx);
+      await ctx.pollRoom(0);
+      assert.ok(!calls.includes('replay'),
+        'polling the acknowledged room revision must not replay the preview');
+      ctx.roomMode=true;
+      ctx.request=actionRequest;
+      ctx.state=before;
+      calls.length=0;
+      const next=ctx.perform(action);
+      resolve({...before,version:3,last_discard:{pid:1,tile:4},
+        display_event:{type,pid:1}});
+      await next;
+      assert.equal(calls.filter(call=>call==='replay').length,1,
+        'a different player discarding the same tile must still animate');
+    }
     ctx.state=before;
     const failed=ctx.perform(action);
     reject(new Error('stale'));
