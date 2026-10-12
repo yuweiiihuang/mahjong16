@@ -5,6 +5,19 @@ import { loadTileImage } from './tile-images.mjs';
 import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
 
 const $ = id => document.getElementById(id);
+function syncControlsSide() {
+  // Safari's legacy value preserves the physical rotation direction on iPhone.
+  const angle=typeof window.orientation==='number'?window.orientation:
+    window.screen?.orientation?.angle;
+  document.documentElement.dataset.controlsSide=
+    ((angle%360)+360)%360===270?'left':'right';
+}
+syncControlsSide();
+const updateControlsSide=()=>{syncControlsSide();tableView?.resize();};
+window.addEventListener('orientationchange',updateControlsSide);
+window.addEventListener('resize',updateControlsSide);
+window.screen?.orientation?.addEventListener('change',updateControlsSide);
+
 let playerName = localStorage.getItem('qinghe-player-name') || '';
 let names = [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
@@ -174,8 +187,9 @@ function syncProjection(view) {
     const halfWidth=el.offsetWidth*(view.zoom || 1)/2;
     const halfHeight=el.offsetHeight*(view.zoom || 1)/2;
     const frame=view.safeFrame;
-    el.style.left=`${frame?Math.max(frame.left+halfWidth,
-      Math.min(p.x,frame.right-halfWidth)):p.x}px`;
+    const controlsLeft=document.documentElement.dataset.controlsSide==='left';
+    el.style.left=`${frame?Math.max(frame.left+(controlsLeft?52:0)+halfWidth,
+      Math.min(p.x,frame.right-(controlsLeft?0:52)-halfWidth)):p.x}px`;
     el.style.top=`${frame?Math.max(frame.top+halfHeight,
       Math.min(p.y,frame.bottom-halfHeight)):Math.max(p.y,halfHeight+8)}px`;
   }
@@ -914,7 +928,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=mobile-safe-area-1');
+    const { MahjongTableView } = await import('./table3d.js?v=mobile-control-rail-3');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;

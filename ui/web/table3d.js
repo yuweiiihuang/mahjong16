@@ -504,29 +504,33 @@ export class MahjongTableView {
     this.safeFrame=null;
     if(style.getPropertyValue('--table-mobile').trim()==='1'){
       const inset=side=>parseFloat(style.getPropertyValue(`--safe-${side}`))||0;
-      this.safeFrame={left:inset('left')+8,right:this.width-inset('right')-8,
+      this.safeFrame={left:inset('left'),right:this.width-inset('right'),
         top:inset('top')+8,bottom:this.height-inset('bottom')-10};
       this.camera.clearViewOffset();
       // Fit fixed tile slots, not the empty felt, so drawing never changes the scale.
-      const points=[];
+      const points=[],ownPoints=[];
       for(let seat=0;seat<4;seat++){
         for(const x of [MELD_START-.55,DRAWN_X+.55]){
           for(const y of [0,1.405])for(const z of [-.72,seat===0?2.02:.22]){
             const angle=ANGLES[seat];
-            points.push(this.project([SEATS[seat][0]+x*Math.cos(angle)+z*Math.sin(angle),
-              y,SEATS[seat][1]-x*Math.sin(angle)+z*Math.cos(angle)]));
+            const point=this.project([SEATS[seat][0]+x*Math.cos(angle)+z*Math.sin(angle),
+              y,SEATS[seat][1]-x*Math.sin(angle)+z*Math.cos(angle)]);
+            points.push(point);
+            if(seat===0)ownPoints.push(point);
           }
         }
       }
       const left=Math.min(...points.map(p=>p.x)),right=Math.max(...points.map(p=>p.x));
       const top=Math.min(...points.map(p=>p.y)),bottom=Math.max(...points.map(p=>p.y));
       const frame=this.safeFrame;
-      this.zoom=Math.min((frame.right-frame.left)/(right-left),
-        (frame.bottom-frame.top)/(bottom-top+32));
-      // The far identity shares the top row with the corner toolbar, not another row.
+      const center=(left+right)/2,target=(frame.left+frame.right)/2;
+      const ownLeft=Math.min(...ownPoints.map(p=>p.x)),ownRight=Math.max(...ownPoints.map(p=>p.x));
+      // Let the far identity overlap tiles; fit local controls safely and other tiles on screen.
+      this.zoom=Math.min(target/(center-left),(this.width-target)/(right-center),
+        (target-frame.left)/(center-ownLeft),(frame.right-target)/(ownRight-center),
+        (frame.bottom-frame.top)/(bottom-top));
       this.camera.setViewOffset(this.width,this.height,
-        (left+right)/2-(frame.left+frame.right)/2/this.zoom,
-        (top+bottom)/2-(frame.top+32*this.zoom+frame.bottom)/2/this.zoom,
+        center-target/this.zoom,top-frame.top/this.zoom,
         this.width/this.zoom,this.height/this.zoom);
       this.container.style.setProperty('--table-zoom',this.zoom);
     }

@@ -109,7 +109,7 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
     getComputedStyle:() => ({right:'22px'}),
     tingMode:false,chiSelection:null,selected:null,sortOrder:null,
     $:id => elements[id],tile:node,tileName:String,sortHand:hand => hand,
-    selectHandTile() {},document:{querySelector:selector =>
+    selectHandTile() {},document:{documentElement:{dataset:{controlsSide:'right'}},querySelector:selector =>
       selector === '.my-heading' ? heading : bar}});
   vm.runInContext(source.slice(source.indexOf('function syncProjection('),
     source.indexOf('function actionButton(')),ctx);
@@ -143,9 +143,15 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
   ctx.syncProjection(view);
   assert.equal(parseFloat(elements['seat-3'].style.left),129.5,
     'side identities remain inside the notch safe area');
-  assert.equal(parseFloat(elements['seat-1'].style.left),744.5);
+  assert.equal(parseFloat(elements['seat-1'].style.left),692.5,
+    'the right identity leaves the control column clear');
   assert.ok(Math.abs(parseFloat(elements['seat-2'].style.top)-31.8)<1e-9,
     'the far identity shares the toolbar row within the safe area');
   assert.ok(Math.abs(parseFloat(elements['ting-panel'].style['--ting-max-height'])*1.19-254)<1e-9,
     'expanded hints respect the same safe top as the toolbar');
+  ctx.document.documentElement.dataset.controlsSide='left';
+  ctx.syncProjection(view);
+  assert.equal(parseFloat(elements['seat-3'].style.left),181.5,
+    'the left identity leaves the reversed control column clear');
+  assert.equal(parseFloat(elements['seat-1'].style.left),744.5);
 });

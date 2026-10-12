@@ -54,7 +54,7 @@ test('table zoom uniformly enlarges projection and hit targets without accumulat
   }
 });
 
-test('mobile framing keeps four full hands and draws above the system gesture area', t => {
+test('mobile framing raises the far hand to the top while keeping local controls safe', t => {
   const originalStyle=globalThis.getComputedStyle;
   globalThis.getComputedStyle=container=>({getPropertyValue:name=>
     name==='--table-mobile'?'1':String(container.insets[name]||0)});
@@ -66,13 +66,14 @@ test('mobile framing keeps four full hands and draws above the system gesture ar
   for(const [width,height,left,right,bottom] of [
     [874,340,62,62,21],[874,378,62,62,21],[874,402,62,62,21],
     [956,440,62,62,21],[956,378,62,62,21],
+    [874,402,62,0,21],
     [667,320,0,0,0],[874,402,62,62,21],
   ]){
     Object.assign(view.container,{clientWidth:width,clientHeight:height,
       insets:{'--safe-left':left,'--safe-right':right,'--safe-bottom':bottom}});
     view.resize();
     const frame=view.safeFrame;
-    assert.deepEqual(frame,{left:left+8,right:width-right-8,top:8,
+    assert.deepEqual(frame,{left,right:width-right,top:8,
       bottom:height-bottom-10});
     // Independent physical bounds: full hands plus reserved meld and drawn slots.
     const points=[];
@@ -86,12 +87,17 @@ test('mobile framing keeps four full hands and draws above the system gesture ar
       }
     }
     const projected=points.map(p=>view.project(p));
-    for(const p of projected){
-      assert.ok(p.x>=frame.left-1e-6&&p.x<=frame.right+1e-6,
-        'no seat may be cropped by a side safe inset');
-      assert.ok(p.y>=frame.top+32*view.zoom-1e-6&&p.y<=frame.bottom+1e-6,
-        'hands leave room for the far identity and Home gesture strip');
+    for(const [index,p] of projected.entries()){
+      assert.ok(p.x>=0&&p.x<=width,
+        'the enlarged outer opponent slots must remain on screen');
+      if(index<8)assert.ok(p.x>=frame.left-1e-6&&p.x<=frame.right+1e-6,
+        'local meld, hand and drawn slots must stay within the side safe insets');
+      assert.ok(p.y>=frame.top-1e-6&&p.y<=frame.bottom+1e-6,
+        'all tiles stay visible above the Home gesture strip');
     }
+    const farTop=Math.min(...[-7.84,7.84].map(x=>view.project([x,1.405,-9.32]).y));
+    assert.ok(farTop>=frame.top-1e-6&&farTop<=frame.top+14,
+      'the far tile edge, rather than a separate identity row, anchors the top');
     view.camera.clearViewOffset();
     const unscaled=points.map(p=>view.project(p));
     for(let i=1;i<points.length;i++)for(const axis of ['x','y']){

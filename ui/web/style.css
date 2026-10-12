@@ -172,7 +172,13 @@ dialog{max-height:85dvh;overflow-y:auto}
 .result-actions{position:sticky;bottom:-24px;padding:8px 0 0;background:var(--paper);text-align:right}
 .result-dialog .result-actions .modal-primary{margin-top:0}
 @media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
- .result-dialog{padding:16px;width:96vw;max-height:92dvh}
+ .result-dialog{
+  --result-safe-side:max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px));
+  padding:16px;
+  width:min(1000px,calc(100vw - 2 * var(--result-safe-side) - 24px));
+  max-width:calc(100vw - 2 * var(--result-safe-side) - 24px);
+  max-height:min(92dvh,calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 24px));
+ }
  .result-player{display:block;padding:8px 10px}
  .result-player-heading{font-size:11px;margin-bottom:7px}
  .result-player-heading strong{max-width:18em}
@@ -203,6 +209,7 @@ main{height:100%;padding:0}
 .table-toolbar .header-right{gap:8px;color:#d2dfc7}
 .table-toolbar .connection{display:flex;font-size:11px;color:#d2dfc7}
 .table-toolbar .room-link{background:#153e32b3;border-color:#afc69b55}
+.multiplayer-icon{display:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .table-toolbar .icon{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#153e32b3}
 .table-toolbar .icon svg{width:19px;height:19px}
 .room-panel{position:fixed;top:12px;left:14px;z-index:8;max-width:calc(100vw - 28px)}
@@ -239,6 +246,12 @@ main{height:100%;padding:0}
 /* Paint edge to edge; reserve the system gesture area for background only. */
 @media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){
  html,body{background:#173e32}
+ .table-toolbar .brand-name,.table-toolbar .connection,.multiplayer-label{display:none}
+ .table-toolbar .brand{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(env(safe-area-inset-left,0px) + 12px);margin:0;gap:0}
+ .table-toolbar .brandmark{width:30px;height:32px;font-size:20px}
+ .table-toolbar .header-right{flex-direction:column;gap:8px;margin:0}
+ .table-toolbar .room-link{display:grid;place-items:center;width:32px;height:32px;padding:0;border-radius:50%}
+ .multiplayer-icon{display:block}
  .table{
   --table-mobile:1;
   --safe-left:env(safe-area-inset-left,0px);
@@ -246,9 +259,20 @@ main{height:100%;padding:0}
   --safe-top:env(safe-area-inset-top,0px);
   --safe-bottom:env(safe-area-inset-bottom,0px);
  }
- .table-toolbar{top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(env(safe-area-inset-left,0px) + 12px);right:calc(env(safe-area-inset-right,0px) + 12px)}
- .room-panel{top:calc(env(safe-area-inset-top,0px) + 8px);left:calc(env(safe-area-inset-left,0px) + 12px);max-width:calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px) - 24px)}
+ .table-toolbar{position:fixed;top:calc(env(safe-area-inset-top,0px) + 48px);left:auto;right:calc(env(safe-area-inset-right,0px) + 4px);width:32px;height:auto}
+ .room-panel{top:calc(env(safe-area-inset-top,0px) + 8px);left:auto;right:calc(env(safe-area-inset-right,0px) + 4px);max-width:calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px) - 24px)}
+ .room-panel>summary{width:32px;height:32px;margin-left:auto}
+ .room-panel>summary,.table-toolbar .room-link,.table-toolbar .icon{
+  border:1px solid #afc69b55;
+  border-radius:7px;
+  background:#153e32b3;
+ }
  .room-panel aside{max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 58px)}
- #ting-panel{right:calc(env(safe-area-inset-right,0px) + 14px)}
+ #ting-panel{right:calc(env(safe-area-inset-right,0px) + 56px)}
  .my-heading{left:calc(env(safe-area-inset-left,0px) + 10.8%)}
+ :root[data-controls-side="left"] .table-toolbar{top:calc(env(safe-area-inset-top,0px) + 88px);left:calc(env(safe-area-inset-left,0px) + 12px);right:auto}
+ :root[data-controls-side="left"] .room-panel{top:calc(env(safe-area-inset-top,0px) + 48px);left:calc(env(safe-area-inset-left,0px) + 12px);right:auto}
+ :root[data-controls-side="left"] .room-panel>summary{margin-left:0}
+ :root[data-controls-side="left"] #ting-panel{right:calc(env(safe-area-inset-right,0px) + 14px)}
+ :root[data-controls-side="left"] .room-panel aside{max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 98px)}
 }
