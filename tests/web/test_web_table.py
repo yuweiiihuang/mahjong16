@@ -64,7 +64,7 @@ def test_playback_is_ordered_immutable_and_does_not_change_gameplay():
                 assert frame['state']['players'][frame['pid']]['melds'][-1]['type'] == frame['type']
         if frames:
             saved = json.dumps(frames)
-            table.snapshot()['players'][0]['melds'].append({'type': 'PONG', 'tiles': [0, 0, 0]})
+            result['players'][0]['melds'].append({'type': 'PONG', 'tiles': [0, 0, 0]})
             assert json.dumps(frames) == saved
             assert table.env.players[0].melds == control.env.players[0].melds
 

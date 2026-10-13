@@ -1,74 +1,45 @@
-from __future__ import annotations
+import csv
 
-from types import SimpleNamespace
-from typing import Dict, List
+import pytest
 
-from app.session import ScoreState, StepEvent
 from app.session.adapters import ConsoleUIAdapter, HeadlessLogAdapter
 
 
-def _make_fake_env() -> SimpleNamespace:
-    rules = SimpleNamespace(base_points=None, tai_points=None)
-    return SimpleNamespace(quan_feng="E", dealer_pid=0, dealer_streak=0, rules=rules)
+@pytest.mark.parametrize("adapter_type", [ConsoleUIAdapter, HeadlessLogAdapter])
+def test_adapter_appends_each_summary_before_finalize(adapter_type, tmp_path):
+    options = {"human_pid": None} if adapter_type is ConsoleUIAdapter else {}
+    adapter = adapter_type(n_players=4, log_dir=str(tmp_path), emit_logs=False, **options)
+    summaries = [
+        {"hand_index": 1, "payments": [30, -10, -10, -10],
+         "totals_after_hand": [1030, 990, 990, 990]},
+        {"hand_index": 2, "payments": [-20, 20, 0, 0],
+         "totals_after_hand": [1010, 1010, 990, 990]},
+    ]
+    expected = [("1", "30", "1030"), ("2", "-20", "1010")]
+    try:
+        for index, summary in enumerate(summaries, 1):
+            adapter.on_hand_summary(summary)
+            files = list(tmp_path.iterdir())
+            assert len(files) == 1
+            with files[0].open(newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            assert [(r["hand_index"], r["delta_p0"], r["total_p0"]) for r in rows] == (
+                expected[:index]
+            )
+    finally:
+        adapter.finalize(summaries)
+    with files[0].open(newline="", encoding="utf-8") as handle:
+        assert list(csv.DictReader(handle)) == rows
+    assert list(tmp_path.iterdir()) == files
 
 
-def test_console_adapter_appends_incremental_log(tmp_path) -> None:
-    adapter = ConsoleUIAdapter(
-        human_pid=None,
-        n_players=4,
-        log_dir=str(tmp_path),
-        emit_logs=False,
-    )
-    env = _make_fake_env()
-    score_state: ScoreState = {"totals": [0, 0, 0, 0], "deltas": [0, 0, 0, 0]}
-    summary: Dict[str, List[int]] = {
-        "payments": [0, 0, 0, 0],
-        "totals_after_hand": [0, 0, 0, 0],
-    }
-
-    adapter.on_session_start(env=env, score_state=score_state)
-    adapter.on_hand_start(hand_index=1, jang_index=1, env=env, score_state=score_state)
-    adapter.on_step(
-        event=StepEvent(
-            observation={},
-            info=None,
-            action={},
-            acting_pid=0,
-            action_type="PASS",
-            discarded_tile=None,
-        ),
-        env=env,
-        score_state=score_state,
-    )
-    adapter.on_hand_summary(summary)
-    adapter.finalize([summary])
-    adapter.on_session_end(summaries=[summary], env=env, score_state=score_state)
-
-    files = list(tmp_path.iterdir())
-    assert len(files) == 1
-
-
-def test_headless_adapter_reports_progress_and_logs(tmp_path) -> None:
-    progress_calls: List[int] = []
-
-    def _progress_cb(hand_idx: int) -> None:
-        progress_calls.append(hand_idx)
-
+def test_headless_adapter_reports_each_completed_hand():
+    progress_calls = []
     adapter = HeadlessLogAdapter(
-        n_players=4,
-        log_dir=str(tmp_path),
-        emit_logs=False,
-        hand_progress_cb=_progress_cb,
+        n_players=4, emit_logs=False, hand_progress_cb=progress_calls.append,
     )
-
-    summary = {"payments": [0, 0, 0, 0], "totals_after_hand": [0, 0, 0, 0]}
-
     adapter.on_session_start(total_hands=2)
     adapter.on_hand_complete(1)
-    adapter.on_hand_summary(summary)
-    adapter.finalize([summary])
+    adapter.on_hand_complete(2)
     adapter.on_session_end()
-
-    assert progress_calls == [1]
-    files = list(tmp_path.iterdir())
-    assert len(files) == 1
+    assert progress_calls == [1, 2]

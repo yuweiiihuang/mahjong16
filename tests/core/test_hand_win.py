@@ -1,53 +1,30 @@
+import pytest
+
 from domain.rules import Ruleset
 from domain.rules.hands import is_win_16
 from domain.tiles import Tile
 
-def test_is_win_simple_all_chows():
-    # W123 W456 W789 D123 D456 + 將(E,E) = 5面子+眼睛 → 胡
-    tiles = [
-        int(Tile.W1), int(Tile.W2), int(Tile.W3),
-        int(Tile.W4), int(Tile.W5), int(Tile.W6),
-        int(Tile.W7), int(Tile.W8), int(Tile.W9),
-        int(Tile.D1), int(Tile.D2), int(Tile.D3),
-        int(Tile.D4), int(Tile.D5), int(Tile.D6),
-        int(Tile.E), int(Tile.E),
-    ]
-    assert is_win_16(tiles, [], Ruleset(include_flowers=False)) is True
 
-def test_is_win_false_missing_one_tile():
-    # 少一張 D6 → 無法達成 5 組面子
-    tiles = [
-        int(Tile.W1), int(Tile.W2), int(Tile.W3),
-        int(Tile.W4), int(Tile.W5), int(Tile.W6),
-        int(Tile.W7), int(Tile.W8), int(Tile.W9),
-        int(Tile.D1), int(Tile.D2), int(Tile.D3),
-        int(Tile.D4), int(Tile.D5),
-        int(Tile.E), int(Tile.E),
-    ]
-    assert is_win_16(tiles, [], Ruleset(include_flowers=False)) is False
-
-def test_is_win_with_existing_melds():
-    # 先算 1 組已完成面子（PONG W9），剩下手牌需是 4 面子 + 眼睛
-    melds = [{"type": "PONG", "tiles": [int(Tile.W9)] * 3}]
-    tiles = [
-        int(Tile.W1), int(Tile.W2), int(Tile.W3),
-        int(Tile.W4), int(Tile.W5), int(Tile.W6),
-        int(Tile.D1), int(Tile.D2), int(Tile.D3),
-        int(Tile.D4), int(Tile.D5), int(Tile.D6),
-        int(Tile.E), int(Tile.E),
-    ]  # 4 組順 + 眼睛
-    assert is_win_16(tiles, melds, Ruleset(include_flowers=False)) is True
+# Five chows and an east pair; existing melds replace the final chow.
+CHOWS = list(range(15))
 
 
-def test_is_win_counts_gang_melds():
-    gang_tiles = [int(Tile.W9)] * 4
-    melds = [{"type": "ANGANG", "tiles": gang_tiles}]
-    tiles = [
-        int(Tile.W1), int(Tile.W2), int(Tile.W3),
-        int(Tile.W4), int(Tile.W5), int(Tile.W6),
-        int(Tile.W7), int(Tile.W8), int(Tile.W9),
-        int(Tile.D1), int(Tile.D2), int(Tile.D3),
-        int(Tile.E), int(Tile.E),
-    ]
-
-    assert is_win_16(tiles, melds, Ruleset(include_flowers=False)) is True
+@pytest.mark.parametrize(
+    "tiles,melds,expected",
+    [
+        pytest.param(CHOWS + [Tile.E] * 2, [], True, id="five-chows"),
+        pytest.param(CHOWS[:-1] + [Tile.E] * 2, [], False, id="missing-tile"),
+        pytest.param(CHOWS + [Tile.E, Tile.S], [], False, id="no-pair"),
+        pytest.param([7, 8, 9] + list(range(12, 24)) + [Tile.E] * 2,
+                     [], False, id="cross-suit-chow"),
+        pytest.param(list(range(12)) + [Tile.E, Tile.S, Tile.W] + [Tile.N] * 2,
+                     [], False, id="honors-are-not-a-chow"),
+        *[
+            pytest.param(CHOWS[:-3] + [Tile.E] * 2,
+                         [{"type": kind, "tiles": [Tile.B9] * size}], True, id=kind)
+            for kind, size in (("PONG", 3), ("ANGANG", 4))
+        ],
+    ],
+)
+def test_is_win_16_requires_melds_and_a_pair(tiles, melds, expected):
+    assert is_win_16(tiles, melds, Ruleset(include_flowers=False)) is expected

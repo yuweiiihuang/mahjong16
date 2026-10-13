@@ -7,10 +7,12 @@ const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'ut
 const handler = source.slice(source.indexOf("  $('save-settings').onclick=async"),
   source.indexOf("\n};\n$('new-game').onclick"));
 
-test('a delayed settings save closes its own dialog but preserves a newer dialog', async () => {
-  for (const [replaced, roomMode] of [[false,false], [true,false], [false,true]]) {
+test('settings save syncs preferences, preserves newer dialogs and restores controls after failure', async () => {
+  for (const [replaced, roomMode, failure] of [
+    [false,false], [true,false], [false,true], [false,false,'font'], [false,true,'request'],
+  ]) {
     let finish, closed = 0;
-    const stored = new Map();
+    const stored = new Map(), requests = [], messages = [];
     const nodes = {
       'save-settings': {}, 'tile-font-setting': {value:'mahjong-jp'},
       'sound-setting': {checked:false}, 'flat-setting': {checked:false},
@@ -18,15 +20,21 @@ test('a delayed settings save closes its own dialog but preserves a newer dialog
       'pace-setting': {value:roomMode ? 'shared' : 'natural'}, modal:{close() { closed++; }},
     };
     const context = vm.createContext({
-      $:id => nodes[id], settingsOrder:[0,1,2,3], state:null, roomMode, pace:'fast',
+      $:id => nodes[id], settingsOrder:[0,1,2,3], state:{auto_ting_discard:true}, roomMode, pace:'fast',
       tableView:{
-        setFaceFont:() => new Promise(resolve => { finish = resolve; }),
+        setFaceFont:() => new Promise((resolve,reject) => {
+          finish = () => failure === 'font' ? reject(new Error('font failed')) : resolve();
+        }),
         renderer:{shadowMap:{}},
       },
       localStorage:{setItem:(key,value) => stored.set(key,value)},
       document:{querySelector:() => ({value:'tiles'}), querySelectorAll:() => [], body:{classList:{toggle() {}}}},
-      updateSound() {}, renderHand() {}, renderActions() {}, toast() {},
-      busy:false, request:async () => ({}), present:async () => {}, render() {},
+      updateSound() {}, renderHand() {}, renderActions() {}, toast:message => messages.push(message),
+      busy:false, request:async (path,body) => {
+        requests.push({path,auto_ting_discard:body.auto_ting_discard});
+        if (failure === 'request') throw new Error('request failed');
+        return {auto_ting_discard:false};
+      }, present:async () => {}, render() {},
     });
     vm.runInContext(handler, context);
     context.busy = true;
@@ -43,6 +51,17 @@ test('a delayed settings save closes its own dialog but preserves a newer dialog
     finish();
     await pending;
     assert.equal(context.busy, false);
+    assert.deepEqual(requests,failure === 'font' ? [] : [
+      {path:'/api/preferences',auto_ting_discard:false},
+    ]);
+    if (failure) {
+      assert.equal(closed,0);
+      assert.equal(stored.size,0);
+      assert.equal(nodes['save-settings'].disabled,false);
+      assert.equal(nodes['save-settings'].textContent,'儲存');
+      assert.deepEqual(messages,['設定儲存失敗，請再試一次']);
+      continue;
+    }
     assert.equal(closed, replaced ? 0 : 1);
     assert.equal(stored.get('qinghe-tile-font'), 'mahjong-jp');
     assert.equal(stored.get('qinghe-pace'), roomMode ? 'fast' : 'natural');

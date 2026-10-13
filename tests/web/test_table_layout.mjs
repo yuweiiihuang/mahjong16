@@ -7,9 +7,13 @@ import { MahjongTableView } from '../../ui/web/table3d.js';
 test('safe-area CSS includes wide landscape touch phones without matching wide desktops', () => {
   const css=readFileSync(new URL('../../ui/web/style.css',import.meta.url),'utf8');
   const safeArea=css.slice(0,css.indexOf('--table-mobile:1'));
-  const media=safeArea.slice(safeArea.lastIndexOf('@media'),safeArea.lastIndexOf('{'));
-  assert.match(media,/\(pointer:coarse\) and \(max-height:600px\) and \(orientation:landscape\)/,
-    'phones wider than 950px must still receive safe-area framing');
+  const media=safeArea.slice(safeArea.lastIndexOf('@media')).split('{',1)[0];
+  assert.deepEqual(media.replace(/^@media/,'').split(',')
+    .map(query=>query.trim().split(/\s+and\s+/)
+      .map(term=>term.replace(/\s/g,'')).sort().join('and')).sort(), [
+    '(max-height:600px)and(orientation:landscape)and(pointer:coarse)',
+    '(max-width:950px)and(orientation:landscape)',
+  ], 'wide phones need safe-area framing while wide desktops must remain excluded');
 });
 
 test('table zoom uniformly enlarges projection and hit targets without accumulating on resize', t => {
