@@ -5,6 +5,7 @@
 - Route CLI flows and demos through `app/`, reusing `ui/console.py` for rendering instead of duplicating output helpers.
 - Place autonomous agents in `bots/` and any reinforcement-learning tooling in `rl/`, importing shared logic from `domain/` or `ui/` as needed.
 - Treat `configs/` and `scripts/` as read-only inputs; introduce new runtime behaviour alongside pytest coverage in `tests/`.
+- Store execution reports, test audits, and temporary validation records locally in Git-ignored `logs/execution-reports/`; exclude them from commits and pushes. Reserve `docs/` for maintained project documentation.
 
 ## Web UI Baseline
 - Use the Qinghe desktop table in `ui/web/` as the canonical Web UI design.
