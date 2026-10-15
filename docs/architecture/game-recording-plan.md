@@ -1,8 +1,14 @@
 # 牌局紀錄與研究資料：第一版規劃
 
-狀態：引擎紀錄、JSON 重播、SQLite 網頁保存、接管/來源紀錄、結算與 Docker
-持久化設定與 JSONL 玩家視角決策匯出已實作；RL 轉移、戰績身份與 CI/CD 仍為規劃。
-先在 Mac 驗證，不改動 Windows 正式服務。
+本文件保留第一版設計與驗收目標；使用方式與現行格式以
+[牌譜指南](../hand-recording.md) 為準，部署歷史見 [Docker 指南](../docker.md)。
+引擎紀錄、JSON 重播、SQLite 網頁保存、接管／來源紀錄、結算、Docker 持久化設定
+與 JSONL 玩家視角決策匯出已實作；RL 轉移、戰績身份與 CI/CD 仍為規劃。
+原計畫採「先在 Mac 驗證，再另行批准正式切換」；此順序不表示 Windows 今天尚未部署。
+
+已採用的實作選擇：單一 hands 表保存 payload；引擎版本以 domain 原始碼 SHA-256
+識別；玩家可見觀察在離線 dataset 匯出時重建。未新增 steps／seat_events 分表、
+跨裝置身份或 RL next_obs。以下規劃欄位不等同現行 JSON 的逐欄格式。
 
 ## 目標與範圍
 
@@ -26,7 +32,9 @@ WebTable.events 只留最近 60 筆，且刻意省略未採用的反應；playba
 ## 紀錄格式
 
 採用版本化 JSON payload 搭配少量 SQLite 索引欄位。
-資料格式版本、引擎 commit/建置版本與規則/計分設定都需記錄。
+資料格式版本、引擎識別與規則／計分設定都需記錄。
+原先的 commit／建置版本要求以實際 domain 原始碼 SHA-256 實作，
+不保證牌譜含 repository commit；SHA-256 不是簽章或來源認證。
 不能只保存 seed：連續牌局共享亂數進度，程式版本也可能改變抽牌順序。
 
 每局保存：

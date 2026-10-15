@@ -1,11 +1,13 @@
 # 前置驗證部署
 
-`deploy/gateway/` 是獨立測試部署，尚未接入正式 Funnel。
+`deploy/gateway/` 提供獨立測試部署與正式切換 overlay。
+下列實測與「尚未切換」紀錄截至 2026-10-08；本文件不代表今天的遠端狀態。
+操作前核對目前映像、Compose project、私有設定、資料卷、備份來源與 Funnel 目標。
 本次支援範圍為 Mac／Windows Docker Desktop，正式目標是 Windows。
 原生 Linux Docker 尚未驗證；主機產生的 0600 設定通常不能由容器 UID 10001
 直接讀取，須另外設計檔案擁有者／掛載權限，不能直接沿用此流程。
 不要以此 Compose project 取代正式 project，也不要將正式牌譜資料卷掛進測試。
-測試期間朋友仍使用目前的公開版；其牌局不會被重啟。
+獨立測試不修改既有正式服務，不掛載正式資料卷，也不切換 Funnel。
 
 入口使用 Caddy，驗證使用 Authelia；映像以 digest 固定版本。
 只有 Caddy 的測試 TLS 埠映射至主機 loopback。Authelia 與牌桌各自使用

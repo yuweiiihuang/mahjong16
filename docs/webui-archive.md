@@ -9,6 +9,8 @@
 保留於本地 `.archive/legacy-webui-history-20261001.bundle`。
 本地與遠端舊 UI 分支已移除；備份不推送，不作為開發基線。
 可使用 `git bundle list-heads` 查閱備份，或從 bundle fetch 指定分支以復原。
+`.archive/` 不隨 Git clone 或推送移轉；上述位置是執行封存的本機路徑。
+新 checkout 需要先向備份持有人取得對應 bundle／目錄，不能假設本機已有唯一副本。
 
 ## 尚未提交的檔案
 

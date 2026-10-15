@@ -66,8 +66,11 @@
 ```bash
 source .venv/bin/activate
 pytest -q
-node --test tests/web/test_hand_sort.mjs tests/web/test_table_layout.mjs
+node --test tests/web/*.mjs
 ```
+
+Node 回歸不會執行實際拖拉或驗證 WebGL／觸控；[瀏覽器驗收](../tests/web/README.md)
+另涵蓋加入、重連、兩位真人操作與受影響的桌面／手機布局。
 
 `tests/web/test_multiplayer.py` 覆蓋獨立身分的 HTTP 加入與長輪詢、
 手牌隔離、同時操作、重送、過期操作、機器人節奏與斷線接手，
@@ -76,6 +79,9 @@ node --test tests/web/test_hand_sort.mjs tests/web/test_table_layout.mjs
 ## 網際網路部署
 
 需要一台持續運行 Python 程序的主機，前方使用 HTTPS 反向代理。
+公開前須依 [README 的通行碼設定](../README.md#快速開始) 啟用
+`--access-password-file`，或使用已驗收的 [前置驗證入口](gateway.md)，
+並確認未登入請求不能接觸牌桌 API。HTTPS 與房間邀請網址都不提供登入驗證。
 只把代理的 HTTPS 入口公開；Python 預設綁定 `127.0.0.1`。
 代理必須保留原始 `Host`、覆寫 `X-Forwarded-Proto: https`，
 並允許至少 30 秒的請求等待；勿快取 `/api/`，並限制連線與請求速率。

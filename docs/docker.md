@@ -1,5 +1,12 @@
 # Docker 牌桌
 
+本文的主機、映像、排程與 Funnel 實測紀錄是 2026-10-07／08 當時的狀態，
+不是即時部署清單。操作前核對目前 Compose project、容器映像、牌譜資料卷、
+備份排程的容器名稱與 Funnel 目標；不能只照舊標籤切換。
+執行正式換版前，先確認備份與回復入口，說明記憶體牌局會清除並取得切換同意。
+
+## 歷史部署基準
+
 以通行碼版本 `617094b` 為第一個容器基準；使用 Docker Desktop 的 Linux containers。
 Mac 本地驗證後，Windows 再部署指定版本。此階段手動建置與部署，尚未接 GitHub
 Actions、GHCR、自動更新或獨立入口驗證。登入仍由牌桌程式處理。
@@ -14,7 +21,16 @@ Actions、GHCR、自動更新或獨立入口驗證。登入仍由牌桌程式處
 ```bash
 mkdir -p "$HOME/.config/mahjong16"
 chmod 700 "$HOME/.config/mahjong16"
-uv run --locked python -c 'import secrets; from pathlib import Path; p=Path.home()/".config/mahjong16/docker-test-password.txt"; p.write_text(secrets.token_urlsafe(32)); p.chmod(0o600)'
+uv run --locked python - <<'PY'
+import os
+import secrets
+from pathlib import Path
+
+os.umask(0o077)
+path = Path.home() / ".config/mahjong16/docker-test-password.txt"
+with path.open("x", encoding="utf-8") as handle:
+    handle.write(secrets.token_urlsafe(32))
+PY
 export MAHJONG_PASSWORD_FILE="$HOME/.config/mahjong16/docker-test-password.txt"
 export MAHJONG_PORT=8002
 export MAHJONG_IMAGE="mahjong16:$(git rev-parse --short HEAD)"
@@ -25,7 +41,8 @@ uv run --locked python tests/web/container_smoke.py --password-file "$MAHJONG_PA
 
 開啟 `http://127.0.0.1:8002/`，輸入測試通行碼，確認登入、牌桌比例與操作。
 測試結束執行 `docker compose down`，不影響其他連接埠的牌桌。
-測試通行碼檔案已存在時不要重跑生成步驟，以免覆寫；需更換時在停桌後另行生成。
+生成步驟會以 POSIX 0600 建立檔案；檔案已存在時拒絕覆寫。
+需更換時在停桌後另行生成，不直接覆蓋運行中服務使用的通行碼。
 
 ## Windows 部署與回復
 
@@ -65,7 +82,7 @@ $config = @{auths=@{'ghcr.io'=@{}; 'https://index.docker.io/v1/'=@{}}; cliPlugin
 不要覆寫已有認證的配置。`C:\ProgramData\Qinghe` 必須維持服務帳號與 SYSTEM 的存取限制。
 
 確認測試容器可用並同意切換至新牌桌後，將 Funnel 改指向 Docker 的 8002 埠。
-舊服務繼續使用 8000，保留原本牌局供切回：
+若舊服務仍運行，可保留其 8000 入口供切回；停止後不保留記憶體牌局：
 
 ```powershell
 & 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg http://127.0.0.1:8002
@@ -113,10 +130,14 @@ Get-Content C:\ProgramData\Qinghe\backup-last-run.log
 
 成功的 `LastTaskResult` 為 `0`，日誌包含 `Verified backup`。
 排程需要該帳號已登入且 Docker 引擎運行；它不會將 Windows 設成無人登入伺服器。
-目前不自動刪除歷史備份，需定期檢查磁碟容量並將成功備份複製至另一台裝置。
+目前 repository 的備份腳本會在新備份通過檢查後自動清理：最近 48 小時全部保留，
+較舊每日保留最新一份，最長 30 天。完整政策見 [牌譜文件](hand-recording.md#網路牌桌自動保存)。
+需保留更久的回復點時另行複製至另一台裝置；仍需檢查磁碟容量。
+這不表示遠端排程已更新到此版腳本，部署時須核對實際執行的檔案。
 同一台 Windows 上的備份能抵禦牌桌容器直接刪除，但不能抵禦整台主機失守或磁碟故障。
 修正回歸可執行 `tests/web/windows_backup.ps1`，使用隔離的目錄與短期容器，
-確認寬鬆權限會移除、超時會回報失敗且不留下容器，不操作正式牌局。
+確認寬鬆權限會移除、超時會回報失敗且不留下容器；保留清理測試為
+`tests/web/windows_backup_retention.ps1`。兩者不操作正式牌局。
 
 2026-10-08 已在 `DESKTOP-388MJBR` 實測備份、完整性檢查與排程成功。
 正式容器隔離設定與 loopback 埠已核對；SSH 防火牆限制至管理 Mac 的 Tailscale IP。

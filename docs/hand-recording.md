@@ -5,12 +5,15 @@
 
 ## 網路牌桌自動保存
 
+以下命令從專案根目錄執行；CLI 會建立資料庫目錄。
+離線範例使用 Git 忽略的 `data/`，輸出檔已存在時需另換名稱。
+
 ```bash
 .venv/bin/python -m app.web --port 8000 --record-db data/hands.sqlite3
 .venv/bin/python -m app.replay list --db data/hands.sqlite3
-.venv/bin/python -m app.replay export /tmp/hand.json --db data/hands.sqlite3 --hand-id <局ID>
-.venv/bin/python -m app.replay verify /tmp/hand.json
-.venv/bin/python -m app.replay backup /tmp/hands-backup.sqlite3 --db data/hands.sqlite3
+.venv/bin/python -m app.replay export data/hand.json --db data/hands.sqlite3 --hand-id <局ID>
+.venv/bin/python -m app.replay verify data/hand.json
+.venv/bin/python -m app.replay backup data/hands-backup.sqlite3 --db data/hands.sqlite3
 ```
 
 `--record-db` 預設為 `data/hands.sqlite3`，CLI 啟動的牌桌會自動保存練習與朋友對局。
@@ -51,7 +54,7 @@ Windows 每小時備份在新備份通過完整性檢查後，保留最近 48 �
 uv run --locked python -m app.replay dataset data/human-decisions.jsonl --db data/hands.sqlite3
 # 包含 bot/自動/未知來源，或只讀一份離線牌譜。
 uv run --locked python -m app.replay dataset data/all-decisions.jsonl --db data/hands.sqlite3 --source all
-uv run --locked python -m app.replay dataset data/prefix.jsonl --record /tmp/hand.json --source all --include-incomplete
+uv run --locked python -m app.replay dataset data/prefix.jsonl --record data/hand.json --source all --include-incomplete
 ```
 
 `--hand-id` 可指定 SQLite 中的單局。來源可選 human、bot、auto_pass、auto_ting、unknown、all。
@@ -87,8 +90,9 @@ JSON/JSONL 先寫入同目錄私有暫存檔，完成後才以不覆寫的 hard 
 使用專案虛擬環境，或將以下 `.venv/bin/python` 換成 `uv run --locked python`。
 
 ```bash
-.venv/bin/python -m app.replay record /tmp/mahjong-hand.json --seed 7
-.venv/bin/python -m app.replay verify /tmp/mahjong-hand.json
+mkdir -p data
+.venv/bin/python -m app.replay record data/mahjong-hand.json --seed 7
+.venv/bin/python -m app.replay verify data/mahjong-hand.json
 ```
 
 record 錄製並驗證一局 GreedyBot 對局，拒絕覆寫已有檔案。
@@ -98,8 +102,8 @@ verify 重新發牌、依序執行動作，檢查每一步狀態及完成局的�
 ## 接入引擎
 
 ```python
-import json
 from pathlib import Path
+from app.hand_store import write_private_record
 from domain.gameplay.game_env import Mahjong16Env
 from domain.gameplay.recording import HandRecorder, replay_hand
 from domain.rules.ruleset import Ruleset
@@ -109,12 +113,14 @@ env = Mahjong16Env(Ruleset(), seed=7, recorder=recorder)
 env.reset()
 # 依正常路徑呼叫 env.step(action, pid=pid)，不直接修改 env 的牌局狀態。
 document = recorder.document()
-with Path('/tmp/hand-prefix.json').open('x', encoding='utf-8') as handle:
-    json.dump(document, handle, ensure_ascii=False)
+Path('data').mkdir(exist_ok=True)
+write_private_record(Path('data/hand-prefix.json'), document)
 replayed = replay_hand(document)
 ```
 
 每次 reset 新增一份紀錄，`document()` 回傳最新局的獨立 JSON 副本。
+範例沿用應用層的私有檔案輸出，保留公開目錄拒絕、POSIX 0600 與不覆寫保護；
+Windows 仍須把 `data/` 放在受限 ACL 的目錄下。
 基礎 `HandRecorder.records` 保留本次 recorder 的所有局，只在記憶體中。
 WebTable 的持久化 recorder 只保留目前一局，舊局留在 SQLite。
 未提供 recorder 的既有呼叫不增加紀錄或計分工作。
