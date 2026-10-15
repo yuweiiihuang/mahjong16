@@ -45,8 +45,7 @@ python main.py --no-ui --hands 50 --log-dir logs/demo   # headless + CSV 摘要
 pytest -q
 ```
 
-鎖版環境另含 pandas 與 ipykernel；`rl/net.py` 需另外安裝適合執行主機的 PyTorch。
-RL 目前是骨架，安裝依賴不代表已有完整訓練流程。
+鎖版環境另含 pandas 與 ipykernel；本機 BC／PPO 使用可選的 PyTorch 依賴，見下方。
 
 亦可使用 `python -m domain.gameplay.game_env` 進行匯入檢查或撰寫最小化實驗。
 
@@ -129,7 +128,7 @@ mahjong16/
 │  ├─ console.py        # Rich 互動介面（提示行動、展示河牌/剩餘張數）
 │  └─ rich_helpers.py   # Rich 組件共用工具
 ├─ bots/                # 範例策略（RandomBot、RuleBot、Greedy）
-├─ rl/                  # 自對弈與訓練骨架（buffer/net/selfplay）
+├─ rl/                  # 安全玩家觀察、Greedy 示範、BC／單局 PPO 與獨立評估
 ├─ tests/               # pytest suites（env、scoring、domain helpers）
 ├─ scripts/             # 聯賽、效能、戰報分析與 Greedy 調參
 ├─ configs/
@@ -217,8 +216,59 @@ Three.js、SortableJS 授權位於 `ui/web/vendor/`；牌面來源與修改見
 透過本專案既有協作管道回報，不附通行碼、cookie 或含暗牌的私有牌譜。
 目前未在文件指定公開支援信箱或專用漏洞回報管道。
 
+## 本機 BC／PPO
+
+這條流程使用 common／taiwan_base 規則，先模仿 Greedy，再讓一個學習座位對三個
+固定 Greedy 做單局 PPO。教師、對手與模型共用已遮蔽其他玩家私有資訊的觀察；
+與網頁原始觀察下的 Greedy 不保證逐步相同。它尚未整合 Web bot 選單。
+
+```bash
+uv sync --locked --extra rl
+source .venv/bin/activate
+mkdir -p data/rl checkpoints logs/execution-reports
+python -m rl.selfplay data/rl/train.jsonl --split train --hands 100
+python -m rl.selfplay data/rl/validation.jsonl --split validation --hands 20
+python -m rl.train bc data/rl/train.jsonl data/rl/validation.jsonl checkpoints/bc.pt --epochs 10
+python -m rl.train ppo checkpoints/bc.pt checkpoints/ppo.pt --hands 8 --updates 1
+python -m rl.evaluate greedy checkpoints/bc.pt checkpoints/ppo.pt --walls 100 \
+  --output logs/execution-reports/rl-validation.json
+```
+
+指令先以 CPU 執行，局數是操作示例，不是有效牌力的保證。資料、模型與報告皆受 Git
+忽略；父目錄需先建立，輸出禁止覆寫及放入網站公開目錄。模型以 `choose(obs)`
+回傳合法候選，但需要 RL 安全觀察，不能直接塞入傳 raw observation 的舊聯賽入口。
+
+BC 按整局 seed 切分 train／validation／test，排除單選決策的模仿 loss 與準確率，
+使用 validation loss 選模型。PPO 的中途 reward 為 0，終局為淨收付分除以 100，
+gamma=1；僅使用當輪完整局，不以目前引擎的零向量作 reward。
+評估主看每局／每場淨分、平均名次、胡率與放槍率，不轉成 Greedy=100 指數。
+預設 `--unit hand` 評估獨立單局，每場淨分為 null、名次單位為 hand。
+候選 `random` 從所有合法動作等機率抽選（含胡牌與 PASS），每個 seed／座位
+使用獨立亂數；與只隨機棄牌的舊 `RandomBot` 不同。
+
+`--unit jang` 使用既有 TableManager 跑完整一將，包含連莊與流局續莊，
+依場末累計淨分計算名次，同分取平均名次；超過 512 局會報錯，不發布未完成場次。
+每局淨分是總淨分除以總局數，每場淨分是完整場次的平均收益；胡率與放槍率均以局為分母。
+胡率包含花胡；放槍率計棄牌胡／搶槓的出牌者，排除七搶一等花胡。
+另保留流局率、座位與莊家結果；對 Greedy 的差值與標準誤按共同 seed 分組，
+單局模式比較單局收益，一將模式比較每場收益。
+
+```bash
+# 小量完整一將評估：每個 seed 讓候選各輪四個座位。
+python -m rl.evaluate greedy checkpoints/bc.pt --unit jang --walls 1 \
+  --output logs/execution-reports/rl-jang-validation.json
+```
+
+一將模式中 `--walls` 表示獨立場次 seed 組數，每組會跑四場；
+它不代表牌牆數，也不是把四場加在一起當一場。單局與一將結果須分開比較。
+
+續訓可把 PPO checkpoint 作為 `rl.train ppo` 的輸入，寫入另一個新檔；
+需保持相同 `--seed` 與 `--hands`，從完整 batch 交界恢復 optimizer 與 RNG。
+資料／模型的引擎、規則、計分及編碼版本必須相符。`--split test` 評估保留給固定方案，
+不要根據 test 結果反覆挑 checkpoint。完整選項見各入口的 `--help`。
+
 ## 後續方向
 
 - 建立可比較的模擬效能基準；`scripts/bench_sim.py` 與 `scripts/eval_league.py` 已可使用。
 - 擴充更強的策略樣板（MCTS、模擬式搜尋）並串接 `bots/`。
-- 在 `rl/train.py` 實作正式的訓練 loop 與記錄分析管線。
+- 驗證 BC／PPO 在足夠資料與多個訓練 seed 下的收益，再評估跨局與其他對手。

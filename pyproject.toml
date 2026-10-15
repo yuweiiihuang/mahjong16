@@ -10,3 +10,8 @@ dependencies = [
     "pytest>=8",
     "rich>=14.1.0",
 ]
+
+[project.optional-dependencies]
+rl = [
+    "torch>=2.6,<3",
+]
