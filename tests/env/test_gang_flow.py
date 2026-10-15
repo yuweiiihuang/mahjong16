@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from domain import Mahjong16Env
 from domain.rules import Ruleset
 from domain.tiles import Tile
@@ -105,6 +107,51 @@ def test_kakan_triggers_qiang_gang_and_ron():
     # Original PONG should remain (not upgraded)
     mtypes_p0 = [m.get("type") for m in env.players[0].melds]
     assert "PONG" in mtypes_p0 and "KAKAN" not in mtypes_p0
+
+
+@pytest.mark.parametrize("kind", ["ANGANG", "KAKAN"])
+@pytest.mark.parametrize("use_drawn", [False, True])
+@pytest.mark.parametrize("exhausted", [False, True])
+def test_self_kong_preserves_unconsumed_tiles(kind, use_drawn, exhausted):
+    env = force_reset_env(include_flowers=False)
+    pool = TilePool(include_flowers=False)
+    player = env.players[0]
+    retained = pool.take([
+        Tile.W2, Tile.W3, Tile.W4, Tile.W7, Tile.W8, Tile.W9,
+        Tile.D1, Tile.D2, Tile.D3, Tile.B1, Tile.B2, Tile.B3, Tile.B8,
+    ])
+    kong_tiles = pool.take([Tile.W6] * 4)
+    if kind == "KAKAN":
+        player.melds = [{"type": "PONG", "tiles": kong_tiles[:3], "from_pid": 2}]
+        kong_tiles = kong_tiles[3:]
+    if use_drawn:
+        player.hand = retained + kong_tiles[:-1]
+        player.drawn = kong_tiles[-1]
+    else:
+        player.hand = retained[:-1] + kong_tiles
+        player.drawn = retained[-1]
+    env.wall = pool.remaining()
+    move_tile_to_tail(env.wall, Tile.D9)
+    if exhausted:
+        env.wall = env.wall[:env.rules.dead_wall_base]
+
+    env.step({"type": kind, "tile": int(Tile.W6)}, pid=0)
+    while env.phase == "REACTION" and not env.done:
+        env.step({"type": "PASS"})
+
+    assert sorted(player.hand) == sorted(retained)
+    assert player.melds == [{
+        "type": kind, "tiles": [int(Tile.W6)] * 4,
+        "from_pid": None if kind == "ANGANG" else 2,
+    }]
+    assert env.done == exhausted
+    if exhausted:
+        assert player.drawn is None
+    else:
+        assert player.drawn == int(Tile.D9)
+        env.step({"type": "DISCARD", "tile": int(Tile.D9), "from": "drawn"}, pid=0)
+        assert sorted(player.hand) == sorted(retained)
+        assert player.river == [int(Tile.D9)]
 
 
 def test_scoring_flags_qiang_gang_and_gang_shang():

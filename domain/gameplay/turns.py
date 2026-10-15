@@ -243,6 +243,9 @@ class TurnLoopMixin:
             break
 
     def _draw_to_drawn(self, pid: int) -> None:
+        # A self-kong may leave the previous draw unused; keep it before supplementing.
+        if self.players[pid].drawn is not None:
+            self.players[pid].hand.append(self.players[pid].drawn)
         self.players[pid].drawn = None
         while self._can_draw_from_wall():
             t = self.wall.pop()
