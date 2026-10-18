@@ -30,3 +30,16 @@
 
 ## Commits & Pull Requests
 - Use narrowly scoped Conventional Commits. Describe the resulting behavior, validation, and any required commands or migrations in PRs; include screenshots for UI changes and test results for scoring changes.
+
+## Agent skills
+
+### Issue tracker
+Track issues and specs in GitHub Issues. Read `docs/agents/issue-tracker.md`
+before tracker operations.
+
+### Triage labels
+Use the five default triage roles. Read `docs/agents/triage-labels.md`
+before classifying issues.
+
+### Domain docs
+Use a single root context. Read `docs/agents/domain.md` before domain exploration.
