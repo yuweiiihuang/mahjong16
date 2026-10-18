@@ -21,7 +21,8 @@ from domain.rules.ruleset import Ruleset
 from domain.scoring.lookup import load_scoring_assets
 from rl.encoding import encode
 from rl.env import LearnerEpisode, observation, training_spec
-from rl.net import PolicyValueNet, load_checkpoint
+from rl.history import DecisionHistory
+from rl.net import PolicyValueNet, load_checkpoint, resolve_device
 from rl.selfplay import hand_seed
 
 
@@ -44,13 +45,22 @@ class _VisibleStrategy:
     def __init__(self, env: MahjongEnvironment, policy: Strategy) -> None:
         self.env = env
         self.policy = policy
+        self.players = None
+        self.memory = None
 
     def choose(self, obs: dict) -> dict:
         """Replace runtime observations with the established visible-player contract."""
         visible = observation(self.env, obs["player"])
+        if getattr(self.policy, "architecture", None) == "temporal":
+            if self.players is not self.env.players:
+                self.players = self.env.players
+                self.memory = DecisionHistory()
+            visible = self.memory.observe(visible)
         action = self.policy.choose(visible)
         if action not in visible["legal_actions"]:
             raise ValueError("Policy selected an illegal match action")
+        if self.memory is not None:
+            self.memory.append(visible, action)
         return action
 
 
@@ -92,13 +102,14 @@ def _hand_result(seed: int, learner: int, payments: list[int], *, winner: int | 
 
 def evaluate(candidates: list[str], *, walls: int = 100, start: int = 500_000_000,
              split: str = "validation", opponent: str = "greedy",
-             unit: str = "hand", rules: Ruleset | None = None) -> dict:
+             unit: str = "hand", rules: Ruleset | None = None, device: str = "cpu") -> dict:
     """Evaluate hands or complete jangs, rotating all seats for each independent seed."""
     if (walls <= 0 or start < 500_000_000 or start + walls > 1_000_000_000
             or split not in ("validation", "test") or not candidates
             or len(set(candidates)) != len(candidates) or opponent not in ("greedy", "auto")
             or unit not in ("hand", "jang")):
         raise ValueError("Invalid evaluation candidates, split or wall range")
+    target = resolve_device(device)
     rules = rules or Ruleset()
     began = perf_counter()
     spec = training_spec(rules)
@@ -114,9 +125,9 @@ def evaluate(candidates: list[str], *, walls: int = 100, start: int = 500_000_00
             if state is None:
                 raise ValueError("Choose an evaluation start with a non-terminal first hand")
             torch.manual_seed(0)
-            policies[name] = PolicyValueNet(len(state), len(actions[0]))
+            policies[name] = PolicyValueNet(len(state), len(actions[0])).to(target)
         else:
-            policies[name] = load_checkpoint(Path(name), spec)[0]
+            policies[name] = load_checkpoint(Path(name), spec, device)[0]
     results = {name: [] for name in candidates}
     matches = {name: [] for name in candidates}
     for index in range(start, start + walls):
@@ -140,8 +151,15 @@ def evaluate(candidates: list[str], *, walls: int = 100, start: int = 500_000_00
                         results[name].append(row)
                     continue
                 episode = LearnerEpisode(seed, seat, rules, opponent=fixed)
+                memory = DecisionHistory() if getattr(policy, "architecture", None) == "temporal" \
+                    else None
                 while (obs := episode.current()) is not None:
-                    episode.step(policy.choose(obs))
+                    if memory is not None:
+                        obs = memory.observe(obs)
+                    action = policy.choose(obs)
+                    if memory is not None:
+                        memory.append(obs, action)
+                    episode.step(action)
                 env = episode.env
                 row = _hand_result(seed, seat, episode.payments(), winner=env.winner,
                                    win_source=env.win_source, discarder=env.turn_at_win,
@@ -180,7 +198,7 @@ def evaluate(candidates: list[str], *, walls: int = 100, start: int = 500_000_00
                 if walls > 1 else None,
             }
     return {"evaluation_version": 2, "spec": spec, "split": split, "start": start,
-            "opponent": opponent, "rank_ties": "average",
+            "opponent": opponent, "rank_ties": "average", "device": device,
             "unit": unit, "comparison_unit": unit,
             "inference": ("uniform_all_legal" if candidates == ["random"] else
                           "mixed" if "random" in candidates else "argmax"),
@@ -202,6 +220,7 @@ def main() -> None:
     parser.add_argument("--opponent", choices=("greedy", "auto"), default="greedy")
     parser.add_argument("--unit", choices=("hand", "jang"), default="hand",
                         help="jang is one complete four-wind match, including repeat dealers")
+    parser.add_argument("--device", choices=("cpu", "mps", "cuda"), default="cpu")
     parser.add_argument("--output", type=Path, required=True)
     args = vars(parser.parse_args())
     output = args.pop("output")

@@ -264,8 +264,78 @@ python -m rl.evaluate greedy checkpoints/bc.pt --unit jang --walls 1 \
 
 續訓可把 PPO checkpoint 作為 `rl.train ppo` 的輸入，寫入另一個新檔；
 需保持相同 `--seed` 與 `--hands`，從完整 batch 交界恢復 optimizer 與 RNG。
+續訓也需保持相同 `--device`；舊 checkpoint 視為 CPU，BC 可在選定裝置開始新的 PPO。
+MPS／CUDA 會保存與恢復隨機狀態，但 GPU 浮點運算不保證逐位重現。
 資料／模型的引擎、規則、計分及編碼版本必須相符。`--split test` 評估保留給固定方案，
 不要根據 test 結果反覆挑 checkpoint。完整選項見各入口的 `--help`。
+
+牌面 Transformer 使用相同安全觀察，將原編碼無損重排為 34 個牌種、4 個玩家與
+1 個全局 token；3 層、128 維、4 heads，以候選動作 cross-attention 輸出策略，
+另有狀態 value head。此版尚不讀取公開事件歷史。舊 MLP 與 checkpoint 仍可使用。
+
+`--architecture hierarchical` 使用相同盤面編碼，參考
+[Tjong](https://doi.org/10.1049/cit2.12298) 分別估計合法動作類型與該類型內的候選機率，
+兩者相乘形成完整合法動作的聯合分布；BC、PPO 與評估使用同一分布，評估取聯合 argmax。
+此為台麻適配，保留聽牌及不同吃牌組合，尚未加入 Tjong 的歷史記憶與 fan backward，
+也未實作 Suphx 的 oracle guiding 或整場 reward predictor；需另訓新 BC checkpoint。
+
+`--architecture temporal` 在分層策略上加入三層因果 Transformer，讀取目前盤面與
+前三次同一玩家的可見盤面／已選動作，總共四個決策位置；每局重設記憶，
+BC、PPO 與逐局／整將評估使用相同視窗。這是自己的決策歷史，不是完整公開事件序列。
+資料必須保留每局全部玩家決策（包含強制動作）及從零連續的 `seq`；讀取時依玩家分流，
+缺步或重排會拒絕。現有完整 Greedy 匯出可使用，只有選擇動作的抽樣資料則不可。
+過去的 reward 與終局標籤不會送入 actor；舊模型依然只讀取目前盤面。
+
+PPO 可用 `--bc-reference checkpoints/temporal-bc.pt --bc-kl-coef 0.2` 加入固定 BC
+策略約束，使用完整合法候選分布的 `KL(目前策略 || BC)`，強制動作不計入策略損失。
+係數預設為 0；從 BC 開始且係數大於 0 時，預設以輸入的 BC 作為 reference。
+Reference 不更新，checkpoint 保存其路徑與 SHA256；續訓必須維持係數、reference
+內容、seed、每批局數及裝置。此 KL 約束與原有 PPO 更新前後 KL early stop 不同。
+每批另記錄實際 optimizer 步數、early stop、更新後整批採樣策略 KL／BC KL、entropy
+與 critic explained variance；零回報變異時 explained variance 為 null。
+`kl` 和 `bc_kl` 是最後檢查的 minibatch 值；`rollout_*` 才是完整 rollout 的統計。
+
+Apple Silicon 可明確指定 MPS；若程序無法存取 GPU 會報錯，不會靜默退回 CPU。
+Codex 沙箱可能使 MPS 偵測失敗，需在可存取 GPU 的執行環境操作。
+NVIDIA GPU 可指定 `--device cuda`；需安裝相容顯卡架構的 PyTorch CUDA build，
+無 CUDA 時會明確報錯。BC 權重可跨裝置開始新 PPO；既有 PPO 續訓仍須使用原裝置。
+
+Linux x86_64／WSL 的 CUDA 12.6 環境（例如本專案的 GTX 1080 Ti）使用獨立安裝選項：
+
+```bash
+uv sync --locked --extra rl-cu126
+source .venv/bin/activate
+python -m rl.train bc data/rl/train.jsonl data/rl/validation.jsonl \
+  checkpoints/temporal-bc.pt --architecture temporal --device cuda --epochs 20
+```
+
+`rl-cu126` 鎖定已驗證的 `torch==2.14.1+cu126`；與一般 `rl` 選項互斥。
+Mac／一般環境仍用 `uv sync --locked --extra rl`。CUDA 12.6 環境後續同步也須指定
+`--extra rl-cu126`，勿改用一般 `rl`，其 Linux 預設 wheel 使用 CUDA 13。
+執行時直接用已啟用的 `.venv`，或 `uv run --no-sync python ...`，避免隱式同步換掉 build。
+
+BC／PPO 可加 `--deterministic`，在程序內啟用確定性 kernel，可能降低速度；預設不強制。
+CUDA 設定必須在初始化 GPU 前生效。CLI 會設定 `CUBLAS_WORKSPACE_CONFIG=:4096:8`；
+已在程式中初始化 CUDA 的呼叫者，須預先設定此環境變數。checkpoint 記錄實際的
+determinism 設定，PPO 續訓必須一致；舊 PPO checkpoint 視為未啟用確定性設定。
+這只針對相同硬體與軟體環境，並不保證 CPU／MPS／CUDA 或不同 PyTorch 版本逐位元相同。
+
+```bash
+python -m rl.train bc data/rl/train.jsonl data/rl/validation.jsonl \
+  checkpoints/transformer-bc.pt --architecture transformer --device mps --epochs 20
+python -m rl.train ppo checkpoints/transformer-bc.pt checkpoints/transformer-ppo.pt \
+  --device mps --hands 64 --updates 1
+python -m rl.benchmark data/rl/train.jsonl --threads 4 \
+  --devices cpu mps --architectures temporal \
+  --output logs/execution-reports/device-benchmark.json
+```
+
+desktop 測速可改為 `--devices cpu cuda`。不指定裝置時依序測 CPU 與可用的 MPS／CUDA；
+明確指定的裝置若不可用會報錯，不會靜默退回 CPU。架構可選 MLP／Transformer／
+hierarchical／temporal，未指定時測全部四種；temporal 使用資料中實際決策的歷史。
+測速使用相同 FP32 初始權重與真實觀察，分開報預先編碼的更新、含編碼／傳輸的更新
+與單步 `choose`；含 warmup，以及 MPS／CUDA 在各計時區間前後的同步。
+測速不含磁碟讀取、引擎與 Greedy 對手成本，不能視為完整訓練加速比。
 
 ## 後續方向
 

@@ -14,19 +14,44 @@ from rl.selfplay import generate
 from rl.train import bc_metrics, dataset_batches, train_bc, train_ppo, update_ppo
 
 
-def make_model(obs):
+def make_model(obs, architecture="mlp"):
     state, actions, _ = batch([obs])
-    return PolicyValueNet(state.shape[-1], actions.shape[-1], hidden=16)
+    return PolicyValueNet(state.shape[-1], actions.shape[-1], hidden=16,
+                          architecture=architecture)
 
 
-def test_padding_is_impossible_and_candidate_permutation_preserves_probabilities():
+def test_hierarchical_policy_normalizes_types_before_complete_candidates():
+    obs = HandEpisode(2).current()
+    obs["legal_actions"] = [{"type": "DISCARD", "tile": 1, "from": "hand"},
+                            {"type": "DISCARD", "tile": 1, "from": "drawn"},
+                            {"type": "DISCARD", "tile": 2, "from": "hand"},
+                            {"type": "PASS"}]
+    forced = deepcopy(obs)
+    forced["legal_actions"] = [{"type": "HU", "source": "RON"}]
+    model = make_model(obs, "hierarchical")
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.zero_()
+    logits, _ = model(*batch([obs, forced]))
+    # Equal type scores give each type half the mass, regardless of candidate count.
+    torch.testing.assert_close(logits.softmax(-1)[0], torch.tensor([1/6, 1/6, 1/6, 1/2]))
+    torch.testing.assert_close(logits.softmax(-1)[1], torch.tensor([1., 0., 0., 0.]))
+    assert model.choose(obs) == {"type": "PASS"}  # Joint argmax, not type-first argmax.
+    loss = -logits[0, 0] - logits[1, 0]
+    loss.backward()
+    assert all(p.grad is None or torch.isfinite(p.grad).all() for p in model.parameters())
+    assert model.action_type.bias.grad.abs().sum() > 0
+
+
+@pytest.mark.parametrize("architecture", ["mlp", "transformer", "hierarchical", "temporal"])
+def test_padding_is_impossible_and_candidate_permutation_preserves_probabilities(architecture):
     obs = HandEpisode(2).current()
     reversed_obs = deepcopy(obs)
     reversed_obs["legal_actions"].reverse()
     forced = deepcopy(obs)
     forced["legal_actions"] = obs["legal_actions"][:1]
-    model = make_model(obs)
-    logits, _ = model(*batch([obs, reversed_obs, forced]))
+    model = make_model(obs, architecture)
+    logits, _ = model(*model.prepare([obs, reversed_obs, forced]))
     probs = logits.softmax(-1)
     torch.testing.assert_close(probs[0], probs[1].flip(0))
     assert probs[2, 0] == 1
@@ -34,9 +59,10 @@ def test_padding_is_impossible_and_candidate_permutation_preserves_probabilities
     assert model.choose(obs) in obs["legal_actions"]
 
 
-def test_checkpoint_refuses_overwrite_and_incompatible_rules(tmp_path):
+@pytest.mark.parametrize("architecture", ["mlp", "transformer", "hierarchical", "temporal"])
+def test_checkpoint_refuses_overwrite_and_incompatible_rules(tmp_path, architecture):
     obs = HandEpisode(0).current()
-    model = make_model(obs)
+    model = make_model(obs, architecture)
     optimizer = torch.optim.Adam(model.parameters())
     spec = training_spec(Ruleset())
     path = tmp_path / "model.pt"
@@ -47,7 +73,16 @@ def test_checkpoint_refuses_overwrite_and_incompatible_rules(tmp_path):
     assert path.read_bytes() == before
     assert path.stat().st_mode & 0o777 == 0o600
     loaded, _ = load_checkpoint(path, spec)
-    torch.testing.assert_close(model(*batch([obs]))[0], loaded(*batch([obs]))[0])
+    assert loaded.architecture == architecture
+    torch.testing.assert_close(model(*model.prepare([obs]))[0], loaded(*loaded.prepare([obs]))[0])
+    if architecture == "mlp":
+        legacy = torch.load(path, weights_only=True)
+        for key in ("architecture", "device", "device_rng"):
+            legacy.pop(key)
+        legacy_path = tmp_path / "legacy.pt"
+        torch.save(legacy, legacy_path)
+        old, _ = load_checkpoint(legacy_path, spec)
+        torch.testing.assert_close(old(*batch([obs]))[0], model(*model.prepare([obs]))[0])
     with pytest.raises(ValueError, match="match"):
         load_checkpoint(path, {**spec, "view_version": 999})
 
@@ -60,14 +95,14 @@ def test_ppo_increases_probability_of_advantaged_action_and_ignores_forced_polic
     model = make_model(obs)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     with torch.no_grad():
-        logits, values = model(*batch([obs]))
+        logits, values = model(*model.prepare([obs]))
         probability = float(logits.softmax(-1)[0, 0])
         old_log = float(Categorical(logits=logits).log_prob(torch.tensor([0]))[0])
     rows = [{"observation": obs, "label": 0, "old_log_prob": old_log,
              "old_value": float(values[0]), "return": float(values[0]) + 1}]
     metrics = update_ppo(model, optimizer, rows, epochs=1)
     with torch.no_grad():
-        assert float(model(*batch([obs]))[0].softmax(-1)[0, 0]) > probability
+        assert float(model(*model.prepare([obs]))[0].softmax(-1)[0, 0]) > probability
     assert all(torch.isfinite(torch.tensor(v)) for v in metrics.values())
     forced = deepcopy(obs)
     forced["legal_actions"] = obs["legal_actions"][:1]
@@ -81,7 +116,8 @@ def test_ppo_increases_probability_of_advantaged_action_and_ignores_forced_polic
         torch.testing.assert_close(value, before[key])
 
 
-def test_bc_reduces_teacher_loss_and_rejects_split_leakage(tmp_path):
+@pytest.mark.parametrize("architecture", ["mlp", "transformer", "hierarchical", "temporal"])
+def test_bc_reduces_teacher_loss_and_rejects_split_leakage(tmp_path, architecture):
     torch.set_num_threads(1)
     obs = HandEpisode(2).current()
     spec = training_spec(Ruleset())
@@ -94,7 +130,8 @@ def test_bc_reduces_teacher_loss_and_rejects_split_leakage(tmp_path):
         path.write_text("\n".join(json.dumps(r) for r in [header, *rows]) + "\n")
         paths[split] = path
     checkpoint = tmp_path / "bc.pt"
-    history = train_bc(paths["train"], paths["validation"], checkpoint, epochs=15)
+    history = train_bc(paths["train"], paths["validation"], checkpoint, epochs=15,
+                       architecture=architecture)
     assert history[-1]["validation"]["all"]["loss"] < history[0]["validation"]["all"]["loss"]
     model, _ = load_checkpoint(checkpoint, spec)
     assert bc_metrics(model, paths["validation"], spec, "validation")["all"]["count"] == 16
@@ -113,7 +150,13 @@ def test_generation_does_not_publish_a_partial_or_overwritten_file(tmp_path, mon
     assert not list(tmp_path.glob(".*.tmp"))
 
 
-def test_ppo_resume_preserves_rng_model_and_cumulative_provenance(tmp_path, monkeypatch):
+@pytest.mark.parametrize("architecture", ["mlp", "transformer", "hierarchical", "temporal"])
+@pytest.mark.parametrize("device", ["cpu", pytest.param("mps", marks=pytest.mark.skipif(
+    not torch.backends.mps.is_available(), reason="MPS requires GPU access")),
+    pytest.param("cuda", marks=pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="CUDA requires GPU access"))])
+def test_ppo_resume_preserves_rng_model_and_cumulative_provenance(
+        tmp_path, monkeypatch, architecture, device, deterministic_runtime):
     import random
     import rl.train as training
 
@@ -121,7 +164,7 @@ def test_ppo_resume_preserves_rng_model_and_cumulative_provenance(tmp_path, monk
     obs = HandEpisode(2).current()
     obs["legal_actions"] = obs["legal_actions"][:2]
     torch.manual_seed(17)
-    model = make_model(obs)
+    model = make_model(obs, architecture).to(device)
     spec = training_spec(Ruleset())
     initial = tmp_path / "initial.pt"
     optimizer = torch.optim.Adam(model.parameters())
@@ -130,7 +173,7 @@ def test_ppo_resume_preserves_rng_model_and_cumulative_provenance(tmp_path, monk
 
     def rollout(model, **_kwargs):
         with torch.no_grad():
-            logits, values = model(*batch([obs]))
+            logits, values = model(*model.prepare([obs]))
             distribution = Categorical(logits=logits[0])
             label = distribution.sample()
             row = {"observation": obs, "label": int(label),
@@ -142,19 +185,32 @@ def test_ppo_resume_preserves_rng_model_and_cumulative_provenance(tmp_path, monk
     uninterrupted = tmp_path / "two.pt"
     first = tmp_path / "one.pt"
     resumed = tmp_path / "resumed.pt"
-    train_ppo(initial, uninterrupted, updates=2, hands=1, seed=3)
-    train_ppo(initial, first, updates=1, hands=1, seed=3)
-    train_ppo(first, resumed, updates=1, hands=1, seed=3)
+    train_ppo(initial, uninterrupted, updates=2, hands=1, seed=3, device=device,
+              deterministic=device == "cuda")
+    train_ppo(initial, first, updates=1, hands=1, seed=3, device=device,
+              deterministic=device == "cuda")
+    train_ppo(first, resumed, updates=1, hands=1, seed=3, device=device,
+              deterministic=device == "cuda")
     expected_model, expected = load_checkpoint(uninterrupted, spec)
     actual_model, actual = load_checkpoint(resumed, spec)
     for name, value in actual_model.state_dict().items():
-        torch.testing.assert_close(value, expected_model.state_dict()[name], rtol=0, atol=0)
+        # MPS reductions vary slightly even across identical uninterrupted runs.
+        rtol, atol = (2e-5, 2e-5) if device == "mps" else (0, 0)
+        torch.testing.assert_close(value, expected_model.state_dict()[name], rtol=rtol, atol=atol)
+    # Near-zero attention-bias gradients can amplify roundoff through Adam;
+    # verify the observable predictions more strictly than individual parameters.
+    with torch.no_grad():
+        for a, b in zip(actual_model(*actual_model.prepare([obs])),
+                        expected_model(*expected_model.prepare([obs]))):
+            torch.testing.assert_close(a, b, rtol=2e-6, atol=2e-6)
     assert actual["progress"]["bc"] == provenance
     assert actual["progress"]["completed"] == 2
     assert actual["progress"]["cumulative"]["engine_steps"] == 18
     assert actual["progress"]["cumulative"]["choices"] == 2
     torch.testing.assert_close(actual["torch_rng"], expected["torch_rng"])
     assert actual["python_rng"] == expected["python_rng"]
+    if device in ("mps", "cuda"):
+        torch.testing.assert_close(actual["device_rng"], expected["device_rng"])
 
 
 def test_paired_evaluation_does_not_depend_on_candidate_order():
