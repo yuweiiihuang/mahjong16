@@ -10,14 +10,14 @@ import math
 from pathlib import Path
 import random
 from time import perf_counter
-from typing import Iterator
 
 import torch
 from torch.distributions import Categorical
 from torch.nn import functional as F
 
 from domain.rules.ruleset import Ruleset
-from rl.encoding import ENCODING_VERSION, encode
+from rl.encoding import encode
+from rl.dataset import bc_batches, dataset_batches
 from rl.env import LearnerEpisode, training_spec
 from rl.history import DecisionHistory
 from rl.net import (PolicyValueNet, configure_determinism, get_device_rng_state, load_checkpoint,
@@ -25,91 +25,25 @@ from rl.net import (PolicyValueNet, configure_determinism, get_device_rng_state,
 from rl.selfplay import hand_seed
 
 
-def dataset_batches(path: Path, spec: dict, split: str,
-                    size: int = 256, *, history: bool = False) -> Iterator[list[dict]]:
-    """Stream choice decisions and reject labels or seeds outside the declared split."""
-    if path.is_dir():
-        files = sorted(path.glob(f"{split}*.jsonl"))
-        ranges = []
-        for shard in files:
-            with shard.open() as handle:
-                header = json.loads(next(handle))
-            start, hands = header["start"], header["hands"]
-            if type(start) is not int or type(hands) is not int or hands <= 0:
-                raise ValueError("Invalid dataset seed range")
-            ranges.append((start, start + hands))
-        ordered = sorted(ranges)
-        if not files or any(a[1] > b[0] for a, b in zip(ordered, ordered[1:])):
-            raise ValueError("Empty or overlapping dataset shards")
-        for shard in files:
-            yield from dataset_batches(shard, spec, split, size, history=history)
-        return
-    with path.open() as handle:
-        header = json.loads(next(handle))
-        if (header.get("dataset_version") != 1 or header.get("spec") != spec
-                or header.get("encoding_version") != ENCODING_VERSION
-                or header.get("split") != split):
-            raise ValueError("Dataset version, rules or split mismatch")
-        start, hands = header["start"], header["hands"]
-        if (type(start) is not int or type(hands) is not int or start < 0 or hands <= 0
-                or start + hands > 500_000_000):
-            raise ValueError("Invalid dataset seed range")
-        first = hand_seed(split, start)
-        last = hand_seed(split, start + hands - 1)
-        rows = []
-        memories = {}
-        previous_seed, previous_seq = None, -1
-        for line in handle:
-            row = json.loads(line)
-            obs, label = row["observation"], row["label"]
-            if (type(row["seed"]) is not int or not first <= row["seed"] <= last
-                    or type(label) is not int or not 0 <= label < len(obs["legal_actions"])):
-                raise ValueError("Invalid dataset seed or candidate label")
-            encode(obs)
-            if history:
-                seq = row.get("seq")
-                if (type(seq) is not int or "decision_history" in obs
-                        or (previous_seed is not None and row["seed"] < previous_seed)):
-                    raise ValueError("History requires ordered, unmodified decision rows")
-                if row["seed"] != previous_seed:
-                    memories = {}
-                    previous_seq = -1
-                if seq != previous_seq + 1:
-                    raise ValueError("History requires complete consecutive decision rows")
-                previous_seed, previous_seq = row["seed"], seq
-                memory = memories.setdefault(obs["player"], DecisionHistory())
-                row["observation"] = memory.observe(obs)
-                executed = row.get("executed_action", obs["legal_actions"][label])
-                if executed not in obs["legal_actions"]:
-                    raise ValueError("Invalid executed action in dataset")
-                memory.append(obs, executed)
-            if len(obs["legal_actions"]) > 1:
-                rows.append(row)
-            if len(rows) == size:
-                yield rows
-                rows = []
-        if rows:
-            yield rows
-
-
 @torch.no_grad()
-def bc_metrics(model: PolicyValueNet, path: Path, spec: dict, split: str) -> dict:
+def bc_metrics(model: PolicyValueNet, path: Path, spec: dict, split: str, *,
+               cache_dir: Path | None = None) -> dict:
     """Report held-out choice accuracy by phase and teacher action, excluding forced moves."""
     groups = defaultdict(lambda: {"count": 0, "correct": 0, "loss": 0.0})
-    for rows in dataset_batches(path, spec, split, history=model.architecture == "temporal"):
-        device = str(next(model.parameters()).device)
-        logits, _ = model(*model.prepare([r["observation"] for r in rows]))
-        labels = torch.tensor([r["label"] for r in rows], device=device)
+    device = str(next(model.parameters()).device)
+    for inputs, labels, categories in bc_batches(
+            path, spec, split, history=model.architecture == "temporal",
+            device=device, cache_dir=cache_dir):
+        logits, _ = model(*inputs)
         losses = F.cross_entropy(logits, labels, reduction="none")
         predicted = logits.argmax(-1).cpu().tolist()
         losses = losses.cpu().tolist()
-        for i, row in enumerate(rows):
-            obs = row["observation"]
-            kind = obs["legal_actions"][row["label"]]["type"]
-            for key in ("all", obs["phase"], kind):
+        expected = labels.cpu().tolist()
+        for i, (phase, kind) in enumerate(categories):
+            for key in ("all", phase, kind):
                 group = groups[key]
                 group["count"] += 1
-                group["correct"] += int(predicted[i] == row["label"])
+                group["correct"] += int(predicted[i] == expected[i])
                 group["loss"] += float(losses[i])
     if not groups["all"]["count"]:
         raise ValueError("Dataset has no choice decisions")
@@ -129,7 +63,8 @@ def _optimize(loss: torch.Tensor, model: PolicyValueNet,
 
 def train_bc(train: Path, validation: Path, output: Path, *, epochs: int = 10,
              seed: int = 0, rules: Ruleset | None = None, device: str = "cpu",
-             architecture: str = "mlp", deterministic: bool = False) -> list[dict]:
+             architecture: str = "mlp", deterministic: bool = False,
+             cache_dir: Path | None = None) -> list[dict]:
     """Fit the teacher, selecting the best epoch using validation loss only."""
     if epochs <= 0 or output.exists():
         raise ValueError("Need positive epochs and a new output path")
@@ -154,20 +89,22 @@ def train_bc(train: Path, validation: Path, output: Path, *, epochs: int = 10,
     state, actions = encode(first[0]["observation"])
     model = PolicyValueNet(len(state), len(actions[0]), architecture=architecture).to(target)
     optimizer = torch.optim.Adam(model.parameters(), lr=3e-4)
-    history = [{"epoch": 0, "validation": bc_metrics(model, validation, spec, "validation")}]
+    history = [{"epoch": 0, "validation": bc_metrics(
+        model, validation, spec, "validation", cache_dir=cache_dir)}]
     best_loss = float("inf")
     best = None
     choices_seen = 0
     for epoch in range(1, epochs + 1):
         model.train()
-        for rows in dataset_batches(train, spec, "train", history=architecture == "temporal"):
-            choices_seen += len(rows)
-            random.shuffle(rows)
-            logits, _ = model(*model.prepare([r["observation"] for r in rows]))
-            loss = F.cross_entropy(logits, torch.tensor([r["label"] for r in rows], device=device))
+        for inputs, labels, _ in bc_batches(
+                train, spec, "train", history=architecture == "temporal",
+                device=device, cache_dir=cache_dir, shuffle=True):
+            choices_seen += len(labels)
+            logits, _ = model(*inputs)
+            loss = F.cross_entropy(logits, labels)
             _optimize(loss, model, optimizer)
         model.eval()
-        metrics = bc_metrics(model, validation, spec, "validation")
+        metrics = bc_metrics(model, validation, spec, "validation", cache_dir=cache_dir)
         record = {"epoch": epoch, "validation": metrics}
         history.append(record)
         print(json.dumps(record), flush=True)
@@ -438,6 +375,8 @@ def main() -> None:
     bc.add_argument("validation", type=Path)
     bc.add_argument("output", type=Path)
     bc.add_argument("--epochs", type=int, default=10)
+    bc.add_argument("--cache-dir", type=Path,
+                    help="Reuse validated CPU tensor shards in this private directory")
     bc.add_argument("--architecture", choices=("mlp", "transformer", "hierarchical", "temporal"),
                     default="mlp")
     ppo = commands.add_parser("ppo")

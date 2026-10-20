@@ -246,6 +246,16 @@ gamma=1；僅使用當輪完整局，不以目前引擎的零向量作 reward。
 候選 `random` 從所有合法動作等機率抽選（含胡牌與 PASS），每個 seed／座位
 使用獨立亂數；與只隨機棄牌的舊 `RandomBot` 不同。
 
+BC 可明確加上 `--cache-dir data/rl/tensor-cache`，首次完整驗證每個來源分片後，
+原子發布 CPU tensor 快取；後續 epochs 與 validation 以 memory mapping 讀取。
+快取保留原本分片／batch 邊界、batch 內 Python shuffle、合法候選順序與 mask，
+強制動作仍進入歷史，DAgger 歷史使用實際執行動作。快取內容不含模型中間表示。
+資料、規則、前處理程式、歷史設定或 PyTorch／dtype 改變會使用新快取；分片缺失、
+多出或 checksum 不符會報錯。生成資料可刪除重建，舊版快取不自動刪除，也不提交 Git。
+首次建置增加耗時與磁碟用量；每次使用仍驗證來源與快取雜湊，預設不啟用快取。
+Python 的 `fresh_bc`／`continue_bc`／`bc_metrics` 也可傳入 `cache_dir=Path(...)`，
+讓 DAgger 聚合續訓重用既有資料分片；它不改變選模與 checkpoint 續訓契約。
+
 `--unit jang` 使用既有 TableManager 跑完整一將，包含連莊與流局續莊，
 依場末累計淨分計算名次，同分取平均名次；超過 512 局會報錯，不發布未完成場次。
 每局淨分是總淨分除以總局數，每場淨分是完整場次的平均收益；胡率與放槍率均以局為分母。

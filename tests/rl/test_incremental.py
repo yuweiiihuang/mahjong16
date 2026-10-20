@@ -76,12 +76,14 @@ def test_directory_shards_reject_overlap_and_keep_history_local(tmp_path):
         list(dataset_batches(tmp_path, spec, 'train', history=True))
 
 
-def test_bc_complete_epoch_resume_restores_adam_and_rng(bc, tmp_path, monkeypatch):
+@pytest.mark.parametrize('cached', [False, True])
+def test_bc_complete_epoch_resume_restores_adam_and_rng(bc, tmp_path, monkeypatch, cached):
     import rl.finetune as module
     generate(tmp_path / 'train.jsonl', 1, split='train')
     generate(tmp_path / 'validation.jsonl', 1, split='validation')
     args = (bc, tmp_path / 'train.jsonl', tmp_path / 'validation.jsonl')
-    continue_bc(*args, tmp_path / 'full', epochs=2, patience=3)
+    cache = tmp_path / 'tensor-cache' if cached else None
+    continue_bc(*args, tmp_path / 'full', epochs=2, patience=3, cache_dir=cache)
     original = module.save_checkpoint
 
     def stop_after_epoch(path, *args, **kwargs):
@@ -91,7 +93,7 @@ def test_bc_complete_epoch_resume_restores_adam_and_rng(bc, tmp_path, monkeypatc
 
     monkeypatch.setattr(module, 'save_checkpoint', stop_after_epoch)
     with pytest.raises(InterruptedError):
-        continue_bc(*args, tmp_path / 'resumed', epochs=2, patience=3)
+        continue_bc(*args, tmp_path / 'resumed', epochs=2, patience=3, cache_dir=cache)
     monkeypatch.setattr(module, 'save_checkpoint', original)
     continue_bc(*args, tmp_path / 'resumed', epochs=2, patience=3)
     a = torch.load(tmp_path / 'full/epoch-002.pt', weights_only=True)

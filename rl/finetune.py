@@ -17,6 +17,7 @@ from rl.env import training_spec
 from rl.net import (PolicyValueNet, configure_determinism, load_checkpoint, save_checkpoint,
                     set_device_rng_state)
 from rl.encoding import encode
+from rl.dataset import bc_batches
 from rl.stopping import Patience
 from rl.train import _optimize, bc_metrics, dataset_batches
 
@@ -38,7 +39,8 @@ def data_manifest(path: Path, split: str) -> dict:
 def fresh_bc(train: Path, validation: Path, output: Path, *, seed: int = 29,
              epochs: int = 100, patience: int = 10, min_delta: float = .001,
              device: str = 'cpu', hidden: int = 128, identity: str = '',
-             resource_check: Callable[[], None] | None = None) -> Path:
+             resource_check: Callable[[], None] | None = None,
+             cache_dir: Path | None = None) -> Path:
     """Initialize a new temporal BC and Adam, then use validation-selected training."""
     determinism = configure_determinism(device, True)
     spec = training_spec(Ruleset())
@@ -66,13 +68,14 @@ def fresh_bc(train: Path, validation: Path, output: Path, *, seed: int = 29,
                         progress={'fresh_contract': contract})
     return continue_bc(initial, train, validation, output, epochs=epochs,
                        patience=patience, min_delta=min_delta, device=device, identity=identity,
-                       resource_check=resource_check)
+                       resource_check=resource_check, cache_dir=cache_dir)
 
 
 def continue_bc(checkpoint: Path, train: Path, validation: Path, output: Path, *,
                 epochs: int = 10, patience: int = 3, min_delta: float = .001,
                 device: str = 'cpu', identity: str = '',
-                resource_check: Callable[[], None] | None = None) -> Path:
+                resource_check: Callable[[], None] | None = None,
+                cache_dir: Path | None = None) -> Path:
     """Keep epoch zero eligible; resume complete epochs with Adam and device RNG.
 
     Patience counts validation checks; min_delta controls stopping only. Selection
@@ -116,7 +119,8 @@ def continue_bc(checkpoint: Path, train: Path, validation: Path, output: Path, *
         meaningful, stale = progress['meaningful_loss'], progress['stale']
     else:
         model.eval()
-        history = [{'epoch': 0, 'validation': bc_metrics(model, validation, spec, 'validation')}]
+        history = [{'epoch': 0, 'validation': bc_metrics(
+            model, validation, spec, 'validation', cache_dir=cache_dir)}]
         meaningful, stale = history[0]['validation']['all']['loss'], 0
         if not torch.isfinite(torch.tensor(meaningful)):
             raise RuntimeError('Non-finite initial validation loss')
@@ -134,15 +138,15 @@ def continue_bc(checkpoint: Path, train: Path, validation: Path, output: Path, *
             resource_check()
         model.train()
         choices, steps = 0, 0
-        for rows in dataset_batches(train, spec, 'train', history=model.architecture == 'temporal'):
-            random.shuffle(rows)
-            logits, _ = model(*model.prepare([r['observation'] for r in rows]))
-            labels = torch.tensor([r['label'] for r in rows], device=device)
+        for inputs, labels, _ in bc_batches(
+                train, spec, 'train', history=model.architecture == 'temporal',
+                device=device, cache_dir=cache_dir, shuffle=True):
+            logits, _ = model(*inputs)
             _optimize(F.cross_entropy(logits, labels), model, optimizer)
-            choices += len(rows)
+            choices += len(labels)
             steps += 1
         model.eval()
-        metrics = bc_metrics(model, validation, spec, 'validation')
+        metrics = bc_metrics(model, validation, spec, 'validation', cache_dir=cache_dir)
         loss = metrics['all']['loss']
         if not torch.isfinite(torch.tensor(loss)):
             raise RuntimeError('Non-finite validation loss')
