@@ -28,6 +28,22 @@ from rl.selfplay import hand_seed
 def dataset_batches(path: Path, spec: dict, split: str,
                     size: int = 256, *, history: bool = False) -> Iterator[list[dict]]:
     """Stream choice decisions and reject labels or seeds outside the declared split."""
+    if path.is_dir():
+        files = sorted(path.glob(f"{split}*.jsonl"))
+        ranges = []
+        for shard in files:
+            with shard.open() as handle:
+                header = json.loads(next(handle))
+            start, hands = header["start"], header["hands"]
+            if type(start) is not int or type(hands) is not int or hands <= 0:
+                raise ValueError("Invalid dataset seed range")
+            ranges.append((start, start + hands))
+        ordered = sorted(ranges)
+        if not files or any(a[1] > b[0] for a, b in zip(ordered, ordered[1:])):
+            raise ValueError("Empty or overlapping dataset shards")
+        for shard in files:
+            yield from dataset_batches(shard, spec, split, size, history=history)
+        return
     with path.open() as handle:
         header = json.loads(next(handle))
         if (header.get("dataset_version") != 1 or header.get("spec") != spec
@@ -63,7 +79,10 @@ def dataset_batches(path: Path, spec: dict, split: str,
                 previous_seed, previous_seq = row["seed"], seq
                 memory = memories.setdefault(obs["player"], DecisionHistory())
                 row["observation"] = memory.observe(obs)
-                memory.append(obs, obs["legal_actions"][label])
+                executed = row.get("executed_action", obs["legal_actions"][label])
+                if executed not in obs["legal_actions"]:
+                    raise ValueError("Invalid executed action in dataset")
+                memory.append(obs, executed)
             if len(obs["legal_actions"]) > 1:
                 rows.append(row)
             if len(rows) == size:
