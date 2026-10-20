@@ -262,6 +262,19 @@ python -m rl.evaluate greedy checkpoints/bc.pt --unit jang --walls 1 \
 一將模式中 `--walls` 表示獨立場次 seed 組數，每組會跑四場；
 它不代表牌牆數，也不是把四場加在一起當一場。單局與一將結果須分開比較。
 
+Greedy 的兩個獨立實驗版可透過評估入口比較，預設 `greedy` 不變：
+
+```bash
+python -m rl.evaluate greedy greedy-defense greedy-lookahead --unit jang --walls 8 \
+  --output logs/execution-reports/greedy-variants.json
+```
+
+`greedy-defense` 只在對手宣告聽或已有四組明副露、自己至少兩個結構步驟未聽時，
+以可見牌估計較低風險的棄牌；此排序不是放槍機率，也不把牌河當保證安全牌。
+`greedy-lookahead` 只改反應決策，枚舉吃碰後的合法棄牌，按最佳剩餘牌形比較 PASS；
+遵守吃後同牌禁打規則，槓不猜補牌，後續實際出牌仍使用原 Greedy 規則。
+兩者皆為待驗證的啟發式，不代表已改善牌力；上述命令循序評估。
+
 續訓可把 PPO checkpoint 作為 `rl.train ppo` 的輸入，寫入另一個新檔；
 需保持相同 `--seed` 與 `--hands`，從完整 batch 交界恢復 optimizer 與 RNG。
 續訓也需保持相同 `--device`；舊 checkpoint 視為 CPU，BC 可在選定裝置開始新的 PPO。

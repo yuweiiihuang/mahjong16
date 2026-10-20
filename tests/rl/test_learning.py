@@ -259,8 +259,21 @@ def test_match_metrics_use_completed_totals_and_count_hand_rates(monkeypatch):
         ]
         return summaries, [a + b for a, b in zip(first, second)]
 
-    monkeypatch.setattr(evaluation, "_play_match", match)
-    result = evaluation.evaluate(["greedy"], walls=1, unit="jang")
+    from bots.greedy import GreedyBotStrategy
+    from bots.greedy_variants import GreedyDefenseStrategy, GreedyLookaheadStrategy
+
+    seen = []
+
+    def variants_match(seed, learner, policy, fixed, rules):
+        assert type(fixed) is GreedyBotStrategy
+        seen.append(type(policy))
+        return match(seed, learner, policy, fixed, rules)
+
+    monkeypatch.setattr(evaluation, "_play_match", variants_match)
+    result = evaluation.evaluate(["greedy", "greedy-defense", "greedy-lookahead"],
+                                 walls=1, unit="jang")
+    assert seen.count(GreedyDefenseStrategy) == 4
+    assert seen.count(GreedyLookaheadStrategy) == 4
     metrics = result["summary"]["greedy"]
     assert metrics["hands"] == 8
     assert metrics["matches"] == 4

@@ -15,6 +15,7 @@ from app.hand_store import write_private_record
 from app.runtime import SessionService
 from app.table import TableManager
 from bots.greedy import GreedyBotStrategy
+from bots.greedy_variants import GreedyDefenseStrategy, GreedyLookaheadStrategy
 from bots.policies import AutoStrategy, Strategy
 from domain.gameplay.game_env import MahjongEnvironment
 from domain.rules.ruleset import Ruleset
@@ -119,6 +120,10 @@ def evaluate(candidates: list[str], *, walls: int = 100, start: int = 500_000_00
     for name in candidates:
         if name == "greedy":
             policies[name] = GreedyBotStrategy()
+        elif name == "greedy-defense":
+            policies[name] = GreedyDefenseStrategy()
+        elif name == "greedy-lookahead":
+            policies[name] = GreedyLookaheadStrategy(rules)
         elif name == "random":
             policies[name] = None
         elif name == "untrained":
@@ -212,7 +217,8 @@ def main() -> None:
     """Evaluate saved models without using test results for checkpoint selection."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidates", nargs="+",
-                        help="random, greedy, untrained, or checkpoint paths")
+                        help="random, greedy, greedy-defense, greedy-lookahead, untrained, "
+                             "or checkpoint paths")
     parser.add_argument("--walls", type=int, default=100,
                         help="independent seed groups; four seats per hand or match seed")
     parser.add_argument("--start", type=int, default=500_000_000)
