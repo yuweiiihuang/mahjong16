@@ -125,6 +125,15 @@ function person(pid, sidebar = false) {
   const name = escapeHtml(names[pid]);
   const detail = `${sidebar ? `${wind}家 · ` : ''}${state.totals[pid]} 點${state.players[pid].ting ? '<span class="ting-status"> · 聽牌</span>' : ''}`;
   wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span>${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${detail}</small></div>`;
+  if (pid === 0) {
+    const avatar = wrap.querySelector('.avatar');
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = `${avatar.className} avatar-edit`;
+    button.textContent = avatar.textContent;
+    button.setAttribute('aria-label', '修改我的顯示名稱');
+    button.title = '修改顯示名稱'; button.onclick = showRename;
+    avatar.replaceWith(button);
+  }
   if (sidebar && state.room) {
     const member = state.room.members[pid];
     wrap.querySelector('small').append(member.human ? (member.connected ? ' · 真人' : ' · 暫時離線') : ' · 電腦');
@@ -371,7 +380,8 @@ function render(){
   setTableStatus(waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
     ? '邀請朋友加入後，按「開始對局」。空位由電腦補上。' : '等待房主開始對局。'}` : '');
   names = state.room ? state.room.members.map(member => member.name)
-    : [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
+    : [state.player_name || playerName || '玩家', '陳予安', '林小滿', '周子墨'];
+  rememberPlayerName(names[0]);
   $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
   $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
   $('connection-status').textContent = state.room ? '房間已連線' : '練習模式';
@@ -851,13 +861,33 @@ function rememberPlayerName(name) {
   playerName = name;
   localStorage.setItem('qinghe-player-name',name);
 }
-function nameField() {
-  return '<label class="setting-row player-name-row" for="player-name">玩家名稱（可選）<span><input id="player-name" autocomplete="nickname" placeholder="留空使用預設名稱"><button id="random-name" class="name-random" type="button">隨機</button></span></label>';
+function nameField(label = '玩家名稱（可選）') {
+  return `<label class="setting-row player-name-row" for="player-name">${label}<span><input id="player-name" autocomplete="nickname" placeholder="留空使用預設名稱"><button id="random-name" class="name-random" type="button">隨機</button></span></label>`;
 }
 function setupNameField(name = playerName) {
   $('player-name').value = name;
   $('random-name').onclick = () => {
     $('player-name').value = randomPlayerName($('player-name').value);
+  };
+}
+function showRename() {
+  modal('修改顯示名稱', `<form id="rename-player">${nameField('顯示名稱')}<div class="join-buttons"><button class="modal-primary" type="submit">儲存</button><button class="outline" id="cancel-rename" type="button">取消</button></div></form>`);
+  setupNameField(names[0]);
+  $('player-name').required = true;
+  $('player-name').focus(); $('player-name').select();
+  $('cancel-rename').onclick = () => $('modal').close();
+  $('rename-player').onsubmit = async event => {
+    event.preventDefault();
+    if (busy) { toast('請稍候再儲存'); return; }
+    busy = true;
+    const button = event.submitter;
+    if (button) button.disabled = true;
+    try {
+      state = await request('/api/player/name', {name:$('player-name').value});
+      rememberPlayerName(state.room ? state.room.members[0].name : state.player_name);
+      $('modal').close(); render();
+    } catch (error) { toast(error.message); }
+    finally { busy = false; if (button) button.disabled = false; if (state) render(); }
   };
 }
 function showJoinRoom(code) {
@@ -938,6 +968,9 @@ $('multiplayer').onclick = () => {
     setTableStatus('正在連線…');
     const code = new URL(location.href).searchParams.get('room');
     state = await request('/api/state');
+    if (!state.room && playerName && state.player_name === '玩家') {
+      state = await request('/api/player/name', {name:playerName});
+    }
     if (state.auto_ting_discard !== undefined) {
       state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
     }

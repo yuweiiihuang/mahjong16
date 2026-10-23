@@ -1,0 +1,64 @@
+request_body {
+    max_size 128KB
+}
+header Cache-Control no-store
+handle /oauth2/signed-out {
+    respond "已登出牌桌。重新開牌桌時可再次登入；共用裝置請另外登出 Pocket ID。" 200
+}
+handle /oauth2/sign_out {
+    reverse_proxy proxy:4180 {
+        header_up -X-Forwarded-For
+        header_up -X-Real-IP
+        header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+        header_down -X-Auth-Request-Access-Token
+        header_down Location /oauth2/signed-out
+    }
+}
+handle /oauth2/* {
+    reverse_proxy proxy:4180 {
+        header_up -X-Forwarded-For
+        header_up -X-Real-IP
+        header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+        header_down -X-Auth-Request-Access-Token
+    }
+}
+handle {
+    route {
+        request_header -X-Qinghe-Subject
+        request_header -X-Qinghe-Access-Token
+        request_header -X-Auth-Request-Access-Token
+        forward_auth proxy:4180 {
+            uri /oauth2/auth
+            copy_headers X-Auth-Request-User>X-Qinghe-Subject X-Auth-Request-Access-Token>X-Qinghe-Access-Token
+            header_up -Authorization
+            header_up -X-Forwarded-User
+            header_up -X-Auth-Request-User
+            @unauthorized status 401
+            handle_response @unauthorized {
+                redir * /oauth2/start 302
+            }
+        }
+        forward_auth identity:1411 {
+            uri /api/oidc/userinfo
+            header_up Authorization "Bearer {http.request.header.X-Qinghe-Access-Token}"
+            header_up -Cookie
+            @invalid status 401 403
+            handle_response @invalid {
+                redir * /oauth2/sign_out 302
+            }
+        }
+        request_header -X-Qinghe-Access-Token
+        reverse_proxy web:8000 {
+            header_up Authorization "{$MAHJONG_BACKEND_AUTHORIZATION}"
+            header_up -Cookie
+            header_up -Remote-User
+            header_up -Remote-Groups
+            header_up -Remote-Email
+            header_up -Remote-Name
+            header_up -X-Forwarded-User
+            header_up -X-Auth-Request-User
+            header_up -X-Forwarded-For
+            header_up -X-Real-IP
+        }
+    }
+}

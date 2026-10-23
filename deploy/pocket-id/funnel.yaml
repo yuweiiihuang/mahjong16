@@ -1,0 +1,16 @@
+# Prepare behind loopback first; this overlay never enables Funnel itself.
+services:
+  gateway:
+    volumes:
+      - ./Caddyfile.funnel:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
+  identity:
+    environment:
+      APP_NAME: 青禾麻將
+    restart: unless-stopped
+  proxy:
+    restart: unless-stopped
+  sessions:
+    restart: unless-stopped
+  web:
+    restart: unless-stopped

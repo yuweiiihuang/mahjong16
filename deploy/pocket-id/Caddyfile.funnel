@@ -1,0 +1,35 @@
+{
+    admin off
+    auto_https off
+    servers {
+        max_header_size 32KB
+        timeouts {
+            read_header 10s
+            read_body 15s
+            write 30s
+            idle 30s
+        }
+    }
+}
+
+# Loopback listeners only; public TLS terminates at the Windows Funnel daemon.
+http://{$MAHJONG_POCKET_HOST}:8080 {
+    request_header -X-Forwarded-For
+    request_header -X-Real-IP
+    request_header X-Forwarded-Proto https
+    request_header X-Forwarded-Host {$MAHJONG_POCKET_HOST}
+    import /etc/caddy/routes.caddy
+}
+
+http://{$MAHJONG_POCKET_HOST}:8081 {
+    header {
+        Cache-Control no-store
+        Referrer-Policy no-referrer
+    }
+    reverse_proxy identity:1411 {
+        header_up -X-Forwarded-For
+        header_up -X-Real-IP
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {$MAHJONG_POCKET_HOST}:8443
+    }
+}

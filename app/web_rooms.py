@@ -28,7 +28,8 @@ class WebRoom:
 
     RECONNECT_SECONDS = 90
 
-    def __init__(self, code: str, owner: str, table: WebTable, name: str = '') -> None:
+    def __init__(self, code: str, owner: str, table: WebTable, name: str = '', *,
+                 player_id: str | None = None) -> None:
         self.code = code
         self.table = table
         self.seats: list[str | None] = [owner, None, None, None]
@@ -43,7 +44,7 @@ class WebRoom:
         self.last_active = time.monotonic()
         self.requests: dict[tuple[str, str], int] = {}
         self.changed = threading.Condition()
-        self.record_ids = {owner: str(uuid4())}
+        self.record_ids = {owner: player_id or str(uuid4())}
         self.table.record_source = 'multiplayer'
 
     def record_seat(self, pid: int) -> None:
@@ -61,7 +62,7 @@ class WebRoom:
         self.version += 1
         self.changed.notify_all()
 
-    def join(self, sid: str, name: str = '') -> None:
+    def join(self, sid: str, name: str = '', *, player_id: str | None = None) -> None:
         """Take an unreserved bot seat without changing its game state, or reconnect."""
         self.table.check_recording()
         name = player_name(name)
@@ -71,6 +72,8 @@ class WebRoom:
             seat = self.seats.index(None)
             self.seats[seat] = sid
             self.names[sid] = name or f'玩家 {seat + 1}'
+            if player_id:
+                self.record_ids[sid] = player_id
             if self.started:
                 try:
                     self.record_seat(seat)
@@ -88,6 +91,24 @@ class WebRoom:
                 self.ready_at = 0
             self.publish()
         self.touch(sid)
+
+    def rename(self, sid: str, name: str) -> None:
+        """Rename only the caller's seat, preserving identity and current hand state."""
+        name = player_name(name)
+        if not name:
+            raise ValueError('請輸入顯示名稱。')
+        pid = self.touch(sid)
+        self.table.check_recording()
+        if name == self.names[sid]:
+            return
+        if self.started:
+            self.table.record_seat(pid, {
+                'player_id': self.record_ids[sid], 'name': name, 'human': True,
+            })
+        self.names[sid] = name
+        if not self.thinking:
+            self.event = None  # A name change must not replay the previous discard animation.
+        self.publish()
 
     def touch(self, sid: str) -> int:
         """Renew a member's reconnect grace and return the authoritative seat."""
@@ -268,7 +289,7 @@ class RoomRegistry:
         self.lock = threading.Lock()
 
     def create(self, sid: str, table_factory: Callable[..., WebTable],
-               name: str = '') -> WebRoom:
+               name: str = '', *, player_id: str | None = None) -> WebRoom:
         """Create one invitation-only room for an identity without a current room."""
         name = player_name(name)
         with self.lock:
@@ -279,12 +300,14 @@ class RoomRegistry:
             code = secrets.token_hex(4).upper()
             while code in self.rooms:
                 code = secrets.token_hex(4).upper()
-            room = WebRoom(code, sid, table_factory(human_pids={0, 1, 2, 3}), name)
+            room = WebRoom(code, sid, table_factory(human_pids={0, 1, 2, 3}), name,
+                           player_id=player_id)
             self.rooms[code] = room
             self.memberships[sid] = code
             return room
 
-    def join(self, sid: str, code: str, name: str = '') -> WebRoom:
+    def join(self, sid: str, code: str, name: str = '', *,
+             player_id: str | None = None) -> WebRoom:
         """Join a free seat without assigning one identity to multiple rooms."""
         with self.lock:
             room = self.rooms.get(code)
@@ -293,7 +316,7 @@ class RoomRegistry:
             if sid in self.memberships and self.memberships[sid] != code:
                 raise ValueError('請先離開目前房間。')
             with room.changed:
-                room.join(sid, name)
+                room.join(sid, name, player_id=player_id)
             self.memberships[sid] = code
             return room
 

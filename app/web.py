@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
-from app.web_rooms import RoomRegistry
+from app.web_rooms import RoomRegistry, player_name
 from app.hand_store import HandStore, PersistentHandRecorder, RecordingError, _now
 
 from domain.gameplay.game_env import Mahjong16Env
@@ -36,7 +36,8 @@ class WebTable:
     """Engine-backed table with private viewer snapshots and legal human actions."""
 
     def __init__(self, seed: int | None = None, human_pids: set[int] | None = None, *,
-                 record_store: HandStore | None = None, defer_recording: bool = False):
+                 record_store: HandStore | None = None, defer_recording: bool = False,
+                 player_id: str | None = None):
         self.human_pids = {0} if human_pids is None else set(human_pids)
         self.auto_ting_discard = [True] * 4
         self.record_store = record_store
@@ -48,6 +49,8 @@ class WebTable:
              'name': '玩家' if pid in self.human_pids else '電腦玩家',
              'human': pid in self.human_pids} for pid in range(4)
         ]
+        if player_id and 0 in self.human_pids:
+            self.record_players[0]['player_id'] = player_id
         self.record_source = 'practice'
         self.env = Mahjong16Env(Ruleset(randomize_seating_and_dealer=False), seed=seed)
         self.bot = GreedyBotStrategy()
@@ -273,6 +276,7 @@ class WebTable:
         result = deepcopy(env._obs(viewer))
         result.update({
             'auto_ting_discard': self.auto_ting_discard[viewer],
+            'player_name': self.record_players[viewer]['name'],
             'legal_actions': (env.legal_actions(viewer)
                               if not env.done and (env.phase == 'REACTION'
                                                    or self.actor() == viewer) else []),
@@ -355,6 +359,7 @@ class WebHandler(SimpleHTTPRequestHandler):
     session_lock = threading.Lock()
     rooms = RoomRegistry()
     access_authorization = b''
+    trusted_identity_issuer = ''
     record_store: HandStore | None = None
 
     def __init__(self, request, client_address, server):
@@ -369,13 +374,32 @@ class WebHandler(SimpleHTTPRequestHandler):
         """Check access before dispatching any HTTP method or allocating a game."""
         if not super().parse_request():
             return False
+        # A keep-alive connection may carry requests from different authenticated accounts.
+        self.sid = ''
+        self.new_identity = False
+        self.player_id = None
+        self.account_subject = ''
+        supplied = self.headers.get('Authorization', '').encode('utf-8')
+        if self.trusted_identity_issuer:
+            subjects = self.headers.get_all('X-Qinghe-Subject', [])
+            if (not self.access_authorization
+                    or not secrets.compare_digest(supplied, self.access_authorization)
+                    or len(subjects) != 1 or not 1 <= len(subjects[0]) <= 255
+                    or any(not 33 <= ord(char) <= 126 or char == ',' for char in subjects[0])):
+                self.send_response(401)
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                self.close_connection = True
+                return False
+            self.account_subject = subjects[0]
+            return True
         if not self.access_authorization:
             return True
         path = urlsplit(self.path).path
         if self.command == 'POST' and path == '/access/login':
             self.access_login()
             return False
-        supplied = self.headers.get('Authorization', '').encode('utf-8')
         cookies = SimpleCookie()
         try:
             cookies.load(self.headers.get('Cookie', ''))
@@ -470,11 +494,23 @@ class WebHandler(SimpleHTTPRequestHandler):
         return None
 
     def identity(self) -> str:
+        """Resolve verified accounts before considering anonymous browser cookies."""
         if self.sid:
             return self.sid
-        cookies = SimpleCookie()
-        cookies.load(self.headers.get('Cookie', ''))
-        sid = cookies[self.cookie_name].value if self.cookie_name in cookies else ''
+        if self.trusted_identity_issuer:
+            try:
+                self.player_id = self.record_store.account_player_id(
+                    self.trusted_identity_issuer, self.account_subject)
+            except sqlite3.Error as error:
+                raise RecordingError('玩家身分暫時無法保存，請稍後再試。') from error
+            sid = 'account:' + self.player_id
+        else:
+            cookies = SimpleCookie()
+            try:
+                cookies.load(self.headers.get('Cookie', ''))
+            except CookieError:
+                cookies.clear()
+            sid = cookies[self.cookie_name].value if self.cookie_name in cookies else ''
         with self.session_lock:
             now = time.monotonic()
             if sid not in self.sessions:
@@ -489,9 +525,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                             self.session_seen.pop(expired, None)
                     if len(self.sessions) >= 1000:
                         raise ValueError('目前連線已滿，請稍後再試。')
-                sid = secrets.token_urlsafe(24)
+                if not self.trusted_identity_issuer:
+                    sid = secrets.token_urlsafe(24)
+                    self.new_identity = True
                 self.sessions[sid] = None
-                self.new_identity = True
             self.session_seen[sid] = now
         self.sid = sid
         return sid
@@ -500,7 +537,8 @@ class WebHandler(SimpleHTTPRequestHandler):
         sid = self.identity()
         with self.session_lock:
             if self.sessions[sid] is None:
-                self.sessions[sid] = WebTable(record_store=self.record_store)
+                self.sessions[sid] = WebTable(record_store=self.record_store,
+                                              player_id=self.player_id)
             return sid, self.sessions[sid]
 
     def respond(self, data: dict, sid: str, status: int = 200) -> None:
@@ -558,7 +596,8 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         if self.path not in ('/api/action', '/api/new', '/api/next', '/api/rooms',
                              '/api/room/join', '/api/room/start', '/api/room/action',
-                             '/api/room/next', '/api/room/leave', '/api/preferences'):
+                             '/api/room/next', '/api/room/leave', '/api/preferences',
+                             '/api/player/name'):
             self.send_error(404)
             return
         sid = ''
@@ -573,6 +612,25 @@ class WebHandler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('無效請求')
+            if self.path == '/api/player/name':
+                name = player_name(body.get('name'))
+                if not name:
+                    raise ValueError('請輸入顯示名稱。')
+                sid = self.identity()
+                try:
+                    room = self.rooms.get(sid)
+                except ValueError:
+                    sid, table = self.table()
+                    with table.lock:
+                        table.check_recording()
+                        table.record_seat(0, {**table.record_players[0], 'name': name})
+                        data = table.snapshot()
+                else:
+                    with room.changed:
+                        room.rename(sid, name)
+                        data = room.snapshot(sid)
+                self.respond(data, sid)
+                return
             if self.path == '/api/preferences':
                 enabled = body.get('auto_ting_discard')
                 if type(enabled) is not bool:
@@ -600,12 +658,13 @@ class WebHandler(SimpleHTTPRequestHandler):
                     room = self.rooms.create(
                         sid, lambda **kwargs: WebTable(
                             **kwargs, record_store=self.record_store, defer_recording=True),
-                        body.get('name', ''))
+                        body.get('name', ''), player_id=self.player_id)
                 elif self.path == '/api/room/join':
                     code = body.get('code')
                     if not isinstance(code, str) or len(code) != 8:
                         raise ValueError('請輸入八碼房號。')
-                    room = self.rooms.join(sid, code.upper(), body.get('name', ''))
+                    room = self.rooms.join(sid, code.upper(), body.get('name', ''),
+                                           player_id=self.player_id)
                 elif self.path == '/api/room/leave':
                     self.rooms.leave(sid)
                     self.respond({'left': True}, sid)
@@ -653,7 +712,12 @@ def main() -> None:
                         help='Private SQLite hand records, outside the public web root.')
     parser.add_argument('--access-password-file', type=Path,
                         help='Protect all requests with a passcode read from this file.')
+    parser.add_argument('--trusted-identity-issuer', default='',
+                        help='Trust the private gateway subject only with its Basic credential.')
     args = parser.parse_args()
+    if args.trusted_identity_issuer and not args.access_password_file:
+        parser.error('--trusted-identity-issuer requires --access-password-file')
+    WebHandler.trusted_identity_issuer = args.trusted_identity_issuer
     if args.access_password_file:
         try:
             password = args.access_password_file.read_text(encoding='utf-8').strip()

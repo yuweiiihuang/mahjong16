@@ -10,6 +10,7 @@ import sqlite3
 import threading
 import tempfile
 from typing import TYPE_CHECKING, Iterator, TextIO
+from uuid import uuid4
 
 from domain.gameplay.recording import HandRecorder
 
@@ -90,6 +91,9 @@ class HandStore:
                     hand_id TEXT PRIMARY KEY, table_id TEXT NOT NULL,
                     started_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                     status TEXT NOT NULL, reason TEXT, document TEXT NOT NULL)''')
+                self.connection.execute('''CREATE TABLE IF NOT EXISTS account_players (
+                    issuer TEXT NOT NULL, subject TEXT NOT NULL, player_id TEXT NOT NULL UNIQUE,
+                    PRIMARY KEY (issuer, subject))''')
                 self.connection.execute('PRAGMA user_version=1')
                 self.connection.execute(
                     "UPDATE hands SET status='interrupted', reason='server_restart' "
@@ -99,6 +103,16 @@ class HandStore:
                 self.connection.close()
             self.owner.close()
             raise
+
+    def account_player_id(self, issuer: str, subject: str) -> str:
+        """Map a verified provider subject to a private ID, independent of names and devices."""
+        with self.lock, self.connection:
+            self.connection.execute(
+                'INSERT OR IGNORE INTO account_players VALUES (?, ?, ?)',
+                (issuer, subject, str(uuid4())))
+            return self.connection.execute(
+                'SELECT player_id FROM account_players WHERE issuer=? AND subject=?',
+                (issuer, subject)).fetchone()[0]
 
     def save(self, document: dict, metadata: dict) -> None:
         """Commit the full accepted prefix before acknowledging an operation.

@@ -5,6 +5,10 @@
 備份排程的容器名稱與 Funnel 目標；不能只照舊標籤切換。
 執行正式換版前，先確認備份與回復入口，說明記憶體牌局會清除並取得切換同意。
 
+2026-10-23 正式部署已改為 [Pocket ID／Passkey](pocket-id.md#windows-正式-https-部署)，
+沿用原牌譜資料卷。新正式 project 為 `mahjong16-pocket`；以下通行碼與 Authelia
+指令屬歷史基準，操作時應核對現況。
+
 ## 歷史部署基準
 
 以通行碼版本 `617094b` 為第一個容器基準；使用 Docker Desktop 的 Linux containers。

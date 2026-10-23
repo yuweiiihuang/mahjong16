@@ -1,0 +1,5 @@
+# Stop the previous writer and verify its backup before using the shared records volume.
+volumes:
+  stage-records:
+    external: true
+    name: ${MAHJONG_RECORDS_VOLUME:?Set the existing production records volume}

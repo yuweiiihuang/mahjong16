@@ -1,5 +1,8 @@
 # 前置驗證部署
 
+2026-10-23 正式入口已切換到 [Pocket ID／Passkey](pocket-id.md)。
+以下保留 Authelia 的測試、歷史部署與回復說明，不能當成目前正式配置直接重套。
+
 `deploy/gateway/` 提供獨立測試部署與正式切換 overlay。
 下列實測與「尚未切換」紀錄截至 2026-10-08；本文件不代表今天的遠端狀態。
 操作前核對目前映像、Compose project、私有設定、資料卷、備份來源與 Funnel 目標。

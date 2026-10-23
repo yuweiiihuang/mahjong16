@@ -1,0 +1,139 @@
+# Local proof of concept only: no production volumes, Funnel, or restart policies.
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+x-sandbox: &sandbox
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  cpus: 1
+  logging: *bounded-logging
+services:
+  permissions:
+    <<: *sandbox
+    image: ${MAHJONG_IMAGE:?Set the staging game image}
+    user: "0:0"
+    command: ["python", "-c", "import os; os.chown('/identity-data', 10001, 10001)"]
+    network_mode: none
+    cap_add: [CHOWN]
+    mem_limit: 64m
+    volumes:
+      - identity-data:/identity-data
+  gateway:
+    <<: *sandbox
+    image: caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
+    cap_add: [NET_BIND_SERVICE]
+    mem_limit: 128m
+    env_file: ${MAHJONG_POCKET_CONFIG:?Set the private staging configuration}/gateway.env
+    ports:
+      - "127.0.0.1:${MAHJONG_STAGE_TABLE_PORT:-18080}:8080"
+      - "127.0.0.1:${MAHJONG_STAGE_IDENTITY_PORT:-18081}:8081"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./routes.caddy:/etc/caddy/routes.caddy:ro
+    tmpfs:
+      - /config:uid=10001,gid=10001,mode=700,size=4m
+      - /data:uid=10001,gid=10001,mode=700,size=4m
+    networks: [edge, identity, game]
+  identity:
+    <<: *sandbox
+    image: ghcr.io/pocket-id/pocket-id:v2.19.1-distroless@sha256:d035c9c229304cfd25f97a79b2da00bde9cf942abbd70430d452a95420e2836b
+    mem_limit: 256m
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+    env_file: ${MAHJONG_POCKET_CONFIG}/pocket.env
+    environment:
+      ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+      TRUST_PROXY: "false"
+      UI_CONFIG_DISABLED: "true"
+      ALLOW_USER_SIGNUPS: withToken
+      REQUIRE_USER_EMAIL: "false"
+      EMAIL_VERIFICATION: disabled
+      AUTO_CREATE_OIDC_CLIENT_SECRET: "false"
+      WEBAUTHN_USER_VERIFICATION: required
+      WEBAUTHN_ALLOW_SYNCED_PASSKEYS: "true"
+      APP_NAME: 青禾麻將測試
+      ANALYTICS_DISABLED: "true"
+      VERSION_CHECK_DISABLED: "true"
+      ICON_LIBRARY_URL: disabled
+      ALLOW_INSECURE_CALLBACK_URLS: "false"
+    secrets: [encryption_key]
+    volumes:
+      - identity-data:/app/data
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=700,size=16m
+    healthcheck:
+      test: [CMD, /app/pocket-id, healthcheck]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks: [identity]
+  proxy:
+    <<: *sandbox
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5@sha256:8498b0d0ef0a7b29686414000a08aee467f02d0299c9ed1e006a8f33fc017916
+    mem_limit: 128m
+    command: [--config=/etc/proxy.cfg]
+    depends_on:
+      sessions:
+        condition: service_healthy
+    volumes:
+      - ${MAHJONG_POCKET_CONFIG}/proxy.cfg:/etc/proxy.cfg:ro
+    networks: [identity]
+  sessions:
+    <<: *sandbox
+    image: redis:8.2-alpine@sha256:d1389b3f3f981460b9b0918c4d7390c6e9decb8c69b9f09a02e1b6fd7554ade7
+    mem_limit: 128m
+    command: [redis-server, --save, "", --appendonly, "no", --maxmemory, 64mb,
+              --maxmemory-policy, noeviction]
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=700,size=4m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    networks: [identity]
+  web:
+    <<: *sandbox
+    image: ${MAHJONG_IMAGE}
+    cpus: 2
+    mem_limit: 512m
+    init: true
+    command:
+      - python
+      - -m
+      - app.web
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --access-password-file
+      - /run/secrets/access_password
+      - --record-db
+      - /var/lib/mahjong16/hands.sqlite3
+      - --trusted-identity-issuer
+      - ${MAHJONG_IDENTITY_ISSUER:?Set the verified staging issuer}
+    secrets: [access_password]
+    volumes:
+      - stage-records:/var/lib/mahjong16
+    networks: [game]
+secrets:
+  access_password:
+    file: ${MAHJONG_POCKET_CONFIG}/backend-password.txt
+  encryption_key:
+    file: ${MAHJONG_POCKET_CONFIG}/encryption-key.txt
+volumes:
+  identity-data:
+  stage-records:
+networks:
+  edge:
+  identity:
+    internal: true
+  game:
+    internal: true

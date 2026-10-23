@@ -276,3 +276,6 @@ main{height:100%;padding:0}
  :root[data-controls-side="left"] #ting-panel{right:calc(env(safe-area-inset-right,0px) + 14px)}
  :root[data-controls-side="left"] .room-panel aside{max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 98px)}
 }
+
+.avatar-edit{border:0;padding:0;pointer-events:auto;cursor:pointer}
+.avatar-edit:focus-visible{outline:2px solid #e3d399;outline-offset:3px}

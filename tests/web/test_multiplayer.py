@@ -248,6 +248,7 @@ def test_midgame_guest_takes_bot_seat_without_resetting_game(monkeypatch, stage)
         wall = list(env.wall)
         version = room.version
     assert registry.join('guest', room.code, '中途加入') is room
+    before[3]['player_name'] = '中途加入'
     with room.changed:
         assert room.table.env is env
         assert room.seats == ['a', 'b', 'c', 'guest']
@@ -275,7 +276,7 @@ def test_midgame_guest_takes_bot_seat_without_resetting_game(monkeypatch, stage)
 @pytest.mark.parametrize('stage', ['other_thinking', 'submitted_reaction'])
 def test_bot_seat_handoff_preserves_other_thinking_and_submitted_responses(stage):
     registry = RoomRegistry()
-    room = registry.create('a', WebTable)
+    room = registry.create('a', lambda **kwargs: WebTable(7, **kwargs))
     registry.join('b', room.code)
     with room.changed:
         room.start('a')
@@ -529,6 +530,7 @@ def test_http_invites_cookie_seat_auth_and_long_poll(online_server):
     assert guest['melds'] == before['melds'] and guest['flowers'] == before['flowers']
     assert guest['room']['members'][0]['name'] == '接替電腦'
     assert guest['room']['members'][0]['human']
+    before['player_name'] = '接替電腦'
     with room.changed:
         assert room.table.snapshot(3) == before
 

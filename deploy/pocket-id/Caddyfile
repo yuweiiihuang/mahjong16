@@ -1,0 +1,31 @@
+{
+    admin off
+    auto_https off
+    servers {
+        max_header_size 32KB
+        timeouts {
+            read_header 10s
+            read_body 15s
+            write 30s
+            idle 30s
+        }
+    }
+}
+
+# HTTP is for localhost only. This file must never be exposed through Funnel or LAN.
+http://localhost:8080 {
+    request_header X-Forwarded-Proto http
+    import /etc/caddy/routes.caddy
+}
+
+http://localhost:8081 {
+    header {
+        Cache-Control no-store
+        Referrer-Policy no-referrer
+    }
+    reverse_proxy identity:1411 {
+        header_up -X-Forwarded-For
+        header_up -X-Real-IP
+        header_up X-Forwarded-Proto http
+    }
+}
