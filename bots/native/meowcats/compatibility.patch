@@ -1,0 +1,44 @@
+--- a/CommunicationLibrary/BasePlayer.h
++++ b/CommunicationLibrary/BasePlayer.h
+@@ -10 +10 @@
+-	~BasePlayer() {};
++	virtual ~BasePlayer() {};
+--- a/MJLibrary/MJ_Base/MahjongBaseConfig.h
++++ b/MJLibrary/MJ_Base/MahjongBaseConfig.h
+@@ -10,0 +11 @@
++#ifndef LINUX
+@@ -11,0 +13 @@
++#endif
+--- a/MJLibrary/MJ_Base/Tile.cpp
++++ b/MJLibrary/MJ_Base/Tile.cpp
+@@ -133 +133 @@
+-	for (int i = 1; i <= MAX_RANK + 2; i++) {
++	for (int i = 1; i < MAX_RANK + 2; i++) {
+--- a/MJLibrary/MJ_Base/TilePartCombination/TilePartTable.cpp
++++ b/MJLibrary/MJ_Base/TilePartCombination/TilePartTable.cpp
+@@ -13,0 +14,2 @@
++uint64_t TilePartTable::m_ullSuitTableSize = 0;
++uint64_t TilePartTable::m_ullHonorTableSize = 0;
+--- a/MctsLibrary/ChanceNode2.cpp
++++ b/MctsLibrary/ChanceNode2.cpp
+@@ -65,2 +65,2 @@
+-	bool vCanPongOrWin[MAX_DIFFERENT_TILE_COUNT];
+-	bool vCanEat[MAX_DIFFERENT_TILE_COUNT];
++	bool vCanPongOrWin[MAX_DIFFERENT_TILE_COUNT] = {};
++	bool vCanEat[MAX_DIFFERENT_TILE_COUNT] = {};
+--- a/MctsLibrary/MctsPlayer.h
++++ b/MctsLibrary/MctsPlayer.h
+@@ -117 +117 @@
+-	uint32_t m_iCurrentMctsListIndex;
++	uint32_t m_iCurrentMctsListIndex = 0;
+--- a/SamplingLibrary/GodMoveSampling_v3.cpp
++++ b/SamplingLibrary/GodMoveSampling_v3.cpp
+@@ -1151 +1151 @@
+-		CERR(FormatString("select data %d (action: %s)\n", iSelectedIndex, m_vCandidates[iSelectedIndex].m_oAction.toString()));
++		CERR(FormatString("select data %d (action: %s)\n", iSelectedIndex, m_vCandidates[iSelectedIndex].m_oAction.toString().c_str()));
+@@ -1177 +1177 @@
+-	CERR(FormatString("%s ", m_vCandidates.at(0).m_oAction.toString()));
++	CERR(FormatString("%s ", m_vCandidates.at(0).m_oAction.toString().c_str()));
+@@ -1183 +1183 @@
+-		CERR(FormatString("%s ", m_vCandidates.at(i).m_oAction.toString()));
++		CERR(FormatString("%s ", m_vCandidates.at(i).m_oAction.toString().c_str()));

@@ -90,3 +90,8 @@ python scripts/tune_greedy_weights.py --hands 256 --trials 10 --seed 42
 
 bench／league／tune 不提供 `--scoring-json`、`--no-flowers` 或尾牌直接覆寫旗標；
 自訂規則透過 rule profile。`analyze_breakdown_flags.py` 的 `--scoring-json` 只決定分析旗標。
+
+## build_meowcats.py
+
+可選的 POSIX MeowCaTS 外部 bridge 建置入口；來源版本、授權、乾淨建置與
+原生測試指令見 [MeowCaTS 整合](../docs/meowcats.md)。不下載來源、不更動服務。
