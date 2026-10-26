@@ -255,11 +255,16 @@ def test_actor_kl_stop_does_not_truncate_or_update_critic_actor(bc, monkeypatch)
     assert metrics['rollout_exact_old_kl'] > 0
 
 
-def test_stopped_ppo_resume_pending_evaluation_and_two_optimizers(bc, tmp_path, monkeypatch):
+@pytest.mark.parametrize('device', ['cpu', 'cuda'])
+def test_stopped_ppo_resume_pending_evaluation_and_two_optimizers(
+        bc, tmp_path, monkeypatch, device):
+    if device == 'cuda' and not torch.cuda.is_available():
+        pytest.skip('CUDA hardware required')
     import rl.ppo_stopped as module
-    args = {'updates': 3, 'hands': 1, 'device': 'cpu', 'eval_every': 1,
+    args = {'updates': 3, 'hands': 1, 'device': device, 'eval_every': 1,
             'min_updates': 0, 'patience': 2, 'min_delta': 20.,
-            'actor_epochs': 1, 'critic_epochs': 1, 'target_kl': 0.}
+            'actor_epochs': 1, 'critic_epochs': 1, 'target_kl': 0.,
+            'actor_lr': 1e-4, 'critic_lr': 3e-4}
     score = lambda path, index: -float(index)
     module.train_stopped_ppo(bc, tmp_path / 'stop-full', evaluate=score, **args)
     original = module.collect_privileged
@@ -283,6 +288,11 @@ def test_stopped_ppo_resume_pending_evaluation_and_two_optimizers(bc, tmp_path, 
     b = torch.load(tmp_path / 'stop-resume/joint-002.pt', weights_only=True)
     assert all(torch.equal(t, b['model'][k]) for k, t in a['model'].items())
     assert torch.equal(a['torch_rng'], b['torch_rng']) and a['python_rng'] == b['python_rng']
+    assert a['history'] == b['history']
+    if device == 'cpu':
+        assert a['device_rng'] is None and b['device_rng'] is None
+    else:
+        assert torch.equal(a['device_rng'], b['device_rng'])
     for opt in ['actor_optimizer', 'critic_optimizer']:
         for key, state in a[opt]['state'].items():
             assert all(torch.equal(t, b[opt]['state'][key][k]) for k, t in state.items())
@@ -295,6 +305,73 @@ def test_stopped_ppo_resume_pending_evaluation_and_two_optimizers(bc, tmp_path, 
     # Completion is idempotent and never collects a new rollout.
     module.train_stopped_ppo(bc, tmp_path / 'stop-resume', evaluate=score, **args)
     assert collected == [0, 1]
+
+
+@pytest.mark.parametrize('change', ['actor_lr', 'critic_lr', 'schedule', 'source',
+                                   'actor_optimizer', 'critic_optimizer'])
+def test_stopped_ppo_rejects_resume_changes_before_rollout(bc, tmp_path, monkeypatch, change):
+    import rl.ppo_stopped as module
+    output = tmp_path / 'resume-contract'
+
+    def interrupt(*args):
+        raise InterruptedError('persist initial state only')
+
+    args = {'updates': 1, 'hands': 1, 'device': 'cpu'}
+    with pytest.raises(InterruptedError):
+        module.train_stopped_ppo(bc, output, evaluate=interrupt, **args)
+    path = output / 'joint-000.pt'
+    payload = torch.load(path, weights_only=True)
+    if change.endswith('_lr'):
+        args[change] = 1e-4
+    elif change == 'schedule':
+        payload['contract']['schedule_version'] += 1
+    elif change == 'source':
+        payload['contract']['source_sha256']['ppo_stopped.py'] = 'changed'
+    else:
+        payload[change]['param_groups'][0]['lr'] = 1e-4
+    torch.save(payload, path)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail('Resume mismatch must fail before rollout or evaluation')
+
+    monkeypatch.setattr(module, 'collect_privileged', unexpected)
+    with pytest.raises(ValueError, match='changed'):
+        module.train_stopped_ppo(bc, output, evaluate=unexpected, **args)
+
+
+def test_actor_lr_and_stopping_do_not_change_common_data_critic(bc):
+    import rl.ppo_stopped as module
+    from rl.asymmetric import VisibleReference, collect_privileged
+    spec = training_spec(Ruleset())
+    actor, _ = load_checkpoint(bc, spec)
+    critic, _ = load_checkpoint(bc, spec)
+    reference, _ = load_checkpoint(bc, spec)
+    reference.requires_grad_(False)
+    initial = IndependentCritic(actor, critic)
+    rows, _ = collect_privileged(initial, seed=29, start=0, hands=4)
+    # Cross a minibatch boundary so shuffled order actually changes Adam's trajectory.
+    rows = rows * 3
+    assert len(rows) > 256
+    results = []
+    random_state = random.getstate()
+    for lr, threshold in [(3e-4, 0.), (1e-4, 100.)]:
+        model = deepcopy(initial)
+        ao = torch.optim.Adam([p for p in model.actor.parameters() if p.requires_grad], lr=lr)
+        co = torch.optim.Adam([p for m in [model.critic, model.value_head]
+                              for p in m.parameters() if p.requires_grad], lr=3e-4)
+        metrics = module.update_independent(model, ao, co, rows,
+            reference=VisibleReference(reference), target_kl=threshold,
+            actor_epochs=2, critic_epochs=2, schedule_seed=29, schedule_update=1)
+        results.append((model, co.state_dict(), metrics))
+    a, b = results
+    assert a[2]['actor_optimizer_steps'] < b[2]['actor_optimizer_steps']
+    assert a[2]['schedule'] == b[2]['schedule']
+    for owner in ['critic', 'value_head']:
+        assert all(torch.equal(t, getattr(b[0], owner).state_dict()[k])
+                   for k, t in getattr(a[0], owner).state_dict().items())
+    for key, state in a[1]['state'].items():
+        assert all(torch.equal(t, b[1]['state'][key][k]) for k, t in state.items())
+    assert random.getstate() == random_state
 
 
 def test_bc_resource_guard_stops_after_recoverable_epoch(bc, tmp_path):

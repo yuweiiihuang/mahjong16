@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -62,7 +63,8 @@ def update_independent(model: IndependentCritic, actor_optimizer: torch.optim.Op
                        critic_optimizer: torch.optim.Optimizer, rows: list[dict], *,
                        reference: VisibleReference, actor_epochs: int = 4,
                        critic_epochs: int = 4, target_kl: float = .03,
-                       bc_kl_coef: float = .2) -> dict:
+                       bc_kl_coef: float = .2, schedule_seed: int = 0,
+                       schedule_update: int = 0) -> dict:
     """Stop actor after KL excess; always finish the independent critic epoch cap."""
     if (not rows or actor_epochs <= 0 or critic_epochs <= 0 or target_kl < 0
             or not math.isfinite(target_kl) or not math.isfinite(bc_kl_coef)
@@ -82,14 +84,26 @@ def update_independent(model: IndependentCritic, actor_optimizer: torch.optim.Op
     if choices.sum() > 1:
         selected = advantages[choices]
         advantages = (advantages - selected.mean()) / selected.std(unbiased=False).clamp_min(1e-8)
-    order = list(range(len(rows)))
+    # Precompute both schedules: actor stopping must not alter critic minibatches.
+    schedules = {}
+    for name, epochs in [('actor', actor_epochs), ('critic', critic_epochs)]:
+        generator = random.Random(f'{schedule_seed}:{schedule_update}:{name}:v1')
+        schedules[name] = []
+        for _ in range(epochs):
+            order = list(range(len(rows)))
+            generator.shuffle(order)
+            schedules[name].append(order)
+    schedule = {'version': 1, 'seed': schedule_seed, 'update': schedule_update,
+                'rows_sha256': hashlib.sha256(json.dumps(
+                    rows, sort_keys=True, allow_nan=False).encode()).hexdigest(),
+                'order_sha256': {name: hashlib.sha256(json.dumps(orders).encode()).hexdigest()
+                                 for name, orders in schedules.items()}}
     actor_steps, critic_steps, stopped = 0, 0, False
     exact_kl = rollout_exact_kl(model, rows)
     if exact_kl > 1e-5:
         raise ValueError('Rollout old distribution does not match initial actor')
     kl_trace = []
-    for _ in range(actor_epochs):
-        random.shuffle(order)
+    for order in schedules['actor']:
         for offset in range(0, len(order), 256):
             indices = order[offset:offset + 256]
             active = choices[indices]
@@ -121,8 +135,7 @@ def update_independent(model: IndependentCritic, actor_optimizer: torch.optim.Op
             break
     # Actor gradients are irrelevant to value fitting and must not enter its clipping.
     actor_optimizer.zero_grad(set_to_none=True)
-    for _ in range(critic_epochs):
-        random.shuffle(order)
+    for order in schedules['critic']:
         for offset in range(0, len(order), 256):
             group = [rows[i] for i in order[offset:offset + 256]]
             _, values = model(*model.prepare([r['observation'] for r in group]))
@@ -133,6 +146,7 @@ def update_independent(model: IndependentCritic, actor_optimizer: torch.optim.Op
     return {'actor_optimizer_steps': actor_steps, 'critic_optimizer_steps': critic_steps,
             'actor_early_stopped': stopped, 'rollout_exact_old_kl': exact_kl,
             'actor_step_exact_kl': kl_trace,
+            'schedule': schedule,
             'critic_final_minibatch_loss': float(value_loss.detach())}
 
 
@@ -141,7 +155,8 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
                       device: str = 'cuda', identity: str = '', eval_every: int = 4,
                       min_updates: int = 8, patience: int = 4, min_delta: float = 20.,
                       actor_epochs: int = 4, critic_epochs: int = 4,
-                      target_kl: float = .03,
+                      target_kl: float = .03, actor_lr: float = 3e-4,
+                      critic_lr: float = 3e-4,
                       resource_check: Callable[[], None] | None = None) -> Path:
     """Resume joint training and immutable development-selection receipts separately.
 
@@ -150,16 +165,22 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
     """
     if (updates <= 0 or hands <= 0 or not 0 <= seed < 500 or eval_every <= 0
             or min_updates < 0 or patience <= 0 or min_delta < 0
-            or not math.isfinite(min_delta)):
+            or not math.isfinite(min_delta)
+            or any(not math.isfinite(lr) or lr <= 0 for lr in (actor_lr, critic_lr))):
         raise ValueError('Invalid stopped PPO budget')
     determinism = configure_determinism(device, True)
     spec = training_spec(Ruleset())
-    contract = {'version': 2, 'parent_sha256': fingerprint(checkpoint), 'updates': updates,
+    contract = {'version': 3, 'parent_sha256': fingerprint(checkpoint), 'updates': updates,
                 'hands': hands, 'seed': seed, 'device': device, 'identity': identity,
                 'eval_every': eval_every, 'min_updates': min_updates, 'patience': patience,
                 'min_delta': min_delta, 'actor_epochs': actor_epochs,
                 'critic_epochs': critic_epochs,
-                'target_kl': target_kl, 'bc_kl_coef': .2, 'lr': .0003,
+                'target_kl': target_kl, 'bc_kl_coef': .2,
+                'actor_lr': actor_lr, 'critic_lr': critic_lr,
+                'schedule_version': 1,
+                'source_sha256': {name: fingerprint(Path(__file__).with_name(name))
+                                  for name in ['ppo_stopped.py', 'asymmetric.py', 'net.py',
+                                               'train.py', 'stopping.py']},
                 'resource_checks': resource_check is not None,
                 'determinism': determinism}
     if resource_check is not None:
@@ -173,12 +194,18 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
     random.seed(seed)
     torch.manual_seed(seed)
     model = IndependentCritic(actor, critic).to(device)
-    actor_optimizer = torch.optim.Adam([p for p in actor.parameters() if p.requires_grad], lr=3e-4)
+    actor_optimizer = torch.optim.Adam([p for p in actor.parameters() if p.requires_grad],
+                                       lr=actor_lr)
     critic_optimizer = torch.optim.Adam(
         [p for module in [model.critic, model.value_head]
-         for p in module.parameters() if p.requires_grad], lr=3e-4)
+         for p in module.parameters() if p.requires_grad], lr=critic_lr)
     output.mkdir(parents=True, exist_ok=True)
     history = []
+
+    def check_learning_rates() -> None:
+        for optimizer, lr in [(actor_optimizer, actor_lr), (critic_optimizer, critic_lr)]:
+            if any(group['lr'] != lr for group in optimizer.param_groups):
+                raise ValueError('Stopped PPO optimizer learning rate changed')
 
     def save_joint(index: int) -> None:
         with open_private_record(output / f'joint-{index:03}.pt') as handle:
@@ -198,6 +225,7 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
         model.load_state_dict(payload['model'])
         actor_optimizer.load_state_dict(payload['actor_optimizer'])
         critic_optimizer.load_state_dict(payload['critic_optimizer'])
+        check_learning_rates()
         torch.set_rng_state(payload['torch_rng'])
         random.setstate(payload['python_rng'])
         set_device_rng_state(device, payload['device_rng'])
@@ -266,7 +294,8 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
         rows, metrics = collect_privileged(model, seed=seed, start=update * hands, hands=hands)
         metrics.update(update_independent(model, actor_optimizer, critic_optimizer, rows,
                        reference=VisibleReference(reference), actor_epochs=actor_epochs,
-                       critic_epochs=critic_epochs, target_kl=target_kl))
+                       critic_epochs=critic_epochs, target_kl=target_kl,
+                       schedule_seed=seed, schedule_update=update))
         model.eval()
         metrics.update(ppo_diagnostics(model, rows, VisibleReference(reference)))
         if not all(torch.isfinite(p).all() for p in model.parameters()):
@@ -294,6 +323,7 @@ def train_stopped_ppo(checkpoint: Path, output: Path, *, evaluate: Callable[[Pat
         payload = torch.load(selected, map_location='cpu', weights_only=True)
         model.load_state_dict(payload['model'])
         actor_optimizer.load_state_dict(payload['actor_optimizer'])
+        check_learning_rates()
         save_checkpoint(export, model.actor, spec, stage='ppo-actor',
                         optimizer=actor_optimizer, progress=complete)
     return export
