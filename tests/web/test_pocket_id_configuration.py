@@ -30,6 +30,8 @@ def test_local_configuration_is_private_and_never_overwrites(tmp_path, capsys):
     assert proxy['redis_connection_url'] == 'redis://sessions:6379/0'
     assert 'offline_access' in proxy['scope'].split()
     assert proxy['cookie_refresh'] == '1s'
+    assert proxy['cookie_csrf_per_request'] is True
+    assert proxy['cookie_csrf_per_request_limit'] == 5
     assert proxy['client_secret'] == (directory / 'client-secret.txt').read_text(encoding='utf-8')
     assert proxy['client_secret'] not in capsys.readouterr().out
     assert directory.stat().st_mode & 0o777 == 0o700
@@ -62,6 +64,8 @@ def test_funnel_configuration_uses_secure_separate_origins(tmp_path):
     assert proxy['oidc_issuer_url'] == 'https://example.tail123.ts.net:8443'
     assert proxy['redirect_url'] == 'https://example.tail123.ts.net/oauth2/callback'
     assert proxy['cookie_secure'] and proxy['cookie_name'].startswith('__Host-')
+    assert proxy['cookie_csrf_per_request'] is True
+    assert proxy['cookie_csrf_per_request_limit'] == 5
     assert 'http://localhost' not in (directory / 'pocket.env').read_text(encoding='utf-8')
 
 

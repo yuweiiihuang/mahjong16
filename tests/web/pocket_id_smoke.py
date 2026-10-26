@@ -74,10 +74,18 @@ def main() -> None:
             assert identity('/api/one-time-access-token/' + token, {})[0] >= 400
             return cookie_from(headers)
 
-        def sign_in(cookie: str) -> str:
-            status, headers, _ = request(table_port, '/oauth2/start?rd=/')
+        def sign_in(cookie: str, *, csrf_cookies: dict | None = None,
+                    overlap: bool = False) -> str:
+            csrf_cookies = {} if csrf_cookies is None else csrf_cookies
+            status, headers, _ = request(table_port, '/oauth2/start?rd=/', headers={
+                'Cookie': '; '.join(f'{k}={v}' for k, v in csrf_cookies.items())})
             assert status == 302, ('OIDC start', status)
-            csrf = cookie_from(headers)
+            csrf_name, csrf_value = cookie_from(headers).split('=', 1)
+            csrf_cookies[csrf_name] = csrf_value
+            if overlap:
+                # Complete a second login first; its cleared cookie must not erase this one.
+                sign_in(cookie, csrf_cookies=csrf_cookies)
+            csrf = '; '.join(f'{k}={v}' for k, v in csrf_cookies.items())
             authorization = urlsplit(headers['location'])
             assert authorization.netloc == f'localhost:{identity_port}'
             query = parse_qs(authorization.query)
@@ -104,6 +112,7 @@ def main() -> None:
             assert request(table_port, callback)[0] == 403
             status, headers, _ = request(table_port, callback, headers={'Cookie': csrf})
             assert status == 302, ('OIDC callback', status)
+            csrf_cookies.pop(csrf_name, None)
             return cookie_from(headers)
 
         try:
@@ -183,7 +192,7 @@ def main() -> None:
 
             sessions = []
             for user_id, cookie in users:
-                session = sign_in(cookie)
+                session = sign_in(cookie, overlap=True)
                 assert session and 'mahjong_stage_session=' in session
                 status, _, page = request(table_port, '/', headers={'Cookie': session})
                 assert status == 200 and b'/access/login' not in page
@@ -194,6 +203,7 @@ def main() -> None:
                                            headers={'Cookie': session})
                 assert status == 200 and json.loads(info)['user'] == user_id
                 sessions.append(session)
+            print('PASS: overlapping login callbacks retain independent CSRF cookies')
             assert sessions[0] != sessions[1]
             assert request(table_port, '/oauth2/callback?code=forged&state=forged')[0] >= 400
             print('PASS: real OIDC/PKCE, consent, CSRF protection and separate friend sessions')

@@ -144,6 +144,13 @@ Pocket ID cookie 是服務本身的 session；牌桌的 session 改由 Redis 保
 Caddy 仍逐次呼叫 userinfo 驗證 access token，讓 Pocket ID 故障時阻擋牌桌請求。
 access token 只在驗證內網轉交，送至牌桌前移除，也不透過 `/oauth2/*` 回傳給瀏覽器。
 
+登入的 CSRF cookie 依每次請求分開，最多同時保留 5 份，避免另一條登入流程先完成時
+清掉原流程仍需要的 cookie。保留 CSRF、PKCE、Secure／SameSite 與原本的 15 分鐘
+CSRF 到期檢查；這不會放行缺少或不符的 token。既有私有 `proxy.cfg` 須補上
+`cookie_csrf_per_request = true` 與 `cookie_csrf_per_request_limit = 5`，只重建 proxy；
+保留 client/cookie secret 與 Redis，不需重啟牌桌或帳號服務。更新前已開始的舊登入
+流程須重新從牌桌／房間邀請網址開始，不能重用舊 callback。
+
 cookie／Redis TTL 設定為 12 小時；成功刷新會續延伺服器端 TTL，並非絕對的
 12 小時登入上限，仍受 IdP/token 政策限制。未提供 30 天記住裝置產品流程。
 到期檢查只在可丟棄設定縮為 5 秒，未真的等待 12 小時。

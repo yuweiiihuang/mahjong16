@@ -87,6 +87,7 @@ def initialize(directory: Path, table_port: int = 18080, identity_port: int = 18
         'cookie_secret': base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
         'cookie_secure': bool(public_url), 'cookie_httponly': True, 'cookie_samesite': 'lax',
         'cookie_expire': '12h', 'cookie_refresh': '1s',
+        'cookie_csrf_per_request': True, 'cookie_csrf_per_request_limit': 5,
         'request_logging': False, 'auth_logging': False,
     }
     files = {
