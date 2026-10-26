@@ -19,6 +19,9 @@ rl-cu126 = [
     "torch==2.14.1+cu126; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.uv]
 conflicts = [[{ extra = "rl" }, { extra = "rl-cu126" }]]
 
