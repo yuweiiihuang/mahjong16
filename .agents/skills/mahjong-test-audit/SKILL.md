@@ -15,7 +15,7 @@ description: 為 Mahjong16 新增、修改或審查測試時評估行為覆蓋�
 - 審查或清理：先唯讀蒐證，再處理一組有共同責任邊界的候選。
 - 全庫盤點：只有受要求時才展開，分區報告、分批修改；不自動重構正式程式。
 
-先讀根目錄與涉及路徑的 AGENTS.md，遵循其中的 RTK 指令規則。
+遵循根目錄與涉及路徑的 AGENTS.md。
 保留既有未提交修改；不能辨識的變更不重設、不納入清理。
 
 ## 新增測試前的四個問題
@@ -82,29 +82,12 @@ mock 自己實作被斷言的行為、重複同一契約、因無關 guard 通�
 
 ## 驗證與交付
 
-在根目錄啟用 .venv，依變更跑最小相關測試，再檢查共用邊界的其他呼叫路徑。
-以下是工具例子，不要求每次全部執行：
-
-```bash
-source .venv/bin/activate
-rtk pytest -q tests/web/test_ting_states.py
-rtk proxy node --test tests/web/test_reaction_buttons.mjs
-rtk git diff --check
-```
-
-跨層改動或清理完成後執行相關完整集合；發布前依 AGENTS.md 跑 Python 全套，
-涉及前端則跑 Node 全套：
-
-```bash
-rtk pytest -q
-rtk proxy node --test tests/web/*.mjs
-```
+環境、測試範圍與發布前驗證依 AGENTS.md；另跑 `git diff --check`。
 
 不要在同一工作樹測試執行中修改受測檔案。
-UI 行為或布局改動使用 `rtk python -m app.web --port 8000` 做本地瀏覽器檢查，
-涵蓋相關桌面／窄視窗與擁擠牌桌；已有遊戲進行時另開測試埠，不重啟活躍服務。
+UI 瀏覽器檢查依 AGENTS.md，並涵蓋擁擠牌桌；已有遊戲進行時另開測試埠，不重啟活躍服務。
 純技能文件修改只需技能格式與 diff 檢查，不跑遊戲全套。
 
 報告實際修正／刪除類型、保留候選原因、正式程式與測試各自的變更量，
 以及實際跑過的檢查與缺口。一般新增測試只簡述保護行為與驗證結果。
-提交、推送及 PR 遵循現有授權；UI 改動仍須讓使用者本地測試並明確批准推送。
+提交、推送及 PR 遵循現有授權與 AGENTS.md。

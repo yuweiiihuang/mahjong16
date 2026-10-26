@@ -9,12 +9,12 @@
 - Use the Qinghe desktop table in `ui/web/` as the canonical Web UI design.
 - Run through `python -m app.web --port 8000` (`app/web.py`); extend this UI without introducing another UI or an `app/web/` package that shadows the entry point.
 - For legacy UI recovery, read `docs/webui-archive.md`.
-- For UI changes, let the user test locally and explicitly approve before pushing.
+- For UI changes, let the user test locally and obtain explicit approval before pushing; reuse approval already given for the same changes.
 
 ## Environment & Validation
-- Use `uv sync --locked` to create or sync the locked environment, then `source .venv/bin/activate` before running tools. `pip install -r requirements.txt` installs only the minimal CLI/Web and pytest dependencies.
+- Use the locked `.venv` for project tools; run `uv sync --locked` when creating it or when dependency inputs change. `pip install -r requirements.txt` installs only the minimal CLI/Web and pytest dependencies.
 - For a human CLI smoke check, run `python main.py --human 0 --hands 1`. Read `scripts/README.md` for simulation and analysis tool purposes; use each command's `--help` for current options.
-- During development, run tests for the changed behavior and shared callers. Before publishing, run `pytest -q`; for frontend changes, also run `node --test tests/web/*.mjs`.
+- During development, run tests for the changed behavior and shared callers. Before publishing code, test, or runtime-configuration changes, run `pytest -q`; for frontend changes, also run `node --test tests/web/*.mjs`. Reuse passing results while the tested files, dependencies, and scope remain unchanged.
 - For UI layout or interaction changes, check the affected desktop and mobile layouts in a browser. Read `tests/web/README.md` for browser checks; the Node suite does not execute the drag helper or prove WebGL/touch behavior.
 - For new, modified, or audited tests, use `.agents/skills/mahjong-test-audit/SKILL.md`.
 
