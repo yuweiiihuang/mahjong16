@@ -306,7 +306,7 @@ main{height:100%;padding:0}
 #actions[hidden],#replay-controls[hidden]{display:none}
 #replay-controls{display:flex;align-items:center;gap:6px;width:100%;max-width:720px;padding:5px 7px;border:1px solid #afc69b55;border-radius:9px;background:#153e32d9;color:#e3efe6;font:12px 'PingFang TC',sans-serif;white-space:nowrap}
 #replay-controls button,#replay-speed{display:grid;place-items:center;flex:none;min-width:30px;height:30px;padding:0;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer}
-#replay-controls button:hover:not(:disabled),#replay-speed:hover{background:#afc69b26}
+#replay-controls button:hover:not(:disabled):not([aria-pressed="true"]),#replay-speed:hover{background:#afc69b26}
 #replay-controls button[aria-pressed="true"]{background:#e3efe6;color:#214b39}
 #replay-controls svg{display:block;width:18px;height:18px}
 #replay-speed{width:43px;appearance:none;text-align:center;text-align-last:center}
