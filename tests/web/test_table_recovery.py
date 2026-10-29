@@ -76,3 +76,27 @@ def test_restore_rejects_incompatible_or_corrupt_records(tmp_path):
             WebTable.restore(old, store)
     finally:
         store.close()
+
+
+def test_snapshot_uses_current_hand_jang_and_replay_player_control(tmp_path):
+    """Settlement must not display the next hand's jang on the table just finished."""
+    from app.web_records import replay_frames
+
+    store = HandStore(tmp_path / 'hud.sqlite3')
+    try:
+        table = WebTable(7, record_store=store)
+        table.hand_manager_state['jang_count'] = 2
+        table.manager.state.jang_count = 3
+        snapshot = table.snapshot()
+        assert snapshot['jang_count'] == 2
+        while not table.env.done:
+            table.act(table.bot.choose(table.env._obs(0)))
+        recorded = document(store, table)
+        player_id = table.record_players[0]['player_id']
+        frames = replay_frames(recorded, player_id, viewer=1)
+        assert {frame['state']['jang_count'] for frame in frames} == {2}
+        assert frames[0]['state']['replay_humans'] == [False, False, False, True]
+        del recorded['metadata']['recovery']
+        assert replay_frames(recorded, player_id)[0]['state']['jang_count'] is None
+    finally:
+        store.close()

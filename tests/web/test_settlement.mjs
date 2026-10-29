@@ -28,34 +28,42 @@ function settlementView(winSource = 'TSUMO', flowerWin = null) {
     seating_order:[0,2,1,3],seat_winds:['N','E','S','W'],totals:[1000,900,1100,1000],final_hands:hands,
     settlement:{flower_win_type:flowerWin,payer:winSource === 'RON' ? 1 : null,
       tai:2,base_points:100,tai_points:20,payments:[-40,-60,140,-40],breakdown:[]}};
-  let content;
+  let content, resultTitle;
   const ctx = appContext({state,names:['本人','放槍<玩家>','贏家','第四家'],sortOrder:[0,1,2,3],
     $:id=>elements[id],document:{createElement:node},sortHand,winds:['東','南','西','北'],
     escapeHtml:value=>String(value).replaceAll('<','&lt;').replaceAll('>','&gt;'),
     labels:{CHI:'吃',ANGANG:'暗槓'},tile:id=>Object.assign(node('tile'),{id}),
-    modal:(title,html)=>{content = html;}, newGame() {}});
+    modal:(title,html)=>{resultTitle = title;content = html;}, newGame() {}});
   vm.runInContext(source.slice(source.indexOf('function showResult(){'),source.indexOf("$('close-modal').onclick")),ctx);
   ctx.showResult();
-  return {elements,state,ctx,content};
+  return {elements,state,ctx,content,resultTitle};
+}
+
+function renderedGroups(card) {
+  return card.children[1].children.flatMap(group =>
+    group.className === 'result-hand-run' ? group.children : [group]);
 }
 
 test('settlement shows winner first and keeps melds, flowers, sorted hands and last tiles distinct', () => {
-  const {elements,content,state} = settlementView();
+  const {elements,content,state,resultTitle} = settlementView();
+  assert.equal(resultTitle,'贏家 自摸');
   const cards = elements['result-players'].children;
   assert.deepEqual(cards.map(c=>c.children[0].innerHTML.match(/<strong[^>]*>(.*?)<\/strong>/)[1]),
     ['贏家','放槍&lt;玩家&gt;','第四家','本人']);
-  const groups = cards[0].children[1].children;
+  const groups = renderedGroups(cards[0]);
   assert.deepEqual(groups.map(g=>g.children.map(t=>t.id)),
     [[34,35],[3,4,5],[6,6,6,6],[14,14,14],[1,2,9,18,27],[9]]);
   assert.deepEqual(state.final_hands[2].melds.map(m=>m.tiles),
     [[6,6,6,6],[3,4,5],[14,14,14]]);
   assert.deepEqual(state.final_hands[2].flowers,[35,34]);
   assert.match(groups.at(-1).className,/result-winning/);
-  assert.deepEqual(cards[1].children[1].children.at(-1).children.map(t=>t.id),[32]);
-  assert.deepEqual(cards[3].children[1].children[0].children.map(t=>t.id),[0,9,18,27]);
+  assert.deepEqual(renderedGroups(cards[1]).at(-1).children.map(t=>t.id),[32]);
+  assert.deepEqual(renderedGroups(cards[3])[0].children.map(t=>t.id),[0,9,18,27]);
   assert.match(cards[1].children[0].innerHTML,/class="dealer">莊/);
   assert.deepEqual(cards.map(c=>c.children[0].innerHTML.match(/class="result-wind" aria-label="(.*?)"/)[1]),
     ['南家','東家','西家','北家']);
+  assert.deepEqual(cards.map(card=>card.attrs['data-wind']), ['S','E','W','N'],
+    'wind stripes follow seat winds even when winner-first ordering rotates the rows');
   assert.equal(cards.filter(c=>c.children[0].innerHTML.includes('class="dealer"')).length,1);
   assert.deepEqual(cards[0].children[0].children[0].children.map(amount=>
     amount.children.map(child=>child.textContent)), [['本局','+140'],['累積','1100']]);
@@ -71,23 +79,23 @@ test('every settlement hand and meld uses the viewer order rather than its owner
   elements['result-players'].children = [];
   ctx.showResult();
   const cards = elements['result-players'].children;
-  const concealed = cards.map(card=>card.children[1].children
+  const concealed = cards.map(card=>renderedGroups(card)
     .find(group=>group.attrs['aria-label']==='手牌').children.map(tile=>tile.id));
   assert.deepEqual(concealed,[[18,9,1,2,27],[18,9,0,27],[18,9,0,27],[18,9,0,27]]);
-  assert.deepEqual(cards[0].children[1].children.slice(0,4).map(g=>g.children.map(t=>t.id)),
+  assert.deepEqual(renderedGroups(cards[0]).slice(0,4).map(g=>g.children.map(t=>t.id)),
     [[34,35],[14,14,14],[3,4,5],[6,6,6,6]]);
 });
 
 test('ron tile is separate and a flower already in its flower group is never duplicated', () => {
   const ron = settlementView('RON');
   assert.match(ron.elements['result-players'].children[1].children[0].innerHTML,/放槍/);
-  assert.deepEqual(ron.elements['result-players'].children[0].children[1].children.at(-1).children.map(t=>t.id),[9]);
+  assert.deepEqual(renderedGroups(ron.elements['result-players'].children[0]).at(-1).children.map(t=>t.id),[9]);
   const flower = settlementView('TSUMO','ba_xian');
   flower.state.final_hands[2].drawn = null;
   flower.state.win_tile = 34;
   flower.elements['result-players'].children = [];
   flower.ctx.showResult();
-  const groups = flower.elements['result-players'].children[0].children[1].children;
+  const groups = renderedGroups(flower.elements['result-players'].children[0]);
   assert.equal(groups.filter(g=>g.className.includes('result-winning')).length,0);
   const flowers = groups.find(g=>g.attrs['aria-label'] === '花牌');
   assert.deepEqual(flowers.children.map(t=>t.id),[34,35]);
@@ -120,9 +128,7 @@ test('player details explain dealer payments without adding dealer tai twice', (
   assert.equal(cards[1].children[2].children.at(-1).children[1].textContent,'220');
   state.settlement.payments = [-120,0,120,0];
   cards = render();
-  assert.equal(cards[1].children[2].children[0].textContent,'莊・連 2　本局未收付');
-  assert.equal(cards[1].children[2].tag,'div');
-  assert.equal(cards[1].children[2].children.length,1);
+  assert.equal(cards[1].children.length,2, 'zero-payment dealer has no redundant detail row');
   state.dealer = state.winner;
   state.settlement.tai = 6;
   state.settlement.breakdown = [{label:'三元牌',points:1},{label:'莊家',points:5}];
@@ -149,4 +155,70 @@ test('zero-tai winner has a plain label instead of an empty expandable detail', 
   assert.equal(winner.children[0].tag,'span');
   assert.equal(winner.children[0].textContent,'胡牌 0 台');
   assert.equal(cards[1].children[2].tag,'details');
+});
+
+
+test('settlement keeps the concealed hand and final tile in one wrapping run', () => {
+  const {elements} = settlementView();
+  const run = elements['result-players'].children[0].children[1].children.at(-1);
+  assert.equal(run.className,'result-hand-run');
+  assert.deepEqual(run.children.map(group=>group.attrs['aria-label']), ['手牌','自摸']);
+  assert.deepEqual(run.children.at(-1).children.map(tile=>tile.id), [9]);
+});
+
+test('result dialog focuses its named heading while other dialogs keep native initial focus', () => {
+  let focused=0, opened=0;
+  const nodes={'room-panel':{},toast:{classList:{remove() {}}},modal:{open:false,
+    showModal() {this.open=true;opened++;}},'modal-content':{},
+    'modal-title':{focus(options) {assert.equal(options.preventScroll,true);focused++;}}};
+  const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
+  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult()')),ctx);
+  ctx.modal('贏家 胡牌','<div>結算內容</div>','result-dialog');
+  assert.match(nodes['modal-content'].innerHTML,/<h2 id="modal-title" tabindex="-1">贏家 胡牌<\/h2>/);
+  assert.equal(focused,1);
+  assert.equal(opened,1);
+  ctx.modal('牌桌設定','<div>設定內容</div>','settings-dialog');
+  assert.equal(focused,1);
+  assert.doesNotMatch(nodes['modal-content'].innerHTML,/tabindex/);
+  const html=readFileSync(new URL('../../ui/web/index.html',import.meta.url),'utf8');
+  assert.match(html,/<dialog[^>]+aria-labelledby="modal-title"/);
+});
+
+
+test('viewer identity, dealer role and outcome labels coexist without replacing one another', () => {
+  for (const [winner,payer,outcome] of [[2,0,'放槍'],[0,1,'胡牌'],[null,null,null]]) {
+    const {elements,state,ctx}=settlementView('RON');
+    state.dealer=0;state.winner=winner;state.settlement.payer=payer;
+    elements['result-players'].children=[];
+    ctx.showResult();
+    const own=elements['result-players'].children.find(card=>
+      card.children[0].innerHTML.includes('title="本人"')).children[0].innerHTML;
+    assert.match(own,/<div class="result-name-line"><strong[^>]*>本人<\/strong><span class="result-self">你<\/span><\/div>/);
+    assert.match(own,/<span class="result-status"><span class="dealer">莊家<\/span>/);
+    assert.equal((own.match(/class="result-self"/g)||[]).length,1);
+    assert.equal((own.match(/class="dealer"/g)||[]).length,1);
+    if(outcome) assert.ok(own.includes(`>${outcome}</span>`));
+    else assert.doesNotMatch(own,/class="result-badge"|class="result-payer"/);
+    assert.equal(own.includes('class="result-badge"'),outcome==='胡牌');
+    assert.equal(own.includes('class="result-payer"'),outcome==='放槍');
+  }
+});
+
+test('replacing settings with a confirmation preserves the table action and its guard', () => {
+  let inDialog=true;
+  const parked=[];
+  const action={disabled:true,onclick() {},closest() {return inDialog?{}:null;}};
+  const nodes={'new-game':action,'table-actions':{append(node) {parked.push(node);inDialog=false;}},
+    toast:{classList:{remove() {}}},modal:{open:true},'modal-content':{}};
+  Object.defineProperty(nodes['modal-content'],'innerHTML',{set() {
+    assert.equal(inDialog,false,'table action must move before settings content is replaced');
+  }});
+  const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
+  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult()')),ctx);
+  ctx.modal('建立新 Session？','確認內容');
+  assert.equal(parked[0],action);
+  assert.equal(action.disabled,true);
+  assert.equal(typeof action.onclick,'function');
+  ctx.modal('牌局紀錄','紀錄內容');
+  assert.equal(parked.length,1,'already parked actions need no further move');
 });

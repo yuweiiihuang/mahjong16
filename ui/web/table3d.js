@@ -137,7 +137,17 @@ export class MahjongTableView {
     ctx.fillStyle='#faf6e8';
     ctx.beginPath(); ctx.arc(256,256,120,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#d1c8b5'; ctx.lineWidth=2; ctx.stroke();
-    ctx.fillStyle='#153e32'; ctx.font='600 136px ui-monospace,"SFMono-Regular",monospace';
+    angles.forEach((angle, seat) => {
+      const pid = order[(ownSeat+seat)%4];
+      const wind = state?.seat_winds[pid] || ['E','S','W','N'][pid];
+      ctx.fillStyle = state && wind === state.quan_feng ? '#78ab7d' : '#eae6d5';
+      ctx.beginPath();
+      ctx.arc(256,256,118,angle-Math.PI/4,angle+Math.PI/4);
+      ctx.arc(256,256,82,angle+Math.PI/4,angle-Math.PI/4,true);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle='#dfdbc6'; ctx.lineWidth=2; ctx.stroke();
+    });
+    ctx.fillStyle='#153e32'; ctx.font='600 102px ui-monospace,"SFMono-Regular",monospace';
     ctx.fillText(state ? String(state.remaining) : '—',256,256);
     this.indicatorTexture.needsUpdate=true;
   }

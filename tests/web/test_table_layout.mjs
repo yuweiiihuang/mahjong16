@@ -540,11 +540,11 @@ test('kongs use three base tiles and one centered top tile with correct visibili
   }
 });
 
-test('table indicator has five panels and highlights the actor after seat changes', () => {
-  const text = [], arcs = [];
+test('table indicator separates round-wind sectors from turn lamps after seat changes', () => {
+  const text = [], arcs = [], fills = [];
   const ctx = {
-    clearRect() { text.length = 0; arcs.length = 0; },
-    fillRect() {}, beginPath() {}, fill() {}, stroke() {},
+    clearRect() { text.length = 0; arcs.length = 0; fills.length = 0; },
+    moveTo() {}, fillRect() {}, beginPath() {}, fill() { fills.push(this.fillStyle); }, stroke() {},
     arc(...args) { arcs.push(args); }, closePath() {},
     fillText(value, x, y) { text.push({value,x,y,color:this.fillStyle}); },
   };
@@ -552,19 +552,29 @@ test('table indicator has five panels and highlights the actor after seat change
   Object.assign(view, {indicatorContext:ctx, indicatorTexture:{}});
   const state = {
     seating_order:[2,3,0,1], seat_winds:['W','N','E','S'],
-    remaining:28, actor:0, done:false,
+    remaining:28, actor:0, done:false, quan_feng:'E',
   };
   for (let actor = 0; actor < 4; actor++) {
     state.actor = actor;
     view.updateIndicator(state);
-    assert.equal(arcs.length, 10, 'four ring segments plus outer and center circles');
+    assert.equal(arcs.length, 18, 'turn lamps and four inner round-wind sectors');
+    assert.deepEqual(fills.slice(-4), ['#eae6d5','#eae6d5','#78ab7d','#eae6d5'],
+      'East round belongs at the top after this seating change, independently of actor');
     assert.deepEqual(arcs.slice(1,9).map(a => a[2]), [238,132,238,132,238,132,238,132]);
+    assert.deepEqual(arcs.slice(-8).map(a => a[2]), [118,82,118,82,118,82,118,82],
+      'round wind is a ring that leaves the number plate clear');
     assert.ok(text.some(t => t.value === '28'));
     const lamps = text.filter(t => ['東','南','西','北'].includes(t.value));
     const lit = lamps.filter(t => t.color === '#102d29');
     assert.equal(lit.length, 1);
     assert.equal(lit[0].value, ['西','北','東','南'][actor]);
     assert.deepEqual(lamps.map(t => t.value), ['西','北','東','南']);
+  }
+  for (const [wind, sector] of [['W',0],['N',1],['E',2],['S',3]]) {
+    state.quan_feng = wind;
+    view.updateIndicator(state);
+    assert.equal(fills.slice(-4).indexOf('#78ab7d'),sector);
+    assert.equal(fills.filter(color => color === '#78ab7d').length,1);
   }
   state.done = true;
   view.updateIndicator(state);

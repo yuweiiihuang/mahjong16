@@ -138,6 +138,7 @@ def replay_frames(document: dict, player_id: str, viewer: int | None = None) -> 
     table.totals = list(document['metadata']['totals_before'])
     table.round = document['metadata']['hand_index']
     table.record_players = deepcopy(document['metadata']['players'])
+    table.hand_manager_state = document['metadata'].get('recovery', {}).get('manager', {})
     table.settlement = None
     frames = []
     event = None
@@ -151,6 +152,8 @@ def replay_frames(document: dict, player_id: str, viewer: int | None = None) -> 
         state['ting_options'] = state['ting_waits'] = []
         names = [player['name'] if player['human'] else name for player, name in zip(
             table.record_players, ['電腦玩家', '陳予安', '林小滿', '周子墨'])]
+        state['replay_humans'] = [table.record_players[(viewer + i) % 4]['human']
+                                  for i in range(4)]
         state['replay_viewer'] = viewer
         state['replay_seats'] = names
         state['replay_names'] = [names[(viewer + i) % 4] for i in range(4)]

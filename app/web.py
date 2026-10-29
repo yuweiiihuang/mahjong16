@@ -369,6 +369,8 @@ class WebTable:
             'winner': env.winner, 'win_source': env.win_source,
             'dealer': env.dealer_pid, 'events': deepcopy(self.events),
             'round': self.round, 'quan_feng': env.quan_feng,
+            # Use the hand's starting manager state; settlement already advances the next hand.
+            'jang_count': self.hand_manager_state.get('jang_count'),
             'seat_winds': list(env.seat_winds), 'seating_order': list(env.seating_order),
             'dealer_streak': env.dealer_streak, 'totals': list(self.totals),
             'settlement': self.settlement,

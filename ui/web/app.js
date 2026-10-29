@@ -126,13 +126,14 @@ function tile(id, small = false, action = null, font = tileFont) {
   }
   return el;
 }
-function person(pid, sidebar = false) {
+function person(pid) {
   const state = displayedState();
-  const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
-  const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
+  const wrap = document.createElement('div');
+  wrap.className = 'seat-person';
   const name = escapeHtml(names[pid]);
-  const detail = `${sidebar ? `${wind}家 · ` : ''}${state.totals[pid]} 點${state.players[pid].ting ? '<span class="ting-status"> · 聽牌</span>' : ''}`;
-  wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span>${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${detail}</small></div>`;
+  const bot = replay ? state.replay_humans?.[pid] === false
+    : state.room ? !state.room.members[pid].human : pid !== 0;
+  wrap.innerHTML = `<div class="avatar-wrap"><div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div>${bot ? '<span class="bot-status" role="img" aria-label="電腦玩家"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="3"/><path d="M12 3v4M1 12v5M23 12v5M8 12v3M16 12v3M8 18h8"/></svg></span>' : ''}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span></strong><small>${state.totals[pid]} 點</small><span class="player-badges">${state.dealer === pid ? `<span class="dealer" aria-label="莊家${state.dealer_streak ? `，連莊 ${state.dealer_streak}` : '，起莊'}">莊</span>` : ''}${state.players[pid].ting ? '<span class="ting-status" aria-label="已宣告聽牌">聽</span>' : ''}</span></div>`;
   if (pid === 0 && !replay) {
     const avatar = wrap.querySelector('.avatar');
     const button = document.createElement('button');
@@ -141,10 +142,6 @@ function person(pid, sidebar = false) {
     button.setAttribute('aria-label', '修改我的顯示名稱');
     button.title = '修改顯示名稱'; button.onclick = showRename;
     avatar.replaceWith(button);
-  }
-  if (sidebar && state.room) {
-    const member = state.room.members[pid];
-    wrap.querySelector('small').append(member.human ? (member.connected ? ' · 真人' : ' · 暫時離線') : ' · 電腦');
   }
   return wrap;
 }
@@ -438,16 +435,15 @@ function render(){
   names = replay ? state.replay_names : state.room ? state.room.members.map(member => member.name)
     : [state.player_name || playerName || '玩家', '陳予安', '林小滿', '周子墨'];
   if (!replay) rememberPlayerName(names[0]);
-  $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
-  $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
-  $('connection-status').textContent = replay ? '牌局重播 · 唯讀' : state.room ? '房間已連線' : '練習模式';
+  $('connection-status').textContent = replay ? '牌局重播 · 唯讀' : state.room ? `房間 ${state.room.code}` : '';
+  $('connection-status').parentElement.hidden = !replay && !state.room;
   $('new-game').textContent = state.room ? '離開房間' : '↻　重新開桌';
   $('new-game').disabled = Boolean(replay) || busy || (!state.room && !state.done);
   $('new-game').title = state.room || state.done ? '' : '胡牌或流局後才能開新 Session';
   $('remaining').textContent=state.remaining;
   $('round').textContent=`第 ${state.round} 局`;
   $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
-  $('dealer-status').textContent=`${names[state.dealer]}${state.dealer_streak ? ` · 連莊 ${state.dealer_streak}` : ' · 起莊'}`;
+  $('jang').textContent = Number.isInteger(state.jang_count) ? `第 ${state.jang_count + 1} 將` : '將數未記錄';
   const order = state.seating_order, ownSeat = order.indexOf(0);
   ['.wind-bottom','.wind-right','.wind-top','.wind-left'].forEach((selector, seat) => {
     const pid = order[(ownSeat + seat) % 4];
@@ -457,8 +453,7 @@ function render(){
   });
   document.querySelector('.compass').setAttribute('aria-label',
     state.room && !state.room.started ? '等待朋友入座' :
-      `剩餘 ${state.remaining} 張；${state.done ? '本局結束' : state.phase === 'REACTION' || state.actor === null ? '等待回應' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
-  $('player-list').replaceChildren(...names.map((_,p)=>person(p,true)));
+      `${$('round-wind').textContent}；剩餘 ${state.remaining} 張；${state.done ? '本局結束' : state.phase === 'REACTION' || state.actor === null ? '等待回應' : `輪到${winds[['E','S','W','N'].indexOf(state.seat_winds[state.actor])]}家`}`);
   for (const pid of [1,2,3]) $(`seat-${pid}`).replaceChildren(person(pid));
   $('me').replaceChildren(person(0));
   $('flowers').replaceChildren();
@@ -583,10 +578,14 @@ async function newGame(next = false){
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = ''){
+  const tableAction = $('new-game');
+  if (tableAction?.closest('#modal')) $('table-actions').append(tableAction);
   $('toast').classList.remove('visible');
   $('modal').className = className;
-  $('modal-content').innerHTML=`<h2>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
-  if(!$('modal').open)$('modal').showModal();}
+  $('modal-content').innerHTML=`<h2 id="modal-title"${className === 'result-dialog' ? ' tabindex="-1"' : ''}>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
+  if(!$('modal').open)$('modal').showModal();
+  if (className === 'result-dialog') $('modal-title').focus({preventScroll:true});
+}
 function showResult(){
   if (replay) return;
   const winner = state.winner, result = state.settlement;
@@ -595,15 +594,16 @@ function showResult(){
   const seats = [...state.seating_order];
   const start = winner === null ? 0 : seats.indexOf(winner);
   const order = [...seats.slice(start), ...seats.slice(0, start)];
-  modal(title, `<p class="result-caption">第 ${state.round} 局 · ${winner === null ? '本局無輸贏' : `底 ${result.base_points} · 每台 ${result.tai_points}`}</p><div id="result-players"></div><div class="result-actions"><button class="modal-primary" id="result-new">下一局　→</button></div>`, 'result-dialog');
+  modal(winner === null ? title : `${names[winner]} ${title}`, `<p class="result-caption">第 ${state.round} 局 · ${winner === null ? '本局無輸贏' : `底 ${result.base_points} · 每台 ${result.tai_points}`}</p><div id="result-players" role="region" aria-label="四家結算" tabindex="0"></div><div class="result-actions"><button class="modal-primary" id="result-new">下一局　→</button></div>`, 'result-dialog');
   for (const pid of order) {
     const player = state.final_hands?.[pid];
     const card = document.createElement('section');
     card.className = `result-player${pid === winner ? ' result-winner' : ''}`;
+    card.setAttribute('data-wind', state.seat_winds[pid]);
     const header = document.createElement('div'); header.className = 'result-player-heading';
     const name = escapeHtml(names[pid]);
     const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-    header.innerHTML = `<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><strong title="${name}">${name}</strong><span class="result-wind" aria-label="${wind}家">${wind}</span>${pid === winner ? '<span class="result-badge">胡</span>' : ''}${state.dealer === pid ? '<span class="dealer">莊</span>' : ''}${pid === result.payer ? '<span class="result-payer">放槍</span>' : ''}`;
+    header.innerHTML = `<div class="result-identity"><span class="result-wind" aria-label="${wind}家">${wind}</span><div class="result-person"><div class="result-name-line"><strong title="${name}">${name}</strong>${pid === 0 ? '<span class="result-self">你</span>' : ''}</div><span class="result-status">${state.dealer === pid ? '<span class="dealer">莊家</span>' : ''}${pid === winner ? '<span class="result-badge">胡牌</span>' : ''}${pid === result.payer ? '<span class="result-payer">放槍</span>' : ''}</span></div></div>`;
     const points = document.createElement('div'); points.className = 'result-points';
     for (const [label, value] of [['本局', result.payments[pid]], ['累積', state.totals[pid]]]) {
       const amount = document.createElement('span');
@@ -615,6 +615,7 @@ function showResult(){
     }
     header.append(points); card.append(header);
     const tiles = document.createElement('div'); tiles.className = 'result-tiles';
+    const handRun = document.createElement('div'); handRun.className = 'result-hand-run';
     const melds = player?.melds ?? state.players[pid].melds.filter(m => m.tiles.every(id => id !== null));
     const meldOrder = sortHand(melds.map(m => Math.min(...m.tiles)), sortOrder);
     const sortedMelds = [...melds].sort((a, b) =>
@@ -628,7 +629,7 @@ function showResult(){
         if (kind === 'flowers' && pid === winner && id === state.win_tile) face.classList.add('result-winning-tile');
         group.append(face);
       }
-      tiles.append(group);
+      (['concealed','drawn','winning'].includes(kind) ? handRun : tiles).append(group);
     };
     if (player) {
       addGroup([...player.flowers].sort((a, b) => a - b), 'flowers', '花牌');
@@ -644,8 +645,9 @@ function showResult(){
       for (const meld of sortedMelds) addGroup(sortHand(meld.tiles, sortOrder), 'meld', labels[meld.type]);
       if (pid === winner && !result.flower_win_type) addGroup(sortHand(state.winning_hand || [], sortOrder), 'concealed', '手牌');
     }
+    if (handRun.children.length) tiles.append(handRun);
     card.append(tiles);
-    if (pid === winner || (winner !== null && pid === state.dealer)) {
+    if (pid === winner || (winner !== null && pid === state.dealer && result.payments[pid] < 0)) {
       const expandable = pid === winner
         ? result.tai > 0 && result.breakdown.length > 0 : result.payments[pid] < 0;
       const details = document.createElement(expandable ? 'details' : 'div');
@@ -744,6 +746,8 @@ function renderSortSettings() {
   });
 }
 $('modal').addEventListener('close', () => {
+  const tableAction = $('new-game');
+  if (tableAction?.closest('#modal')) $('table-actions').append(tableAction);
   settingsSortable?.destroy();
   settingsSortable = null;
 });
@@ -751,6 +755,7 @@ $('modal').addEventListener('close', () => {
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
   modal('牌桌設定',`
+    <div id="settings-table-actions" class="settings-table-actions"></div>
     <section class="settings-section" aria-labelledby="play-settings-heading">
       <h3 id="play-settings-heading">對局與顯示</h3>
       <label class="setting-row"><span class="pace-label">對局節奏${roomMode ? '<small id="pace-help">多人模式由伺服器統一設定</small>' : ''}</span><select id="pace-setting" ${roomMode ? 'disabled aria-describedby="pace-help"' : ''}>${roomMode ? '<option value="shared">統一節奏</option>' : '<option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option>'}</select></label>
@@ -777,6 +782,7 @@ $('settings').onclick=()=>{
     </section>
     <div class="settings-footer"><p>儲存後套用，下次開啟會保留。<br>牌面來源：<a href="https://github.com/SyaoranHinata/I.Mahjong" target="_blank" rel="noopener">I.Mahjong</a></p><button class="modal-primary" id="save-settings">儲存</button></div>
   `,'settings-dialog');
+  $('settings-table-actions').append($('new-game'));
   for (const [id, combinations] of [['chi-groups-icon', [[0,1,2],[1,2,3]]],
     ['chi-tiles-icon', [[0,1,2]]]]) {
     for (const combination of combinations) {
@@ -1081,7 +1087,7 @@ function toggleReplay() {
 }
 function lockReplaySurface(locked) {
   document.body.classList.toggle('replaying', locked);
-  for (const node of document.querySelectorAll('.table-toolbar,.table-canvas,#ting-panel,#room-panel')) {
+  for (const node of document.querySelectorAll('.table-toolbar,.table-canvas,#ting-panel')) {
     node.inert = locked;
   }
 }
@@ -1098,7 +1104,7 @@ async function showReplay(id) {
     replay = {id,frames,index:0,loading:false,playing:false,speed:1,timer:null};
     selected = null; chiSelection = null; tingMode = false; tingPassed = false;
     clearTimeout(meldCueTimer); $('meld-cue').hidden = true;
-    $('modal').close(); $('room-panel').open = false;
+    $('modal').close();
     lockReplaySurface(true);
     const controls = $('replay-controls');
     controls.innerHTML = `<input id="replay-step" type="range" min="0" value="0" aria-label="重播進度"><button id="replay-prev" class="replay-icon" aria-label="上一步" title="上一步">${replayIcon('prev')}</button><button id="replay-play" class="replay-icon" aria-label="播放重播" title="播放">${replayIcon('play')}</button><button id="replay-next" class="replay-icon" aria-label="下一步" title="下一步">${replayIcon('next')}</button><select id="replay-speed" aria-label="播放速度" title="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="4">4×</option></select><span id="replay-label" role="status"></span><div class="replay-views" role="group" aria-label="視角"><span class="replay-view-label">視角</span>${['E','S','W','N'].map((wind,i)=>`<button id="replay-view-${wind}" aria-pressed="false">${winds[i]}</button>`).join('')}</div><button id="replay-exit" class="replay-icon" aria-label="離開重播" title="離開重播">${replayIcon('exit')}</button>`;
@@ -1204,6 +1210,7 @@ async function pollRoom(generation) {
         toast(error.message); await leaveRoom(); return;
       }
       $('connection-status').textContent = '重新連線中…';
+      $('connection-status').parentElement.hidden = false;
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
@@ -1326,7 +1333,7 @@ $('multiplayer').onclick = () => {
 };
 (async()=>{
   try {
-    const { MahjongTableView } = await import('./table3d.js?v=mobile-control-rail-3');
+    const { MahjongTableView } = await import('./table3d.js?v=round-wind-ring-1');
     tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
     tableView.onProject = syncProjection;
     tableView.renderer.shadowMap.enabled=!compact;
