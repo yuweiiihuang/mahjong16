@@ -624,6 +624,8 @@ class WebHandler(SimpleHTTPRequestHandler):
             if self.sessions[sid] is None:
                 heads = (self.record_store.practice_hands(self.player_id, heads=True)
                          if self.record_store and self.player_id else [])
+                # Legacy records remain history, not abandoned resumable deals.
+                heads = [head for head in heads if head['recovery_version'] is not None]
                 if heads:
                     selected = self.record_store.selected_practice(self.player_id)
                     head = next((item for item in heads if item['table_id'] == selected), heads[-1])
@@ -868,7 +870,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                             raise ValueError('本局尚未結束，請先打完再開新 Session。')
                         if self.record_store and self.player_id:
                             heads = self.record_store.practice_hands(self.player_id, heads=True)
-                            if any(head['status'] != 'completed' for head in heads):
+                            if any(head['recovery_version'] is not None and
+                                   head['status'] != 'completed' for head in heads):
                                 raise ValueError('另有尚未打完的單人牌局，請從紀錄返回完成。')
                         table.new_table()
                         if self.record_store and self.player_id:

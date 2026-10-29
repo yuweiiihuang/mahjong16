@@ -130,3 +130,44 @@ def test_session_statistics_include_old_hands_draws_and_enforce_ownership(tmp_pa
         _, draw_session, _ = call(address, '/api/session?session_id=draw-session', cookie)
         assert draw_session['established'] and draw_session['completed_hands'] == 1
         assert draw_session['totals'] == [1000] * 4 and draw_session['draws'] == 1
+
+
+def test_legacy_records_do_not_block_entering_or_starting_new_sessions(tmp_path):
+    with server(tmp_path / 'hands.sqlite3') as (address, handler, store):
+        _, _, cookie = call(address, '/api/state')
+        cookie = cookie.split(';')[0]
+        sid = cookie.partition('=')[2]
+        legacy_table = handler.sessions[sid]
+        document = legacy_table.env.recorder.document()
+        metadata = deepcopy(legacy_table.env.recorder.metadata)
+        metadata.pop('recovery')  # The production version before resumable sessions.
+        store.save(document, metadata)
+        player_id = metadata['players'][0]['player_id']
+        legacy = store.player_records(player_id, hand_id=document['hand_id'])[0]
+        handler.sessions.clear()
+        handler.session_seen.clear()
+        status, current, _ = call(address, '/api/state', cookie)
+        assert status == 200
+        assert current['session_id'] != metadata['table_id']
+        assert store.player_records(player_id, hand_id=document['hand_id'])[0] == legacy
+        assert call(address, '/api/resume', cookie, {'hand_id': document['hand_id']})[0] == 400
+        assert call(address, '/api/new', cookie, {})[0] == 400
+        finish(handler.sessions[sid])
+        assert call(address, '/api/new', cookie, {})[0] == 200
+        assert len(stored_hands(store.path)) == 3
+
+
+def test_unknown_recovery_version_cannot_silently_replace_a_saved_deal(tmp_path):
+    with server(tmp_path / 'hands.sqlite3') as (address, handler, store):
+        _, _, cookie = call(address, '/api/state')
+        cookie = cookie.split(';')[0]
+        sid = cookie.partition('=')[2]
+        table = handler.sessions[sid]
+        document = table.env.recorder.document()
+        metadata = deepcopy(table.env.recorder.metadata)
+        metadata['recovery']['version'] = 2
+        store.save(document, metadata)
+        handler.sessions.clear()
+        handler.session_seen.clear()
+        assert call(address, '/api/state', cookie)[0] == 400
+        assert len(stored_hands(store.path)) == 1
