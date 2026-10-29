@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import {appContext} from './app-context.mjs';
 
 const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'utf8');
 const handlers = source.slice(source.indexOf('function actionButton('),
@@ -13,7 +14,7 @@ test('discard starts before acknowledgement and restores authoritative state on 
     const action={type,tile:4,from:'hand',index:0};
     const calls=[];
     let resolve,reject;
-    const ctx=vm.createContext({
+    const ctx=appContext({
       state:before,selected:action,busy:false,roomMode,tingMode:false,tingPassed:false,
       chiSelection:null,pendingReaction:null,crypto:{randomUUID:()=> 'once'},
       renderActions() {},renderHand() {},beep() {},showResult() {},toast() {},
@@ -71,7 +72,7 @@ test('practice playback skips only the confirmed preview and keeps other players
   const action={type:'DISCARD',tile:4,from:'hand'};
   const final={done:false};
   const animations=[],delays=[];
-  const ctx=vm.createContext({state:{},selected:action,playbackFrame:null,pace:'natural',
+  const ctx=appContext({state:{},selected:action,playbackFrame:null,pace:'natural',
     render() {},beep() {},showResult() {},
     tableView:{animateDiscard:async pid=>animations.push(pid)},
     setTimeout(resolve,delay) {delays.push(delay);resolve();}});
@@ -91,7 +92,7 @@ test('available reactions group by type, keep order after submission, and choose
   const sent = [], choices = [];
   const node = () => ({dataset:{},children:[],classList:{add() {}},
     append(...children) { this.children.push(...children); },setAttribute(key,value) { this[key]=value; }});
-  const ctx = vm.createContext({
+  const ctx = appContext({
     chiMode:'groups', chiSelection:null,
     state:{phase:'REACTION',round:1,last_discard:{pid:3,tile:1},rivers:[]},
     busy:false, labels:{CHI:'吃', PONG:'碰', GANG:'槓', HU:'胡', PASS:'過'},
@@ -133,7 +134,7 @@ test('chi hand selection rejects incompatible copies and confirms the exact lega
     append(...children) { this.children.push(...children); },setAttribute() {}});
   const sent=[], panels=[];
   const low={type:'CHI',use:[0,2]}, high={type:'CHI',use:[2,3]};
-  const ctx = vm.createContext({
+  const ctx = appContext({
     state:{last_discard:{tile:1}},busy:false,selected:null,tingMode:false,
     chiSelection:{mode:'tiles', options:[low,high],picked:[]},
     document:{createElement:node},tile:node,tileName:String,perform:a=>sent.push(a),
@@ -162,7 +163,7 @@ test('chi hand selection rejects incompatible copies and confirms the exact lega
 test('ting offers pass immediately and stays dismissed until the next turn', () => {
   const buttons = [], sent = [];
   const target = {dataset:{}, append:b => buttons.push(b), replaceChildren() { buttons.length = 0; }};
-  const ctx = vm.createContext({
+  const ctx = appContext({
     state:{phase:'TURN', legal_actions:[{type:'TING',tile:4,from:'hand'},
       {type:'TING',tile:5,from:'hand'}, {type:'DISCARD',tile:4,from:'hand'}]},
     selected:null, tingMode:false, tingPassed:false, busy:false, playbackFrame:null, chiSelection:null,
@@ -195,7 +196,7 @@ test('ting offers pass immediately and stays dismissed until the next turn', () 
 test('switching between a room and practice clears local ting choices', async () => {
   const practice = {legal_actions:[{type:'TING',tile:4,from:'hand'}]};
   const room = {...practice,room:{code:'ABCD1234',members:[{name:'玩家'}]}};
-  const ctx = vm.createContext({
+  const ctx = appContext({
     state:practice, selected:null, roomMode:false, busy:false, pollGeneration:0,autoTingDiscard:true,
     tingPassed:true, tingMode:true, URL, location:{href:'http://localhost/'},
     sessionStorage:{setItem() {},removeItem() {}}, history:{replaceState() {}},
@@ -233,7 +234,7 @@ test('ting declares a selected or sole tile kind and otherwise offers candidates
   ]) {
     const buttons=[],sent=[];
     const target={dataset:{},replaceChildren() { buttons.length=0; },append:b=>buttons.push(b)};
-    const ctx=vm.createContext({
+    const ctx=appContext({
       state:{phase:'TURN',legal_actions:actions},selected:null,busy:false,playbackFrame:null,
       chiSelection:null,tingMode:false,tingPassed:false,
       $:()=>target,document:{createElement:()=>({dataset:{},setAttribute() {}})},
@@ -261,7 +262,7 @@ test('submitting a chi choice never restores unchosen reactions before acknowled
   let resolve,reject;
   const state={phase:'REACTION',round:1,rivers:[],last_discard:{tile:1},
     legal_actions:[low,high,{type:'PASS'}]};
-  const ctx=vm.createContext({
+  const ctx=appContext({
     state,chiMode:'groups',chiSelection:null,pendingReaction:null,
     selected:null,busy:false,tingMode:false,tingPassed:false,playbackFrame:null,roomMode:true,
     labels:{CHI:'吃',PASS:'過'},document:{createElement:node},tile:node,tileName:String,
@@ -301,4 +302,69 @@ test('submitting a chi choice never restores unchosen reactions before acknowled
   await practice;
   assert.equal(target.dataset.submitted,'false');
   assert.ok(buttons.every(b=>!b.disabled),'the next reaction window is selectable');
+});
+
+test('practice playback announces resolved opponent melds, never a pending claim', async () => {
+  const messages=[];
+  const context=appContext({state:{},selected:null,playbackFrame:null,pace:'fast',
+    names:['你','對手','玩家3','玩家4'],labels:{CHI:'吃',PONG:'碰',GANG:'槓'},
+    showMeldCue:event=>messages.push(`${event.pid}:${event.type}`),render() {},beep() {},showResult() {},
+    tableView:{animateDiscard:async()=>{}},setTimeout:resolve=>resolve()});
+  vm.runInContext(source.slice(source.indexOf('async function present('),
+    source.indexOf('async function perform(')),context);
+  await context.present({done:false,playback:[
+    {pid:1,type:'PONG',state:{done:false}},{pid:2,type:'THINK',state:{done:false}},
+  ]});
+  assert.deepEqual(messages,['1:PONG']);
+});
+
+test('multiplayer cue follows the resolved server event, never a pending claim or repeated poll', async () => {
+  for (const type of ['PONG','THINK']) {
+    const notices = [];
+    const ctx = appContext({
+      state:{version:1,phase:'REACTION',done:false},roomMode:true,busy:false,
+      selected:null,tingMode:false,tingPassed:false,chiSelection:null,pendingReaction:null,
+      crypto:{randomUUID:() => 'claim-once'},renderActions() {},renderHand() {},render() {},
+      tableView:{},showResult() {},beep() {},toast() {},
+      showMeldCue:event => notices.push(event.type),
+      request:async () => ({version:2,done:false,display_event:{pid:1,type}}),
+    });
+    vm.runInContext(source.slice(source.indexOf('async function perform('),
+      source.indexOf('async function newGame(')),ctx);
+    await ctx.perform({type:'PONG'});
+    assert.deepEqual(notices,type === 'PONG' ? ['PONG'] : []);
+    const returned = ctx.state;
+    ctx.pollGeneration = 0;
+    let polls = 0;
+    ctx.request = async () => {if (++polls === 3) ctx.roomMode = false;return returned;};
+    vm.runInContext(source.slice(source.indexOf('async function pollRoom('),
+      source.indexOf('async function roomCommand(')),ctx);
+    await ctx.pollRoom(0);
+    assert.deepEqual(notices,type === 'PONG' ? ['PONG'] : [],'same revision is not announced twice');
+  }
+});
+
+test('opponent wins remain visible before settlement at fast pace and in multiplayer polls', async () => {
+  const final = {done:true,winner:1,win_source:'TSUMO',version:2,room:{host:true}};
+  const events = [];
+  const ctx = appContext({
+    state:{done:false,version:1,room:{host:true}},selected:null,playbackFrame:null,pace:'fast',
+    render() {},beep() {},tableView:{},
+    showMeldCue() {events.push('cue');}, showResult() {events.push('result');},
+    setTimeout(callback,delay) {events.push(delay);callback();},
+  });
+  vm.runInContext(source.slice(source.indexOf('async function present('),
+    source.indexOf('async function perform(')),ctx);
+  await ctx.present({...final,playback:[{pid:1,type:'HU',state:final}]});
+  assert.deepEqual(events,['cue',1800,'result']);
+  events.length = 0;
+  ctx.state = {done:false,version:1,room:{host:true}};
+  ctx.roomMode = true; ctx.pollGeneration = 0; ctx.busy = false;
+  let polls = 0;
+  ctx.request = async () => {if (++polls === 3) ctx.roomMode = false;return final;};
+  vm.runInContext(source.slice(source.indexOf('async function pollRoom('),
+    source.indexOf('async function roomCommand(')),ctx);
+  await ctx.pollRoom(0);
+  assert.deepEqual(events,['cue',1800,'result'],
+    'derive wins from the final result even without a display event, and do not repeat');
 });

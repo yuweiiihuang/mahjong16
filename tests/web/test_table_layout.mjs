@@ -615,3 +615,17 @@ test('waiting rooms draw no concealed tiles even with a stale drawn flag', () =>
     players:Array.from({length:4}, () => ({count:0, has_drawn:true}))};
   for (let pid=0;pid<4;pid++) view.addConcealed(pid,state,null,[0,1,2,3]);
 });
+
+test('display restoration resizes and rebuilds the latest queued state', () => {
+  const view=Object.create(MahjongTableView.prototype), calls=[];
+  const old={round:1}, latest={round:2};
+  Object.assign(view,{snapshot:old,selection:null,sortOrder:[0,1,2,3],
+    resize:()=>calls.push('resize'),update:(...args)=>calls.push(args)});
+  view.refresh();
+  assert.equal(calls[0],'resize');
+  assert.equal(calls[1][0],old);
+  view.pendingUpdate=[latest,{tile:5},[3,0,1,2]];
+  view.refresh();
+  assert.equal(calls[3][0],latest);
+  assert.equal(calls[3][1].tile,5);
+});

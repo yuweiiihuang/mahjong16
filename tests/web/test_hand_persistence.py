@@ -281,15 +281,16 @@ def test_one_database_owner_and_concurrent_rooms(store):
             private_state(room.table.env))
 
 
-def test_practice_replaced_hand_retains_interrupted_prefix(store):
+def test_practice_cannot_replace_an_unfinished_deal(store):
     table = WebTable(7, record_store=store)
     first = _document(store, table)
-    table.new_table()
-    interrupted = stored_hand(store.path, first['hand_id'])
-    assert interrupted['storage_status'] == 'interrupted'
-    assert interrupted['interruption_reason'] == 'new_table'
-    assert private_state(replay_hand(interrupted)) == private_state(replay_hand(first))
-    assert len(stored_hands(store.path)) == 2
+    with pytest.raises(ValueError, match='尚未結束'):
+        table.new_table()
+    saved = stored_hand(store.path, first['hand_id'])
+    assert saved['storage_status'] == 'active'
+    assert saved['interruption_reason'] is None
+    assert private_state(replay_hand(saved)) == private_state(replay_hand(first))
+    assert len(stored_hands(store.path)) == 1
 
 
 def test_database_cannot_be_created_in_static_web_root():

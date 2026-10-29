@@ -160,9 +160,12 @@ Get-Content C:\ProgramData\Qinghe\backup-last-run.log
 - 映像依 `uv.lock` 安裝環境，建置內容由 `.dockerignore` 白名單限制。
 - 健康檢查確認登入頁可讀，不建立牌局；登入與多人操作由 smoke check 驗證。
 - `restart: unless-stopped` 需 Docker 引擎先運行；不代表 Windows 未登入就能自動啟動。
-- 牌局仍在記憶體中，容器重啟／換版會清除牌局。健康檢查失敗也不會自行重啟容器。
+- 執行中的牌桌仍由記憶體服務。新版可從含續局資訊的同引擎版本牌譜恢復；
+  舊部署及跨引擎換版不能保證續接，切換前仍須備份、說明影響並取得同意。
+  健康檢查失敗不會自行重啟容器。
 - SQLite 自動紀錄位於 `/var/lib/mahjong16/hands.sqlite3`，使用 UID 10001 可寫的
-  `hand-records` named volume。替換容器保留紀錄，但不恢復進行中的牌局。
+  `hand-records` named volume。替換容器保留紀錄；新版介面的續局條件見
+  [網頁續局與重播](hand-recording.md#網頁續局與重播)，不代表既有映像已更新。
   沿用相同 Compose project 名稱才能沿用同一資料卷，不要對正式環境執行 `down -v`。
 - 牌譜含暗牌及牌牆；只允許管理者存取。可用下列命令列出與一致性備份，
   再將備份複製到主機或另一個儲存位置；volume 本身不是備份：

@@ -144,8 +144,11 @@ def test_account_reconnects_without_cookies_and_switch_does_not_reuse_a_seat(
 
 
 def test_practice_uses_the_same_account_id_after_new_table(account_server):
-    address, _, store = account_server
+    address, handler, store = account_server
     assert call(address, '/api/state')[0] == 200
+    table = next(iter(handler.sessions.values()))
+    while not table.env.done:
+        table.act(table.bot.choose(table.env._obs(0)))
     assert call(address, '/api/new', body={})[0] == 200
     documents = [stored_hand(store.path, row['hand_id']) for row in stored_hands(store.path)]
     ids = [doc['metadata']['players'][0]['player_id'] for doc in documents]

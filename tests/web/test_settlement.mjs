@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import {appContext} from './app-context.mjs';
 import {readFileSync} from 'node:fs';
 import {sortHand} from '../../ui/web/hand-sort.mjs';
 const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'utf8');
@@ -28,7 +29,7 @@ function settlementView(winSource = 'TSUMO', flowerWin = null) {
     settlement:{flower_win_type:flowerWin,payer:winSource === 'RON' ? 1 : null,
       tai:2,base_points:100,tai_points:20,payments:[-40,-60,140,-40],breakdown:[]}};
   let content;
-  const ctx = vm.createContext({state,names:['本人','放槍<玩家>','贏家','第四家'],sortOrder:[0,1,2,3],
+  const ctx = appContext({state,names:['本人','放槍<玩家>','贏家','第四家'],sortOrder:[0,1,2,3],
     $:id=>elements[id],document:{createElement:node},sortHand,winds:['東','南','西','北'],
     escapeHtml:value=>String(value).replaceAll('<','&lt;').replaceAll('>','&gt;'),
     labels:{CHI:'吃',ANGANG:'暗槓'},tile:id=>Object.assign(node('tile'),{id}),

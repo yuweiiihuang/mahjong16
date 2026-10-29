@@ -3,6 +3,8 @@ import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 import { loadTileImage } from './tile-images.mjs';
 import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
+import { renderScoreChart } from './session-chart.mjs';
+import { meldCuePosition } from './meld-cue.mjs?v=right-top-1';
 
 const $ = id => document.getElementById(id);
 function syncControlsSide() {
@@ -22,6 +24,8 @@ let playerName = localStorage.getItem('qinghe-player-name') || '';
 let names = [playerName || '玩家', '陳予安', '林小滿', '周子墨'];
 const winds = ['東', '南', '西', '北'];
 const labels = {DISCARD:'出牌', TING:'聽', HU:'胡', PASS:'過', CHI:'吃', PONG:'碰', GANG:'槓', ANGANG:'暗槓', KAKAN:'加槓', DRAW_GAME:'流局'};
+let replay = null;
+function displayedState() { return replay ? replay.frames[replay.index].state : state; }
 let state, selected = null, busy = false, playbackFrame = null, tingMode = false;
 let tingPassed = false;
 let autoTingDiscard = localStorage.getItem('qinghe-auto-ting-discard') !== 'false';
@@ -41,6 +45,9 @@ try {
 } catch {} // Ignore invalid saved preferences and use the default order.
 let audio, tableView;
 let roomMode = false, pollGeneration = 0;
+document.addEventListener('contextmenu', event => {
+  if (event.target.closest('.tile-hit,.tile,.table-canvas,.sort-group')) event.preventDefault();
+});
 document.body.classList.toggle('compact', compact);
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, char => ({
@@ -52,7 +59,7 @@ function tileName(id) {
   return ['東','南','西','北','中','發','白','春','夏','秋','冬','梅','蘭','竹','菊'][id - 27];
 }
 function selectHandTile(action) {
-  if (busy || state.blocked_discards?.includes(action.tile)) return;
+  if (replay || busy || state.blocked_discards?.includes(action.tile)) return;
   if (chiSelection?.mode === 'tiles') {
     if (!canPickChi(action)) return;
     const picked = chiSelection.picked;
@@ -120,12 +127,13 @@ function tile(id, small = false, action = null, font = tileFont) {
   return el;
 }
 function person(pid, sidebar = false) {
+  const state = displayedState();
   const wrap = document.createElement('div'); wrap.className = sidebar ? 'player-row' : 'seat-person';
   const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
   const name = escapeHtml(names[pid]);
   const detail = `${sidebar ? `${wind}家 · ` : ''}${state.totals[pid]} 點${state.players[pid].ting ? '<span class="ting-status"> · 聽牌</span>' : ''}`;
   wrap.innerHTML=`<div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span>${state.dealer===pid?'<span class="dealer">莊</span>':''}</strong><small>${detail}</small></div>`;
-  if (pid === 0) {
+  if (pid === 0 && !replay) {
     const avatar = wrap.querySelector('.avatar');
     const button = document.createElement('button');
     button.type = 'button'; button.className = `${avatar.className} avatar-edit`;
@@ -147,12 +155,14 @@ function melds(pid, target, small = true) {
   }
 }
 function renderHand() {
+  const state = displayedState();
   if (tableView && state) tableView.update(state, chiSelection?.mode === 'tiles'
     ? {chiCards:chiSelection.picked} : tingMode
     ? {tingCandidates:state.legal_actions.filter(action => action.type === 'TING')}
     : selected, sortOrder);
 }
 function syncProjection(view) {
+  const state = displayedState();
   if (!state) return;
   $('hand').setAttribute('aria-label', `手牌：${state ? sortHand(state.hand, sortOrder).map(tileName).join('、') : ''}`);
   const hand = $('hand');
@@ -166,7 +176,7 @@ function syncProjection(view) {
     button.replaceChildren(); // Hit targets have no artwork; the 3D face is the only visible image.
     button.dataset.slot = slot;
     button.classList.add('tile-hit');
-    button.disabled = busy || box.blocked || (chiSelection?.mode === 'tiles' && !canPickChi(action))
+    button.disabled = Boolean(replay) || busy || box.blocked || (chiSelection?.mode === 'tiles' && !canPickChi(action))
       || (tingMode && !state.legal_actions.some(candidate =>
       candidate.type === 'TING' && candidate.tile === action.tile && candidate.from === action.from));
     button.setAttribute('aria-pressed', String(box.selected));
@@ -202,6 +212,41 @@ function syncProjection(view) {
     el.style.top=`${frame?Math.max(frame.top+halfHeight,
       Math.min(p.y,frame.bottom-halfHeight)):Math.max(p.y,halfHeight+8)}px`;
   }
+  positionMeldCue();
+}
+let meldCueTimer;
+function positionMeldCue() {
+  const state = displayedState();
+  const cue = $('meld-cue');
+  if (cue.hidden) return;
+  const pid = Number(cue.dataset.pid);
+  const anchor = $(`seat-${pid}`);
+  const table = document.querySelector('.table').getBoundingClientRect();
+  const card = anchor.getBoundingClientRect();
+  const seat = (state.seating_order.indexOf(pid) - state.seating_order.indexOf(0) + 4) % 4;
+  const frame = tableView?.safeFrame;
+  const position = meldCuePosition(
+    {left:card.left-table.left, top:card.top-table.top, width:card.width, height:card.height},
+    {width:cue.offsetWidth, height:cue.offsetHeight},
+    frame || {left:8, top:8, right:table.width-8, bottom:table.height-8}, seat);
+  cue.style.left = `${position.left}px`;
+  cue.style.top = `${position.top}px`;
+}
+function showMeldCue(event) {
+  const state = displayedState();
+  if (state.done && state.winner != null) event = {pid:state.winner,type:'HU'};
+  if (event.pid === 0 || !['CHI','PONG','GANG','ANGANG','KAKAN','HU'].includes(event.type)) return;
+  const cue = $('meld-cue');
+  clearTimeout(meldCueTimer);
+  cue.dataset.pid = event.pid;
+  cue.dataset.action = event.type;
+  cue.dataset.hand = `${state.session_id || state.room?.code || ''}:${state.round}`;
+  const label = event.type === 'HU' && state.win_source === 'TSUMO' ? '自摸' : labels[event.type];
+  cue.textContent = label;
+  cue.setAttribute('aria-label', `${names[event.pid]} ${label}`);
+  cue.hidden = false;
+  positionMeldCue();
+  meldCueTimer = setTimeout(() => { cue.hidden = true; }, 1800);
 }
 $('ting-panel').ontoggle = () => { if (tableView) syncProjection(tableView); };
 function actionButton(text, action, primary=false) {
@@ -276,6 +321,9 @@ function renderReactionActions(target, actions, choice = null) {
   }
 }
 function renderActions(){
+  $('actions').hidden = Boolean(replay);
+  $('replay-controls').hidden = !replay;
+  if (replay) { renderReplayControls(); return; }
   const target=$('actions');target.replaceChildren();
   if (!state.legal_actions.some(action => action.type === 'TING')) tingPassed = false;
   delete target.dataset.submitted;
@@ -340,14 +388,16 @@ function uniqueTingOptions(options) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  });
+  }).map(option => ({...option, waits:[...option.waits].sort((a,b)=>a.tile-b.tile)}))
+    .sort((a,b)=>(a.tile ?? -1)-(b.tile ?? -1));
 }
 function renderTing() {
+  const state = displayedState();
   const target = $('ting-panel');
   target.replaceChildren();
   const options = uniqueTingOptions(state.ting_options.length
     ? state.ting_options : state.ting_waits.length ? [{waits:state.ting_waits}] : []);
-  target.hidden = !options.length || state.done || Boolean(state.room && !state.room.started);
+  target.hidden = Boolean(replay) || !options.length || state.done || Boolean(state.room && !state.room.started);
   if (target.hidden) return;
   const header = document.createElement('summary'); header.className = 'ting-heading';
   const label = document.createElement('span'); label.textContent = '聽牌提示';
@@ -374,18 +424,26 @@ function renderTing() {
   }
 }
 function render(){
+  const state = displayedState();
+  const cue = $('meld-cue');
+  if (cue.dataset.hand !== `${state.session_id || state.room?.code || ''}:${state.round}`) {
+    cue.hidden = true;
+    clearTimeout(meldCueTimer);
+  }
   if (state.done || playbackFrame || !state.legal_actions.some(a => a.type === 'TING')) tingMode = false;
   const waiting = state.room && !state.room.started;
   const humans = waiting ? state.room.members.filter(member => member.human).length : 0;
   setTableStatus(waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
     ? '邀請朋友加入後，按「開始對局」。空位由電腦補上。' : '等待房主開始對局。'}` : '');
-  names = state.room ? state.room.members.map(member => member.name)
+  names = replay ? state.replay_names : state.room ? state.room.members.map(member => member.name)
     : [state.player_name || playerName || '玩家', '陳予安', '林小滿', '周子墨'];
-  rememberPlayerName(names[0]);
+  if (!replay) rememberPlayerName(names[0]);
   $('room-name').textContent = state.room ? `房間 ${state.room.code}` : '自由練習';
   $('opponent-type').textContent = state.room ? '朋友與電腦' : '電腦玩家';
-  $('connection-status').textContent = state.room ? '房間已連線' : '練習模式';
+  $('connection-status').textContent = replay ? '牌局重播 · 唯讀' : state.room ? '房間已連線' : '練習模式';
   $('new-game').textContent = state.room ? '離開房間' : '↻　重新開桌';
+  $('new-game').disabled = Boolean(replay) || busy || (!state.room && !state.done);
+  $('new-game').title = state.room || state.done ? '' : '胡牌或流局後才能開新 Session';
   $('remaining').textContent=state.remaining;
   $('round').textContent=`第 ${state.round} 局`;
   $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
@@ -429,7 +487,12 @@ function setTableStatus(message) {
   $('table-status').hidden = !message;
 }
 async function request(path,body){
-  const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if (replay && body !== undefined) throw new Error('重播中不能操作牌局，請先離開重播。');
+  const headers = {'Content-Type':'application/json'};
+  if (state?.session_id && ['/api/action','/api/next','/api/new'].includes(path)) {
+    headers['X-Qinghe-Session'] = state.session_id;
+  }
+  const response=await fetch(path,body===undefined?{}:{method:'POST',headers,body:JSON.stringify(body)});
   const data=await response.json();
   if(!response.ok){const error=new Error(data.error||'連線失敗');error.status=response.status;throw error;}
   return data;
@@ -449,10 +512,16 @@ async function present(result, previewedAction = null) {
         beep();
         await tableView.animateDiscard(frame.pid);
       } else if (frame.type !== 'THINK' && !alreadyShown) beep();
-      const delay = frame.type === 'THINK' ? 500 + Math.random()*250
-        : frame.state.done ? 1200 : ['DISCARD','TING'].includes(frame.type) ? 450 : 700;
+      const winningCue = state.done && state.winner != null && state.winner !== 0;
+      if (winningCue || ['CHI','PONG','GANG','ANGANG','KAKAN','HU'].includes(frame.type)) {
+        showMeldCue(frame);
+      }
+      const delay = winningCue ? 1800
+        : (frame.type === 'THINK' ? 500 + Math.random()*250
+          : frame.state.done ? 1200 : ['DISCARD','TING'].includes(frame.type) ? 450 : 700)
+          * {fast:.35,natural:1,relaxed:1.6}[pace];
       if (!alreadyShown) {
-        await new Promise(resolve => setTimeout(resolve, delay * {fast:.35,natural:1,relaxed:1.6}[pace]));
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   } finally {
@@ -463,7 +532,7 @@ async function present(result, previewedAction = null) {
   if (state.done) showResult();
 }
 async function perform(action){
-  if(!action||busy)return;
+  if(replay||!action||busy)return;
   pendingReaction = state.phase === 'REACTION' ? action : null;
   chiSelection=null;tingMode=false;tingPassed=false;busy=true;renderActions();renderHand();
   const before = state;
@@ -483,6 +552,14 @@ async function perform(action){
         state.last_discard?.pid===0 && state.last_discard.tile===action.tile;
       if (['DISCARD','TING'].includes(event?.type) && !alreadyShown) {
         beep(); await tableView.animateDiscard(state.display_event.pid);
+      }
+      if (result.version !== before.version && !before.done &&
+          ((state.done && state.winner != null) ||
+           ['CHI','PONG','GANG','ANGANG','KAKAN','HU'].includes(event?.type))) {
+        showMeldCue(event); beep();
+        if (state.done && state.winner != null && state.winner !== 0) {
+          await new Promise(resolve => setTimeout(resolve,1800));
+        }
       }
     } else {
       const result = await request('/api/action', move);
@@ -511,6 +588,7 @@ function modal(title, content, className = ''){
   $('modal-content').innerHTML=`<h2>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
   if(!$('modal').open)$('modal').showModal();}
 function showResult(){
+  if (replay) return;
   const winner = state.winner, result = state.settlement;
   const flower = {qi_qiang_yi:'七搶一', ba_xian:'八仙過海'}[result.flower_win_type];
   const title = winner === null ? '流局' : flower || (state.win_source === 'TSUMO' ? '自摸' : '胡牌');
@@ -805,7 +883,281 @@ $('settings').onclick=()=>{
     toast('設定已儲存');
   };
 };
-$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}modal('重新開桌？','<p>目前的對局與累積點數會清除，每位玩家回到 1,000 點，從東風圈開始。</p><button class="modal-primary" id="confirm-new">重新開桌</button>');$('confirm-new').onclick=()=>newGame();};
+$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新 Session？','<p>原 Session 的分數、紀錄與接續入口都會保留。新 Session 每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新 Session</button>');$('confirm-new').onclick=()=>newGame();};
+$('hand-history').onclick = showHistory;
+async function showHistory() {
+  try {
+    const [{hands}, {sessions}] = await Promise.all([
+      request('/api/history'), request('/api/sessions'),
+    ]);
+    modal('我的 Session／牌局紀錄', '<p>單人 Session 各自保留累計分數，隨時從最新進度接續。完成第一局後正式成立；首局未完也會保存同一副牌。展開查看完整統計與各局紀錄。</p><div id="session-list"></div><h3>近期單局紀錄</h3><p>最近 100 局，包含朋友對局。</p><div id="record-list" class="history-scroll"></div>', 'session-dialog');
+    const sessionList = $('session-list');
+    if (!sessions.length) sessionList.textContent = '尚無單人 Session。';
+    for (const session of sessions) {
+      const card = document.createElement('details'); card.className = 'session-card';
+      const summary = document.createElement('summary');
+      summary.textContent = `${new Date(session.started_at).toLocaleString()} · ${session.established ? '單人 Session' : '首局待完成'} · 已完成 ${session.completed_hands} 局${session.id === state?.session_id ? ' · 目前牌桌' : ''}`;
+      const info = document.createElement('p');
+      info.textContent = `ID ${session.id} · 第 ${session.round} 局${session.done ? '已結算' : '進行中'} · ${winds[['E','S','W','N'].indexOf(session.quan_feng)]}風圈 · 莊家 ${session.players[session.dealer]}`;
+      const totals = document.createElement('p');
+      totals.textContent = session.players.map((name, pid) => `${name} ${session.totals[pid]} 點`).join(' ／ ');
+      card.append(summary, info, totals);
+      if (session.resumable) {
+        const resume = document.createElement('button'); resume.textContent = '繼續此 Session';
+        resume.onclick = () => resumeHand(session.hand_id); card.append(resume);
+      } else {
+        const warning = document.createElement('p');
+        warning.textContent = '此紀錄缺少相容續局資訊，仍可查看統計。'; card.append(warning);
+      }
+      const content = document.createElement('div'); card.append(content);
+      let loaded = false, loading = false;
+      card.ontoggle = async () => {
+        if (!card.open || loaded || loading) return;
+        loading = true; content.textContent = '載入統計…';
+        try {
+          const detail = await request(`/api/session?session_id=${encodeURIComponent(session.id)}`);
+          content.replaceChildren();
+          if (detail.points.length > 1) content.append(renderScoreChart(detail.points, detail.players));
+          const caption = document.createElement('p');
+          const patterns = ['綠實線', '橘長虛線', '藍短虛線', '紫點畫線'];
+          caption.textContent = (detail.points.length > 1
+            ? detail.players.map((name, pid) => `${name}：${patterns[pid]}`).join(' ／ ')
+            : '完成第一局後顯示分數走勢。') + ` 流局 ${detail.draws} 局。`;
+          content.append(caption);
+          const stats = document.createElement('table'); stats.className = 'session-stats';
+          const header = document.createElement('tr');
+          for (const text of ['玩家', '目前分數', '胡牌', '自摸', '放槍', '平均每局收付']) {
+            const cell = document.createElement('th'); cell.textContent = text; header.append(cell);
+          }
+          stats.append(header);
+          detail.seats.forEach((seat, pid) => {
+            const row = document.createElement('tr');
+            for (const text of [detail.players[pid], detail.totals[pid], seat.wins,
+              seat.tsumo, seat.deal_ins, seat.average_payment.toFixed(1)]) {
+              const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
+            }
+            stats.append(row);
+          });
+          const scroll = document.createElement('div'); scroll.className = 'session-stats-scroll';
+          scroll.append(stats); content.append(scroll);
+          const history = document.createElement('div'); history.className = 'history-scroll';
+          for (const hand of [...detail.hands].reverse()) {
+            const row = document.createElement('div'); row.className = 'history-row';
+            const label = document.createElement('span'); label.className = 'history-info';
+            label.textContent = `第 ${hand.round} 局 · ${hand.winner === null ? '流局' : `${detail.players[hand.winner]} ${hand.win_source === 'TSUMO' ? '自摸' : '胡牌'} ${hand.tai} 台`} · 結算 ${detail.points[detail.hands.indexOf(hand) + 1].totals.join(' ／ ')} 點`;
+            row.append(label);
+            if (hand.replayable) {
+              const replay = document.createElement('button'); replay.textContent = '重播';
+              replay.onclick = () => showReplay(hand.id); row.append(replay);
+            }
+            history.append(row);
+          }
+          content.append(history); loaded = true;
+        } catch (error) { content.textContent = error.message; }
+        finally { loading = false; }
+      };
+      sessionList.append(card);
+    }
+    const list = $('record-list');
+    if (!hands.length) list.textContent = '尚無牌局紀錄。';
+    for (const hand of hands) {
+      const row = document.createElement('div'); row.className = 'history-row';
+      const info = document.createElement('span'); info.className = 'history-info';
+      const outcome = hand.payment === null ? '未完成' : hand.winner
+        ? `${hand.winner} ${hand.win_source === 'TSUMO' ? '自摸' : '胡牌'} ${hand.tai} 台 · 你 ${hand.payment > 0 ? '+' : ''}${hand.payment} 點`
+        : '流局';
+      info.textContent = `${hand.source === 'multiplayer' ? '朋友對局' : '練習'} · ${new Date(hand.started_at).toLocaleString()} · 第 ${hand.round} 局 · ${outcome}`;
+      row.append(info);
+      for (const [enabled, text, action] of [
+        [hand.replayable, '重播', () => showReplay(hand.id)],
+        [hand.resumable, '繼續此桌', () => resumeHand(hand.id)],
+      ]) {
+        if (!enabled) continue;
+        const button = document.createElement('button'); button.textContent = text;
+        button.onclick = action; row.append(button);
+      }
+      list.append(row);
+    }
+  } catch (error) { toast(error.message); }
+}
+async function resumeHand(id) {
+  if (busy) return;
+  busy = true;
+  try {
+    const result = await request('/api/resume', {hand_id:id});
+    selected = null; tingPassed = false; tingMode = false;
+    if (result.room) {
+      if (!roomMode) acceptRoom(result); else state = result;
+    } else state = result;
+    $('modal').close(); render();
+    if (state.done) showResult();
+  } catch (error) { toast(error.message); }
+  finally { busy = false; if (state) render(); }
+}
+function replayLabel(frame) {
+  const event = frame.event, snapshot = frame.state;
+  if (!event) return '開局';
+  if (event.type === 'DRAW_GAME') return '流局';
+  const type = event.type === 'HU' && snapshot.win_source === 'TSUMO' ? '自摸' : labels[event.type];
+  const tiles = event.type === 'CHI' ? [...(event.use || []), event.tile].sort((a,b)=>a-b)
+    : event.tile == null ? [] : [event.tile];
+  const source = event.from_pid == null ? '' : `（${snapshot.replay_names[event.from_pid]}）`;
+  return `${snapshot.replay_names[event.pid]} ${type} ${tiles.map(tileName).join('、')}${source}`.trim();
+}
+function replayIcon(type) {
+  const paths = {
+    prev:'M5 5h2v14H5z M19 5v14L8 12z',
+    play:'M8 5l11 7-11 7z', pause:'M6 5h4v14H6z M14 5h4v14h-4z',
+    next:'M17 5h2v14h-2z M5 5l11 7-11 7z',
+    exit:'M9 5H5v14h4 M13 8l4 4-4 4 M8 12h9',
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${paths[type]}" fill="${type==='exit'?'none':'currentColor'}" stroke="${type==='exit'?'currentColor':'none'}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+function renderReplayControls() {
+  const {frames, index, loading, playing} = replay;
+  const snapshot = frames[index].state;
+  $('replay-step').max = frames.length - 1;
+  $('replay-step').value = index;
+  $('replay-label').textContent = `${index} / ${frames.length-1}`;
+  $('replay-label').title = replayLabel(frames[index]);
+  $('replay-label').setAttribute('aria-label',`第 ${index} 步，共 ${frames.length-1} 步：${replayLabel(frames[index])}`);
+  $('replay-prev').disabled = loading || index === 0;
+  $('replay-next').disabled = loading || index === frames.length-1;
+  $('replay-play').disabled = loading;
+  $('replay-play').innerHTML = replayIcon(playing ? 'pause' : 'play');
+  $('replay-play').setAttribute('aria-label',playing ? '暫停重播' : '播放重播');
+  $('replay-play').setAttribute('aria-pressed',String(Boolean(playing)));
+  $('replay-play').title = playing ? '暫停' : '播放';
+  $('replay-step').disabled = loading;
+  $('replay-speed').disabled = loading;
+  for (const [i,wind] of ['E','S','W','N'].entries()) {
+    const button = $(`replay-view-${wind}`);
+    const seat = snapshot.seat_winds.indexOf(wind);
+    const viewer = (snapshot.replay_viewer + seat) % 4;
+    button.dataset.viewer = viewer;
+    button.disabled = loading;
+    button.setAttribute('aria-pressed',String(viewer === snapshot.replay_viewer));
+    button.setAttribute('aria-label',`${winds[i]}家視角：${snapshot.replay_names[seat]}`);
+    button.title = `${winds[i]}家：${snapshot.replay_names[seat]}`;
+  }
+  $('replay-exit').disabled = Boolean(replay.exiting);
+}
+function stopReplay() {
+  if (!replay) return;
+  clearTimeout(replay.timer);
+  replay.timer = null;
+  replay.playing = false;
+}
+function replayStep(index, autoplay = false) {
+  if (!replay || replay.loading) return;
+  if (!autoplay) stopReplay();
+  replay.index = Math.max(0,Math.min(replay.frames.length-1,Number(index)));
+  if (replay.index === replay.frames.length-1) stopReplay();
+  clearTimeout(meldCueTimer); $('meld-cue').hidden = true;
+  render();
+  const event = replay.frames[replay.index].event;
+  if (event) showMeldCue(event);
+}
+function scheduleReplay() {
+  if (!replay?.playing || replay.loading) return;
+  const current = replay;
+  clearTimeout(current.timer);
+  const type = current.frames[current.index].event?.type;
+  const delay = (['DISCARD','TING'].includes(type) ? 450 : 700)
+    * {fast:.35,natural:1,relaxed:1.6}[pace] / current.speed;
+  current.timer = setTimeout(() => {
+    if (replay !== current || !current.playing || current.loading) return;
+    replayStep(current.index+1,true);
+    scheduleReplay();
+  },delay);
+  renderReplayControls();
+}
+function toggleReplay() {
+  if (!replay || replay.loading) return;
+  if (replay.playing) { stopReplay(); renderReplayControls(); return; }
+  if (replay.index === replay.frames.length-1) replayStep(0);
+  replay.playing = true;
+  scheduleReplay();
+}
+function lockReplaySurface(locked) {
+  document.body.classList.toggle('replaying', locked);
+  for (const node of document.querySelectorAll('.table-toolbar,.table-canvas,#ting-panel,#room-panel')) {
+    node.inert = locked;
+  }
+}
+async function showReplay(id) {
+  if (busy || replay || !tableView) return;
+  busy = true;
+  try {
+    const {frames} = await request(`/api/replay?hand_id=${encodeURIComponent(id)}`);
+    if (!Array.isArray(frames) || !frames.length || !frames[0].state?.replay_seats) {
+      throw new Error('重播需要更新伺服器，請重新啟動服務後再試。');
+    }
+    // An in-flight live discard finishes before replacing the shared 3D scene.
+    while (tableView.discardAnimating) await new Promise(resolve=>setTimeout(resolve,20));
+    replay = {id,frames,index:0,loading:false,playing:false,speed:1,timer:null};
+    selected = null; chiSelection = null; tingMode = false; tingPassed = false;
+    clearTimeout(meldCueTimer); $('meld-cue').hidden = true;
+    $('modal').close(); $('room-panel').open = false;
+    lockReplaySurface(true);
+    const controls = $('replay-controls');
+    controls.innerHTML = `<input id="replay-step" type="range" min="0" value="0" aria-label="重播進度"><button id="replay-prev" class="replay-icon" aria-label="上一步" title="上一步">${replayIcon('prev')}</button><button id="replay-play" class="replay-icon" aria-label="播放重播" title="播放">${replayIcon('play')}</button><button id="replay-next" class="replay-icon" aria-label="下一步" title="下一步">${replayIcon('next')}</button><select id="replay-speed" aria-label="播放速度" title="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="4">4×</option></select><span id="replay-label" role="status"></span><div class="replay-views" role="group" aria-label="視角"><span class="replay-view-label">視角</span>${['E','S','W','N'].map((wind,i)=>`<button id="replay-view-${wind}" aria-pressed="false">${winds[i]}</button>`).join('')}</div><button id="replay-exit" class="replay-icon" aria-label="離開重播" title="離開重播">${replayIcon('exit')}</button>`;
+    $('replay-step').oninput = event => replayStep(event.target.value);
+    $('replay-prev').onclick = () => replayStep(replay.index-1);
+    $('replay-next').onclick = () => replayStep(replay.index+1);
+    $('replay-play').onclick = toggleReplay;
+    $('replay-speed').onchange = event => {
+      replay.speed = Number(event.target.value);
+      if (replay.playing) scheduleReplay();
+    };
+    for (const wind of ['E','S','W','N']) {
+      const button = $(`replay-view-${wind}`);
+      button.onclick = () => changeReplayView(Number(button.dataset.viewer));
+    }
+    $('replay-exit').onclick = exitReplay;
+    render(); $('replay-next').focus();
+    if (roomMode) toast('重播中；朋友房間仍會繼續進行。');
+  } catch (error) { toast(error.message); }
+  finally { busy = false; }
+}
+async function changeReplayView(viewer) {
+  const current = replay;
+  if (!current || current.loading || current.frames[current.index].state.replay_viewer === viewer) return;
+  stopReplay();
+  current.loading = true; renderReplayControls();
+  try {
+    const {frames} = await request(`/api/replay?hand_id=${encodeURIComponent(current.id)}&view=${viewer}`);
+    if (replay !== current) return;
+    current.frames = frames;
+  } catch (error) { toast(error.message); }
+  finally {
+    if (replay === current) { current.loading = false; replayStep(current.index); }
+  }
+}
+async function exitReplay() {
+  if (!replay || replay.exiting) return;
+  stopReplay();
+  // Replacing the object also invalidates a still-loading perspective response.
+  replay = {...replay,loading:true,exiting:true}; renderReplayControls();
+  // Invalidate any long poll that began before refreshing the live table.
+  ++pollGeneration;
+  try {
+    const result = await request('/api/state');
+    replay = null; state = result;
+    clearTimeout(meldCueTimer); $('meld-cue').hidden = true;
+    lockReplaySurface(false);
+    roomMode = false;
+    if (result.room) acceptRoom(result);
+    else sessionStorage.removeItem('qinghe-room');
+    $('toast').classList.remove('visible');
+    render();
+    if (state.done) showResult();
+  } catch (error) {
+    replay.loading = false; replay.exiting = false; renderReplayControls();
+    toast(`無法返回目前牌桌：${error.message}，請再按「離開重播」重試。`);
+    if (roomMode) pollRoom(pollGeneration);
+  }
+}
 function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
   tingPassed = false; tingMode = false;
@@ -824,18 +1176,33 @@ async function pollRoom(generation) {
       if (generation !== pollGeneration || !roomMode) return;
       if (!busy && result.version >= state.version) {
         const old = state; state = result;
+        if (replay) continue;
         if (old.version !== result.version) selected = null;
         render();
-        if (state.done && (!old.done || old.room.host !== state.room.host)) showResult();
-        else if (old.done && !state.done) $('modal').close();
         const event = state.display_event;
         if (old.version !== state.version && event && ['DISCARD','TING'].includes(event.type)) {
           beep(); await tableView.animateDiscard(event.pid);
         }
+        if (replay) continue;
+        if (old.version !== state.version && !old.done &&
+            ((state.done && state.winner != null) ||
+             ['CHI','PONG','GANG','ANGANG','KAKAN','HU'].includes(event?.type))) {
+          showMeldCue(event); beep();
+          if (state.done && state.winner != null && state.winner !== 0) {
+            await new Promise(resolve => setTimeout(resolve,1800));
+          }
+        }
+        if (!roomMode || generation !== pollGeneration) return;
+        if (replay) continue;
+        if (state.done && (!old.done || old.room.host !== state.room.host)) showResult();
+        else if (old.done && !state.done) $('modal').close();
       }
     } catch (error) {
       if (!roomMode || generation !== pollGeneration) return;
-      if (error.status === 400) { toast(error.message); await leaveRoom(); return; }
+      if (error.status === 400) {
+        if (replay) { roomMode = false; ++pollGeneration; continue; }
+        toast(error.message); await leaveRoom(); return;
+      }
       $('connection-status').textContent = '重新連線中…';
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
@@ -980,8 +1347,9 @@ $('multiplayer').onclick = () => {
     if (code && (!state.room || state.room.code !== code.toUpperCase())) showJoinRoom(code);
     else if (state.done) showResult();
   } catch (e) {
-    setTableStatus('牌桌載入失敗，請重新整理重試。');
-    toast('無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
+    setTableStatus(e.status ? `${e.message}\n可從房間資訊開啟「牌局紀錄／續局」。`
+      : '牌桌載入失敗，請重新整理重試。');
+    toast(e.status ? e.message : '無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
     console.error(e);
   }
 })();

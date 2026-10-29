@@ -36,3 +36,15 @@ test('mobile controls follow both iPhone rotations, including initial landscape 
   assert.equal(dataset.controlsSide,'right','unsupported devices keep the default right rail');
   assert.equal(projections,4,'rotating refreshes projected overlays even if viewport dimensions stay equal');
 });
+
+test('long-press context menus are suppressed on tile surfaces but not text inputs', () => {
+  let handler, prevented=0;
+  const context=vm.createContext({document:{addEventListener:(name,callback)=>{
+    assert.equal(name,'contextmenu'); handler=callback;
+  }}});
+  const start=source.indexOf("document.addEventListener('contextmenu'");
+  vm.runInContext(source.slice(start,source.indexOf('document.body.classList.toggle',start)),context);
+  handler({target:{closest:()=>({})},preventDefault:()=>prevented++});
+  handler({target:{closest:()=>null},preventDefault:()=>prevented++});
+  assert.equal(prevented,1);
+});

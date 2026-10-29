@@ -158,7 +158,8 @@ cookie／Redis TTL 設定為 12 小時；成功刷新會續延伺服器端 TTL�
 可信 OIDC subject → 固定 player ID → 座位／牌譜的映射已在本機實作與測試；
 測試也涵蓋同一 HTTP keep-alive 連線換帳號，避免快取沿用前一人的身分。
 同一 issuer/subject 的玩家 ID 跨房間、牌局與服務重啟保留，
-但進行中的房間仍只在記憶體，重啟後不會恢復牌局。
+當時部署的進行中房間只在記憶體，重啟後不會恢復。新版續局能力與限制見
+[牌譜文件](hand-recording.md#網頁續局與重播)，不可直接套用於未更新的正式映像。
 account_players 是現有 SQLite 的相容新增表，不改 hands 表或舊 JSON，保留 user_version=1。
 映射隨原有 SQLite backup 保存；Pocket ID 帳號資料卷與 encryption key
 已一起完成可丟棄帳號的冷備份還原演練。Windows Docker、正式 HTTPS 與管理員
@@ -206,7 +207,8 @@ bootstrap 先確認本機 client 設定可讀，部分失敗時保留既有管�
 `MAHJONG_RECORDS_VOLUME=mahjong16-docker-617094b_hand-records`，用原 project
 加上三個 Compose 檔重建 web。核對新 web 的實際 mount 後，才將 Funnel443 切至
 `http://127.0.0.1:18084`。不能同時啟動新舊 web 寫入同一資料卷。
-重啟清除記憶體房間，不清除已保存牌譜；`account_players` 隨牌譜 SQLite 保存。
+重啟會清除記憶體實例，不清除已保存牌譜；`account_players` 隨牌譜 SQLite 保存。
+新版可手動恢復含續局資訊的相容牌譜；跨引擎換版或舊紀錄不保證可恢復。
 
 回復時先停新 web，再啟動保留的 `mahjong16-gateway-ready` 舊 web/gateway/auth，
 把 Funnel443 指回 `http://127.0.0.1:8003`。保留新 identity-data、私有設定及金鑰，

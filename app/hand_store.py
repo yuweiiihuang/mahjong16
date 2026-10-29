@@ -4,12 +4,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from contextlib import closing, contextmanager
 import json
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
 import threading
 import tempfile
-from typing import TYPE_CHECKING, Iterator, TextIO
+from typing import TYPE_CHECKING, Callable, Iterator, TextIO
 from uuid import uuid4
 
 from domain.gameplay.recording import HandRecorder
@@ -94,6 +95,14 @@ class HandStore:
                 self.connection.execute('''CREATE TABLE IF NOT EXISTS account_players (
                     issuer TEXT NOT NULL, subject TEXT NOT NULL, player_id TEXT NOT NULL UNIQUE,
                     PRIMARY KEY (issuer, subject))''')
+                self.connection.execute('''CREATE TABLE IF NOT EXISTS browser_players (
+                    cookie_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE)''')
+                self.connection.execute('''CREATE TABLE IF NOT EXISTS practice_selection (
+                    player_id TEXT PRIMARY KEY, table_id TEXT NOT NULL)''')
+                self.connection.execute('''CREATE INDEX IF NOT EXISTS hands_started
+                    ON hands(started_at DESC)''')
+                self.connection.execute('''CREATE INDEX IF NOT EXISTS hands_table_started
+                    ON hands(table_id, started_at DESC)''')
                 self.connection.execute('PRAGMA user_version=1')
                 self.connection.execute(
                     "UPDATE hands SET status='interrupted', reason='server_restart' "
@@ -113,6 +122,104 @@ class HandStore:
             return self.connection.execute(
                 'SELECT player_id FROM account_players WHERE issuer=? AND subject=?',
                 (issuer, subject)).fetchone()[0]
+
+    def browser_player_id(self, cookie: str, *, create: bool = False) -> str | None:
+        """Recognize an anonymous browser after restart, without storing its credential."""
+        digest = hashlib.sha256(cookie.encode()).hexdigest()
+        with self.lock, self.connection:
+            if create:
+                self.connection.execute('INSERT OR IGNORE INTO browser_players VALUES (?, ?)',
+                                        (digest, str(uuid4())))
+            row = self.connection.execute(
+                'SELECT player_id FROM browser_players WHERE cookie_hash=?', (digest,)).fetchone()
+        return row[0] if row else None
+
+    def player_records(self, player_id: str, *, hand_id: str | None = None) -> list[dict]:
+        """Materialize authorized records before replay; never retain a live read cursor."""
+        query = '''SELECT document, status, reason FROM hands
+            WHERE (EXISTS (SELECT 1 FROM json_each(json_extract(document, '$.metadata.players'))
+                          WHERE json_extract(value, '$.player_id')=?)
+               OR EXISTS (SELECT 1 FROM json_each(json_extract(document, '$.metadata.seat_events'))
+                          WHERE json_extract(value, '$.player_id')=?))'''
+        parameters = [player_id, player_id]
+        if hand_id is not None:
+            query += ' AND hand_id=?'
+            parameters.append(hand_id)
+        query += ' ORDER BY started_at DESC LIMIT 100'
+        with self.lock:
+            rows = self.connection.execute(query, parameters).fetchall()
+        records = [{**json.loads(raw), 'storage_status': status, 'interruption_reason': reason}
+                   for raw, status, reason in rows]
+        records.sort(key=lambda record: record['metadata']['started_at'], reverse=True)
+        if hand_id is not None:
+            records = [record for record in records if record['hand_id'] == hand_id]
+        return records
+
+    def latest_hand_id(self, table_id: str) -> str | None:
+        """Only the latest committed hand of a table can be continued."""
+        with self.lock:
+            row = self.connection.execute(
+                'SELECT hand_id FROM hands WHERE table_id=? '
+                'ORDER BY started_at DESC, rowid DESC LIMIT 1',
+                (table_id,)).fetchone()
+        return row[0] if row else None
+
+    def practice_hands(self, player_id: str, *, table_id: str | None = None,
+                       heads: bool = False) -> list[dict]:
+        """Read owned practice summaries without private walls, steps or a 100-hand cutoff."""
+        query = '''SELECT h.hand_id, h.table_id, h.started_at,
+            json_extract(h.document, '$.metadata.hand_index') AS round,
+            json_extract(h.document, '$.status') AS status,
+            json_extract(h.document, '$.engine_version') AS engine_version,
+            json_extract(h.document, '$.metadata.recovery.version') AS recovery_version,
+            h.reason,
+            json_extract(h.document, '$.metadata.players') AS players,
+            json_extract(h.document, '$.metadata.totals_before') AS totals_before,
+            json_extract(h.document, '$.metadata.totals_after') AS totals_after,
+            json_extract(h.document, '$.settlement') AS result,
+            json_extract(h.document, '$.metadata.settlement.payer') AS payer,
+            json_extract(h.document, '$.setup.quan_feng') AS quan_feng,
+            json_extract(h.document, '$.setup.dealer_pid') AS dealer,
+            (SELECT MIN(started_at) FROM hands WHERE table_id=h.table_id) AS session_started,
+            (SELECT COUNT(*) FROM hands WHERE table_id=h.table_id
+                AND status='completed') AS completed_hands
+            FROM hands h WHERE json_extract(h.document, '$.metadata.source')='practice'
+            AND json_extract(h.document, '$.metadata.players[0].player_id')=?'''
+        parameters = [player_id]
+        if table_id is not None:
+            query += ' AND h.table_id=?'
+            parameters.append(table_id)
+        if heads:
+            query += ''' AND NOT EXISTS (SELECT 1 FROM hands newer
+                WHERE newer.table_id=h.table_id AND
+                (newer.started_at>h.started_at OR
+                 (newer.started_at=h.started_at AND newer.rowid>h.rowid)))'''
+        query += ' ORDER BY h.started_at, h.rowid'
+        with self.lock:
+            cursor = self.connection.execute(query, parameters)
+            keys = [column[0] for column in cursor.description]
+            rows = cursor.fetchall()
+            cursor.close()
+        items = [dict(zip(keys, row)) for row in rows]
+        for item in items:
+            for key in ('players', 'totals_before', 'totals_after', 'result'):
+                item[key] = json.loads(item[key]) if item[key] is not None else None
+        return items
+
+    def selected_practice(self, player_id: str) -> str | None:
+        """Remember the selected game independently of a browser connection's lifetime."""
+        with self.lock:
+            row = self.connection.execute(
+                'SELECT table_id FROM practice_selection WHERE player_id=?',
+                (player_id,)).fetchone()
+        return row[0] if row else None
+
+    def select_practice(self, player_id: str, table_id: str) -> None:
+        """Persist selection only after a game has been saved or verified for this player."""
+        with self.lock, self.connection:
+            self.connection.execute('''INSERT INTO practice_selection VALUES (?, ?)
+                ON CONFLICT(player_id) DO UPDATE SET table_id=excluded.table_id''',
+                (player_id, table_id))
 
     def save(self, document: dict, metadata: dict) -> None:
         """Commit the full accepted prefix before acknowledging an operation.
@@ -193,12 +300,14 @@ def backup_database(path: Path, target: Path) -> None:
 class PersistentHandRecorder(HandRecorder):
     """Reuse engine recording, committing each initialized state and accepted step."""
 
-    def __init__(self, store: HandStore, metadata: dict) -> None:
+    def __init__(self, store: HandStore, metadata: dict, *,
+                 recovery: Callable[[], dict] | None = None) -> None:
         super().__init__()
         self.store = store
         self.metadata = metadata
         self.step_context: dict = {}
         self.failure = False
+        self.recovery = recovery
 
     def begin(self, env: MahjongEnvironment) -> None:
         self.records.clear()  # Only the current hand stays in memory; SQLite retains old hands.
@@ -228,6 +337,8 @@ class PersistentHandRecorder(HandRecorder):
         if self.failure:
             raise RecordingError('牌譜保存失敗，本桌已暫停；請聯絡管理者。')
         try:
+            if self.recovery is not None:
+                self.metadata['recovery'] = self.recovery()
             self.store.save(self.document(), self.metadata)
         except (sqlite3.Error, OSError) as error:
             self.failure = True

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import {appContext} from './app-context.mjs';
 
 // Run the actual shared DOM click handler, with rendering and submission spies.
 const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'utf8');
@@ -9,7 +10,7 @@ const handler = source.slice(source.indexOf('function selectHandTile('),
   source.indexOf('function tile('));
 function input() {
   const sent = [];
-  const ctx = vm.createContext({selected:null, busy:false, tingMode:false, chiSelection:null,
+  const ctx = appContext({selected:null, busy:false, tingMode:false, chiSelection:null,
     state:{blocked_discards:[]},
     renderHand() {}, renderActions() {},
     perform(action) { sent.push(action); ctx.busy = true; },
@@ -67,19 +68,20 @@ test('ting mode declares on one candidate click and never discards another tile'
 });
 
 test('hint deduplication ignores hand/drawn origin but preserves distinct wait sets', () => {
-  const ctx = vm.createContext({});
+  const ctx = appContext({});
   vm.runInContext(source.slice(source.indexOf('function uniqueTingOptions('),
     source.indexOf('function renderTing(')), ctx);
   const first = {tile:4, from:'hand', waits:[{tile:7,unseen:2},{tile:32,unseen:1}]};
   const duplicate = {...first, from:'drawn', waits:[...first.waits].reverse()};
   const different = {...first, waits:[{tile:8,unseen:2}]};
-  assert.deepEqual(Array.from(ctx.uniqueTingOptions([first,duplicate,different])), [first,different]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.uniqueTingOptions([first,duplicate,different]))),
+    [first,different]);
 });
 
 for (const declared of [false, true]) test(`ting hints remain visible during playback, declared=${declared}`, () => {
   const node = () => ({append() {}, replaceChildren() {}, setAttribute() {}});
   const panel = node();
-  const ctx = vm.createContext({
+  const ctx = appContext({
     state:{ting_options:[], ting_waits:[{tile:28,unseen:2}], declared_ting:declared, done:false},
     playbackFrame:{type:'DISCARD',pid:1},
     $:() => panel, document:{createElement:node}, tile:node, tileName:String,
@@ -101,11 +103,12 @@ test('local identity position stays fixed when drawn and raised tile bounds chan
   const node = () => ({children:[],offsetHeight:0,style:{setProperty(key,value) { this[key]=value; }},dataset:{},classList:{add() {}},
     replaceChildren() {},setAttribute() {},
     insertBefore(button) { this.children.push(button); }});
-  const elements = Object.fromEntries(['hand','ting-panel','seat-1','seat-2','seat-3']
+  const elements = Object.fromEntries(['hand','ting-panel','seat-1','seat-2','seat-3','meld-cue']
     .map(id => [id,node()]));
   const heading=node(),bar=node();
   elements['ting-panel'].offsetWidth = 150;
-  const ctx=vm.createContext({state:{hand:[],seating_order:[0,1,2,3]},busy:false,
+  elements['meld-cue'].hidden = true;
+  const ctx=appContext({state:{hand:[],seating_order:[0,1,2,3]},busy:false,
     getComputedStyle:() => ({right:'22px'}),
     tingMode:false,chiSelection:null,selected:null,sortOrder:null,
     $:id => elements[id],tile:node,tileName:String,sortHand:hand => hand,

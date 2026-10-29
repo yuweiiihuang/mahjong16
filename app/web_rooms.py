@@ -1,6 +1,7 @@
 """Shared, server-authoritative rooms for the Qinghe browser table."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 import secrets
 import threading
@@ -8,8 +9,10 @@ import time
 from uuid import uuid4
 from typing import TYPE_CHECKING, Callable
 from app.hand_store import RecordingError
+from app.web_view import relative_snapshot
 
 if TYPE_CHECKING:
+    from app.hand_store import HandStore
     from app.web import WebTable
 
 
@@ -46,6 +49,15 @@ class WebRoom:
         self.changed = threading.Condition()
         self.record_ids = {owner: player_id or str(uuid4())}
         self.table.record_source = 'multiplayer'
+        self.table.room_checkpoint = self.recovery_state
+
+    def recovery_state(self) -> dict:
+        """Save seat ownership with the engine prefix, never browser credentials."""
+        return {'code': self.code, 'owner': self.record_ids.get(self.owner),
+                'version': self.version,
+                'requests': [list(key) for key in self.requests],
+                'seats': [self.record_ids.get(sid) if sid else None for sid in self.seats],
+                'names': [self.names.get(sid, '') for sid in self.seats]}
 
     def record_seat(self, pid: int) -> None:
         """Keep private pseudonyms separate from cookie credentials and display names."""
@@ -66,14 +78,24 @@ class WebRoom:
         """Take an unreserved bot seat without changing its game state, or reconnect."""
         self.table.check_recording()
         name = player_name(name)
+        reserved = next((member for member in self.seats if member != sid and member and
+                         self.record_ids.get(member) == player_id and player_id), None)
+        if reserved:
+            seat = self.seats.index(reserved)
+            self.seats[seat] = sid
+            self.names[sid] = self.names.pop(reserved)
+            self.record_ids[sid] = self.record_ids.pop(reserved)
+            self.seen.pop(reserved, None)
+            if self.owner == reserved:
+                self.owner = sid
+            self.publish()
         if sid not in self.seats:
             if None not in self.seats:
                 raise ValueError('房間已滿。')
             seat = self.seats.index(None)
             self.seats[seat] = sid
             self.names[sid] = name or f'玩家 {seat + 1}'
-            if player_id:
-                self.record_ids[sid] = player_id
+            self.record_ids[sid] = player_id or str(uuid4())
             if self.started:
                 try:
                     self.record_seat(seat)
@@ -102,6 +124,7 @@ class WebRoom:
         if name == self.names[sid]:
             return
         if self.started:
+            self.names[sid] = name
             self.table.record_seat(pid, {
                 'player_id': self.record_ids[sid], 'name': name, 'human': True,
             })
@@ -121,39 +144,9 @@ class WebRoom:
         """Rotate only player indices, so every browser keeps its own seat at zero."""
         viewer = self.seats.index(sid)
         state = self.table.snapshot(viewer)
+        state = relative_snapshot(state, viewer)
         relative = lambda pid: None if pid is None else (pid - viewer) % 4
         order = [(viewer + i) % 4 for i in range(4)]
-        for key in ('players', 'melds_all', 'rivers', 'seat_winds', 'totals'):
-            state[key] = [state[key][pid] for pid in order]
-        if 'final_hands' in state:
-            state['final_hands'] = [state['final_hands'][pid] for pid in order]
-        for key in ('player', 'actor', 'winner', 'dealer'):
-            state[key] = relative(state[key])
-        state['seating_order'] = [relative(pid) for pid in state['seating_order']]
-        if state['last_discard']:
-            state['last_discard']['pid'] = relative(state['last_discard']['pid'])
-        for event in state['events']:
-            event['pid'] = relative(event['pid'])
-            if 'from_pid' in event:
-                event['from_pid'] = relative(event['from_pid'])
-        for melds in state['melds_all']:
-            for meld in melds:
-                if 'from_pid' in meld:
-                    meld['from_pid'] = relative(meld['from_pid'])
-        for player in state.get('final_hands', []):
-            for meld in player['melds']:
-                if 'from_pid' in meld:
-                    meld['from_pid'] = relative(meld['from_pid'])
-        state['melds'] = deepcopy(state['melds_all'][0])
-        for pid, player in enumerate(state['players']):
-            player['melds'] = deepcopy(state['melds_all'][pid])
-        if state['settlement']:
-            state['settlement'] = deepcopy(state['settlement'])
-            result = state['settlement']
-            result['payer'] = relative(result['payer'])
-            result['payments'] = [result['payments'][pid] for pid in order]
-        # Engine aggregate counts may include concealed kongs; never send them online.
-        state.pop('live_public', None)
         now = time.monotonic()
         state['room'] = {
             'code': self.code, 'started': self.started, 'host': sid == self.owner,
@@ -208,15 +201,20 @@ class WebRoom:
         self.table.check_recording()
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 80:
             raise ValueError('無效操作編號。')
-        if (sid, request_id) in self.requests:
+        request_key = (self.record_ids[sid], request_id)
+        if request_key in self.requests:
             return  # Retries acknowledge the original move without applying it twice.
         if (not self.started or self.table.env.done or version != self.version or
                 time.monotonic() < self.ready_at or
                 (self.table.env.phase != 'REACTION' and self.table.actor() != pid) or
                 action not in self.table.env.legal_actions(pid)):
             raise ValueError('牌局已更新，請重新選擇操作。')
-        self.apply(action, pid=pid)
-        self.requests[(sid, request_id)] = self.version
+        self.table.request_id = request_id
+        try:
+            self.apply(action, pid=pid)
+        finally:
+            self.table.request_id = None
+        self.requests[request_key] = self.version
         if len(self.requests) > 256:
             self.requests.pop(next(iter(self.requests)))
 
@@ -227,6 +225,7 @@ class WebRoom:
         frames = []
         try:
             self.table.apply(action, frames, pid=pid, source=source)
+            self.table.request_id = None
             # Automatic ting discards run in tick, preserving the shared action delay.
             self.table.advance(frames, auto_discard_ting=False)
         except RecordingError:
@@ -327,6 +326,54 @@ class RoomRegistry:
             if room is None:
                 raise ValueError('你尚未加入房間，或房間已結束。')
             return room
+
+    def recover(self, sid: str, player_id: str, document: dict,
+                restore: Callable[[dict], WebTable], *, store: HandStore) -> WebRoom:
+        """Reload the committed head under the room lock before replacing a failed table."""
+        from app.web_records import can_resume
+
+        code = document['metadata']['recovery']['room']['code']
+        with self.lock:
+            room = self.rooms.get(code)
+            with room.changed if room is not None else nullcontext():
+                # The routing document may predate another committed move or seat change.
+                records = store.player_records(player_id, hand_id=document['hand_id'])
+                if not records or not can_resume(records[0], store, player_id):
+                    raise ValueError('此牌桌已有更新進度，請重新開啟紀錄。')
+                document = records[0]
+                saved = document['metadata']['recovery']['room']
+                if sid in self.memberships and self.memberships[sid] != saved['code']:
+                    raise ValueError('請先離開目前房間。')
+                if room is not None and room.table.table_id != document['metadata']['table_id']:
+                    raise ValueError('房號已使用，無法恢復這個牌桌。')
+                if room is None or room.table.recording_error:
+                    if len(self.rooms) >= 100:
+                        raise ValueError('目前房間已滿，請稍後再試。')
+                    if player_id not in saved['seats']:
+                        raise ValueError('這個座位已經讓出，無法續局。')
+                    table = restore(document)
+                    owner = 'reserved:' + (saved['owner'] or player_id)
+                    room = WebRoom(saved['code'], owner, table)
+                    room.seats = ['reserved:' + player if player else None
+                                  for player in saved['seats']]
+                    room.names = {member: saved['names'][pid]
+                                  for pid, member in enumerate(room.seats) if member}
+                    room.record_ids = {member: saved['seats'][pid]
+                                       for pid, member in enumerate(room.seats) if member}
+                    room.seen = {member: time.monotonic() for member in room.names}
+                    room.started = True
+                    room.version = saved['version'] + 1
+                    room.requests = {
+                        tuple(key): room.version for key in saved.get('requests', [])}
+                    room.requests.update({
+                        (decision['player_id'], decision['request_id']): room.version
+                        for decision in document['metadata']['decisions']
+                        if decision.get('request_id') and decision.get('player_id')})
+                    self.rooms[room.code] = room
+                with room.changed:
+                    room.join(sid, player_id=player_id)
+                self.memberships[sid] = room.code
+                return room
 
     def leave(self, sid: str) -> None:
         """Vacate a seat for a bot and transfer host ownership if needed."""

@@ -66,8 +66,12 @@ export class MahjongTableView {
       e.preventDefault(); container.classList.add('context-lost');
     });
     this.renderer.domElement.addEventListener('webglcontextrestored', () => {
-      container.classList.remove('context-lost'); this.draw();
+      container.classList.remove('context-lost'); this.refresh();
     });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.refresh();
+    });
+    window.addEventListener('pageshow', () => this.refresh());
     this.ready = this.loadFaces();
     this.resize();
   }
@@ -536,6 +540,13 @@ export class MahjongTableView {
     }
     this.camera.updateMatrixWorld();
     this.draw();
+  }
+
+  refresh() {
+    this.resize();
+    const pending = this.pendingUpdate;
+    if (pending) this.update(...pending);
+    else if (this.snapshot) this.update(this.snapshot,this.selection,this.sortOrder);
   }
 
   draw() {

@@ -18,7 +18,8 @@
 - issuer 是管理員固定的伺服器設定，不接受瀏覽器送入的 issuer；目前 subject 限制為
   最多 255 個非空白 ASCII 字元且不含逗號，拒絕重複／合併的身分標頭。
 - `HandStore.account_players` 將 `(issuer, subject)` 對應至隨機 UUID。
-  SQLite 中的映射會保存；記憶體內的座位與練習桌仍不會在服務重啟後恢復。
+  SQLite 中的映射會保存。2026-10-29 本機擴充加入以此玩家 ID 授權的手動續局，
+  不改帳號／座位的區分；適用條件見 [牌譜文件](../hand-recording.md#網頁續局與重播)。
 - 牌譜、接管事件與決策只保存玩家 UUID、當時名稱與控制來源，不保存原始 issuer、
   subject、Cookie、Passkey credential ID 或登入 token。訓練輸出沿用原本 player_id 欄位。
 - 帳號模式不讀取匿名身分 Cookie。同帳號多裝置共用一個房間座位；換帳號不繼承座位。

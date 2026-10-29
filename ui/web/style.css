@@ -65,13 +65,13 @@ dialog{max-height:85dvh;overflow-y:auto}
 /* Controls sit toward the table center, ahead of the near-side hand. */
 .action-bar{bottom:auto;left:35%;right:20%;justify-content:flex-end;transform:translateY(-100%)}
 #actions{flex-direction:row;justify-content:flex-end}
-#actions button[data-action]{--action-color:#64716c;--action-tint:#e7ebe7}
-#actions button[data-action="CHI"]{--action-color:#3d7865;--action-tint:#e3efe6}
-#actions button[data-action="PONG"]{--action-color:#386f96;--action-tint:#e2edf5}
-#actions button:is([data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"]){--action-color:#8461a0;--action-tint:#ede5f4}
-#actions button[data-action="TING"]{--action-color:#8b7036;--action-tint:#f4edda}
-#actions button[data-action="HU"]{--action-color:#b45043;--action-tint:#f8e6df}
-#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]){min-width:76px;height:48px;padding:0 16px;border:1px solid var(--action-tint);border-radius:9px;background:var(--action-tint);color:var(--action-color);box-shadow:0 3px 0 color-mix(in srgb,var(--action-color),#ffffff 30%);font:600 24px 'PingFang TC',sans-serif;white-space:nowrap}
+:is(#actions button,.meld-cue)[data-action]{--action-color:#64716c;--action-tint:#e7ebe7}
+:is(#actions button,.meld-cue)[data-action="CHI"]{--action-color:#3d7865;--action-tint:#e3efe6}
+:is(#actions button,.meld-cue)[data-action="PONG"]{--action-color:#386f96;--action-tint:#e2edf5}
+:is(#actions button,.meld-cue):is([data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"]){--action-color:#8461a0;--action-tint:#ede5f4}
+:is(#actions button,.meld-cue)[data-action="TING"]{--action-color:#8b7036;--action-tint:#f4edda}
+:is(#actions button,.meld-cue)[data-action="HU"]{--action-color:#b45043;--action-tint:#f8e6df}
+#actions button:is([data-action="CHI"],[data-action="PONG"],[data-action="GANG"],[data-action="ANGANG"],[data-action="KAKAN"],[data-action="HU"],[data-action="TING"],[data-action="PASS"]),.meld-cue{min-width:76px;height:48px;padding:0 16px;border:1px solid var(--action-tint);border-radius:9px;background:var(--action-tint);color:var(--action-color);box-shadow:0 3px 0 color-mix(in srgb,var(--action-color),#ffffff 30%);font:600 24px 'PingFang TC',sans-serif;white-space:nowrap}
 #actions[data-submitted="true"] button{opacity:1}
 #actions[data-submitted="true"] button[aria-pressed="false"]{visibility:hidden}
 .chi-picker{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px;color:#315f4c;max-width:100%}
@@ -279,3 +279,60 @@ main{height:100%;padding:0}
 
 .avatar-edit{border:0;padding:0;pointer-events:auto;cursor:pointer}
 .avatar-edit:focus-visible{outline:2px solid #e3d399;outline-offset:3px}
+
+.aside-bottom{display:grid;gap:10px}
+.history-row{flex-wrap:wrap;justify-content:space-between}
+.history-row .history-info{flex:1;min-width:150px;line-height:1.8}
+.session-dialog{width:min(820px,94vw);max-height:88dvh;overflow:auto}
+.session-card{margin:14px 0;padding:14px;border:1px solid #ccd2c2;border-radius:12px}
+.session-card summary{cursor:pointer;font-size:14px;line-height:1.8;font-weight:600}
+.session-card p{overflow-wrap:anywhere}
+.session-card button{padding:8px 12px;border:1px solid #ccd2c2;border-radius:8px}
+.session-chart{display:block;width:100%;margin-top:18px;min-width:260px}
+.session-chart text{font:11px sans-serif;fill:#516558}
+.session-stats-scroll{overflow-x:auto}
+.session-stats{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+.session-stats th,.session-stats td{padding:9px 7px;text-align:right;border-bottom:1px solid #dce2d4}
+.session-stats th:first-child,.session-stats td:first-child{text-align:left}
+@media(max-width:700px){.session-dialog{padding:28px 16px}.session-card{padding:10px}}
+.history-row button{padding:8px 12px;border:1px solid #ccd2c2;border-radius:8px}
+.table :is(canvas,button,img,svg),.settings-tile-row,.settings-tile-row *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+
+.meld-cue{position:absolute;z-index:5;display:grid;place-items:center;pointer-events:none;box-shadow:none;min-width:96px;height:72px;font-size:44px;font-weight:700;border:2px solid #ffffff99;background:color-mix(in srgb,var(--action-color) 75%,transparent);color:#fffdf2}
+.meld-cue[hidden]{display:none}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.meld-cue{min-width:72px;height:56px;padding:0 12px;font-size:32px}}
+
+/* One quiet player rail, aligned with the table's existing controls. */
+#actions[hidden],#replay-controls[hidden]{display:none}
+#replay-controls{display:flex;align-items:center;gap:6px;width:100%;max-width:720px;padding:5px 7px;border:1px solid #afc69b55;border-radius:9px;background:#153e32d9;color:#e3efe6;font:12px 'PingFang TC',sans-serif;white-space:nowrap}
+#replay-controls button,#replay-speed{display:grid;place-items:center;flex:none;min-width:30px;height:30px;padding:0;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+#replay-controls button:hover:not(:disabled),#replay-speed:hover{background:#afc69b26}
+#replay-controls button[aria-pressed="true"]{background:#e3efe6;color:#214b39}
+#replay-controls svg{display:block;width:18px;height:18px}
+#replay-speed{width:43px;appearance:none;text-align:center;text-align-last:center}
+#replay-speed option{background:#153e32;color:#e3efe6}
+#replay-label{min-width:42px;text-align:center;font-variant-numeric:tabular-nums;color:#d2dfc7}
+.replay-views{display:flex;align-items:center;gap:2px;padding-left:7px;border-left:1px solid #afc69b55}
+.replay-view-label{margin-right:4px;color:#c2d4c9;font-size:11px}
+#replay-controls .replay-views button{min-width:28px}
+#replay-step{appearance:none;flex:1;min-width:56px;width:0;height:24px;margin:0 2px;background:transparent;cursor:pointer}
+#replay-step::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#afc69b66}
+#replay-step::-webkit-slider-thumb{appearance:none;width:9px;height:9px;margin-top:-3px;border:0;border-radius:50%;background:#e3efe6}
+#replay-step::-moz-range-track{height:3px;border-radius:2px;background:#afc69b66}
+#replay-step::-moz-range-thumb{width:9px;height:9px;border:0;border-radius:50%;background:#e3efe6}
+.replaying .action-bar{left:30%;right:12%;transform:translateY(-100%)}
+.replaying .table-toolbar .brand-name::after{content:' · 重播';color:#fffdf2}
+#replay-controls :focus-visible{outline:2px solid #e3d399;outline-offset:2px}
+#replay-controls :disabled{opacity:.35;cursor:default}
+@media(max-width:950px) and (orientation:landscape),(pointer:coarse) and (max-height:600px) and (orientation:landscape){
+ .replaying .action-bar{left:25%;right:14%}
+}
+@media(max-width:750px){
+ #replay-controls{gap:4px;padding:4px 5px}
+ #replay-controls button{min-width:28px}
+ #replay-controls .replay-views button{min-width:24px}
+ #replay-step{min-width:40px}
+ #replay-speed{width:38px}
+ .replay-views{padding-left:4px}
+ .replay-view-label{display:none}
+}
