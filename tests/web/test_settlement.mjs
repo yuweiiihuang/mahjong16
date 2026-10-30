@@ -34,7 +34,7 @@ function settlementView(winSource = 'TSUMO', flowerWin = null) {
     escapeHtml:value=>String(value).replaceAll('<','&lt;').replaceAll('>','&gt;'),
     labels:{CHI:'吃',ANGANG:'暗槓'},tile:id=>Object.assign(node('tile'),{id}),
     modal:(title,html)=>{resultTitle = title;content = html;}, newGame() {}});
-  vm.runInContext(source.slice(source.indexOf('function showResult(){'),source.indexOf("$('close-modal').onclick")),ctx);
+  vm.runInContext(source.slice(source.indexOf('function showResult('),source.indexOf("$('close-modal').onclick")),ctx);
   ctx.showResult();
   return {elements,state,ctx,content,resultTitle};
 }
@@ -172,7 +172,7 @@ test('result dialog focuses its named heading while other dialogs keep native in
     showModal() {this.open=true;opened++;}},'modal-content':{},
     'modal-title':{focus(options) {assert.equal(options.preventScroll,true);focused++;}}};
   const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
-  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult()')),ctx);
+  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult(')),ctx);
   ctx.modal('贏家 胡牌','<div>結算內容</div>','result-dialog');
   assert.match(nodes['modal-content'].innerHTML,/<h2 id="modal-title" tabindex="-1">贏家 胡牌<\/h2>/);
   assert.equal(focused,1);
@@ -214,11 +214,29 @@ test('replacing settings with a confirmation preserves the table action and its 
     assert.equal(inDialog,false,'table action must move before settings content is replaced');
   }});
   const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
-  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult()')),ctx);
+  vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult(')),ctx);
   ctx.modal('建立新 Session？','確認內容');
   assert.equal(parked[0],action);
   assert.equal(action.disabled,true);
   assert.equal(typeof action.onclick,'function');
   ctx.modal('牌局紀錄','紀錄內容');
   assert.equal(parked.length,1,'already parked actions need no further move');
+});
+
+
+test('historical settlement uses its own final hands and returns without starting a new hand', () => {
+  const {elements,state,ctx} = settlementView('RON');
+  const original = JSON.stringify(state);
+  const past = structuredClone(state);
+  past.totals = [900,800,1300,1000];
+  let returned = false;
+  elements['result-players'].children = [];
+  ctx.showResult(past, ['old A','old B','old C','old D'], () => {returned = true;});
+  assert.match(elements['result-players'].children[0].children[0].innerHTML, /old C/);
+  assert.equal(elements['result-players'].children[0].children[0].children[0]
+    .children[1].children[1].textContent, '1300');
+  assert.equal(elements['result-new'].textContent, '返回紀錄');
+  elements['result-new'].onclick();
+  assert.equal(returned, true);
+  assert.equal(JSON.stringify(state), original);
 });

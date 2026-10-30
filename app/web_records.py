@@ -49,6 +49,7 @@ def practice_summary(head: dict) -> dict:
         'done': head['status'] == 'completed',
         'totals': head['totals_after'] or head['totals_before'],
         'quan_feng': head['quan_feng'], 'dealer': head['dealer'],
+        'seat_winds': head['seat_winds'],
         'resumable': head['recovery_version'] == 1 and
                      head['engine_version'] == engine_version() and head['reason'] in
                      (None, 'server_restart', 'replaced_by_resume', 'session_expired'),

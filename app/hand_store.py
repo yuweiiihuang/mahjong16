@@ -179,6 +179,7 @@ class HandStore:
             json_extract(h.document, '$.settlement') AS result,
             json_extract(h.document, '$.metadata.settlement.payer') AS payer,
             json_extract(h.document, '$.setup.quan_feng') AS quan_feng,
+            json_extract(h.document, '$.setup.seat_winds') AS seat_winds,
             json_extract(h.document, '$.setup.dealer_pid') AS dealer,
             (SELECT MIN(started_at) FROM hands WHERE table_id=h.table_id) AS session_started,
             (SELECT COUNT(*) FROM hands WHERE table_id=h.table_id
@@ -202,7 +203,7 @@ class HandStore:
             cursor.close()
         items = [dict(zip(keys, row)) for row in rows]
         for item in items:
-            for key in ('players', 'totals_before', 'totals_after', 'result'):
+            for key in ('players', 'totals_before', 'totals_after', 'result', 'seat_winds'):
                 item[key] = json.loads(item[key]) if item[key] is not None else None
         return items
 

@@ -3,7 +3,7 @@ import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 import { loadTileImage } from './tile-images.mjs';
 import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
-import { renderScoreChart } from './session-chart.mjs';
+import { renderScoreChart } from './session-chart.mjs?v=session-hover-7';
 import { meldCuePosition } from './meld-cue.mjs?v=right-top-1';
 
 const $ = id => document.getElementById(id);
@@ -339,7 +339,7 @@ function renderActions(){
     return;
   }
   if (state.room && state.done && !state.room.host) {
-    const result = actionButton('結算明細', null); result.onclick = showResult;
+    const result = actionButton('結算明細', null); result.onclick = () => showResult();
     target.append(result); return;
   }
   if (state.phase === 'REACTION' && (state.reaction_choice || pendingReaction)) {
@@ -350,7 +350,7 @@ function renderActions(){
   if (state.room && !state.done && !state.legal_actions.length) {
     return;
   }
-  if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=showResult;target.append(result);return;}
+  if(state.done){const b=actionButton('下一局',null,true);b.onclick=()=>newGame(true);target.append(b);const result=actionButton('結算明細',null);result.onclick=()=>showResult();target.append(result);return;}
   if(state.phase==='TURN'){
     for(const a of state.legal_actions.filter(a=>!['DISCARD','TING'].includes(a.type))) target.append(actionButton(a.type==='HU'&&a.source==='TSUMO'?'自摸':labels[a.type],a,true));
     if (!tingPassed && state.legal_actions.some(action => action.type === 'TING')) {
@@ -586,26 +586,26 @@ function modal(title, content, className = ''){
   if(!$('modal').open)$('modal').showModal();
   if (className === 'result-dialog') $('modal-title').focus({preventScroll:true});
 }
-function showResult(){
-  if (replay) return;
-  const winner = state.winner, result = state.settlement;
+function showResult(snapshot = state, playerNames = names, onBack = null){
+  if (replay && !onBack) return;
+  const winner = snapshot.winner, result = snapshot.settlement;
   const flower = {qi_qiang_yi:'七搶一', ba_xian:'八仙過海'}[result.flower_win_type];
-  const title = winner === null ? '流局' : flower || (state.win_source === 'TSUMO' ? '自摸' : '胡牌');
-  const seats = [...state.seating_order];
+  const title = winner === null ? '流局' : flower || (snapshot.win_source === 'TSUMO' ? '自摸' : '胡牌');
+  const seats = [...snapshot.seating_order];
   const start = winner === null ? 0 : seats.indexOf(winner);
   const order = [...seats.slice(start), ...seats.slice(0, start)];
-  modal(winner === null ? title : `${names[winner]} ${title}`, `<p class="result-caption">第 ${state.round} 局 · ${winner === null ? '本局無輸贏' : `底 ${result.base_points} · 每台 ${result.tai_points}`}</p><div id="result-players" role="region" aria-label="四家結算" tabindex="0"></div><div class="result-actions"><button class="modal-primary" id="result-new">下一局　→</button></div>`, 'result-dialog');
+  modal(winner === null ? title : `${playerNames[winner]} ${title}`, `<p class="result-caption">第 ${snapshot.round} 局 · ${winner === null ? '本局無輸贏' : `底 ${result.base_points} · 每台 ${result.tai_points}`}</p><div id="result-players" role="region" aria-label="四家結算" tabindex="0"></div><div class="result-actions"><button class="modal-primary" id="result-new">下一局　→</button></div>`, 'result-dialog');
   for (const pid of order) {
-    const player = state.final_hands?.[pid];
+    const player = snapshot.final_hands?.[pid];
     const card = document.createElement('section');
     card.className = `result-player${pid === winner ? ' result-winner' : ''}`;
-    card.setAttribute('data-wind', state.seat_winds[pid]);
+    card.setAttribute('data-wind', snapshot.seat_winds[pid]);
     const header = document.createElement('div'); header.className = 'result-player-heading';
-    const name = escapeHtml(names[pid]);
-    const wind = winds[['E','S','W','N'].indexOf(state.seat_winds[pid])];
-    header.innerHTML = `<div class="result-identity"><span class="result-wind" aria-label="${wind}家">${wind}</span><div class="result-person"><div class="result-name-line"><strong title="${name}">${name}</strong>${pid === 0 ? '<span class="result-self">你</span>' : ''}</div><span class="result-status">${state.dealer === pid ? '<span class="dealer">莊家</span>' : ''}${pid === winner ? '<span class="result-badge">胡牌</span>' : ''}${pid === result.payer ? '<span class="result-payer">放槍</span>' : ''}</span></div></div>`;
+    const name = escapeHtml(playerNames[pid]);
+    const wind = winds[['E','S','W','N'].indexOf(snapshot.seat_winds[pid])];
+    header.innerHTML = `<div class="result-identity"><span class="result-wind" aria-label="${wind}家">${wind}</span><div class="result-person"><div class="result-name-line"><strong title="${name}">${name}</strong>${pid === 0 ? '<span class="result-self">你</span>' : ''}</div><span class="result-status">${snapshot.dealer === pid ? '<span class="dealer">莊家</span>' : ''}${pid === winner ? '<span class="result-badge">胡牌</span>' : ''}${pid === result.payer ? '<span class="result-payer">放槍</span>' : ''}</span></div></div>`;
     const points = document.createElement('div'); points.className = 'result-points';
-    for (const [label, value] of [['本局', result.payments[pid]], ['累積', state.totals[pid]]]) {
+    for (const [label, value] of [['本局', result.payments[pid]], ['累積', snapshot.totals[pid]]]) {
       const amount = document.createElement('span');
       const caption = document.createElement('small'); caption.textContent = label;
       const number = document.createElement('strong');
@@ -616,7 +616,7 @@ function showResult(){
     header.append(points); card.append(header);
     const tiles = document.createElement('div'); tiles.className = 'result-tiles';
     const handRun = document.createElement('div'); handRun.className = 'result-hand-run';
-    const melds = player?.melds ?? state.players[pid].melds.filter(m => m.tiles.every(id => id !== null));
+    const melds = player?.melds ?? snapshot.players[pid].melds.filter(m => m.tiles.every(id => id !== null));
     const meldOrder = sortHand(melds.map(m => Math.min(...m.tiles)), sortOrder);
     const sortedMelds = [...melds].sort((a, b) =>
       meldOrder.indexOf(Math.min(...a.tiles)) - meldOrder.indexOf(Math.min(...b.tiles)));
@@ -626,7 +626,7 @@ function showResult(){
       group.setAttribute('role', 'group'); group.setAttribute('aria-label', label); group.title = label;
       for (const id of ids) {
         const face = tile(id);
-        if (kind === 'flowers' && pid === winner && id === state.win_tile) face.classList.add('result-winning-tile');
+        if (kind === 'flowers' && pid === winner && id === snapshot.win_tile) face.classList.add('result-winning-tile');
         group.append(face);
       }
       (['concealed','drawn','winning'].includes(kind) ? handRun : tiles).append(group);
@@ -635,26 +635,26 @@ function showResult(){
       addGroup([...player.flowers].sort((a, b) => a - b), 'flowers', '花牌');
       for (const meld of sortedMelds) addGroup(sortHand(meld.tiles, sortOrder), 'meld', labels[meld.type] || meld.type);
       addGroup(sortHand(player.hand, sortOrder), 'concealed', '手牌');
-      const winning = pid === winner && state.win_tile !== null
-        && !(result.flower_win_type && player.flowers.includes(state.win_tile));
-      if (player.drawn !== null && (!winning || player.drawn !== state.win_tile)) addGroup([player.drawn], 'drawn', '摸牌');
-      if (winning) addGroup([state.win_tile], 'winning', title);
+      const winning = pid === winner && snapshot.win_tile !== null
+        && !(result.flower_win_type && player.flowers.includes(snapshot.win_tile));
+      if (player.drawn !== null && (!winning || player.drawn !== snapshot.win_tile)) addGroup([player.drawn], 'drawn', '摸牌');
+      if (winning) addGroup([snapshot.win_tile], 'winning', title);
     } else {
       // Older running tables can still show the previously available winner tiles.
-      addGroup([...(pid === winner && result.flower_win_type ? state.winning_hand || [] : state.players[pid].flowers)].sort((a, b) => a - b), 'flowers', '花牌');
+      addGroup([...(pid === winner && result.flower_win_type ? snapshot.winning_hand || [] : snapshot.players[pid].flowers)].sort((a, b) => a - b), 'flowers', '花牌');
       for (const meld of sortedMelds) addGroup(sortHand(meld.tiles, sortOrder), 'meld', labels[meld.type]);
-      if (pid === winner && !result.flower_win_type) addGroup(sortHand(state.winning_hand || [], sortOrder), 'concealed', '手牌');
+      if (pid === winner && !result.flower_win_type) addGroup(sortHand(snapshot.winning_hand || [], sortOrder), 'concealed', '手牌');
     }
     if (handRun.children.length) tiles.append(handRun);
     card.append(tiles);
-    if (pid === winner || (winner !== null && pid === state.dealer && result.payments[pid] < 0)) {
+    if (pid === winner || (winner !== null && pid === snapshot.dealer && result.payments[pid] < 0)) {
       const expandable = pid === winner
         ? result.tai > 0 && result.breakdown.length > 0 : result.payments[pid] < 0;
       const details = document.createElement(expandable ? 'details' : 'div');
       details.className = 'result-scoring';
       if (pid === winner && expandable) details.open = true;
       const summary = document.createElement(expandable ? 'summary' : 'span');
-      const streak = state.dealer_streak || 0;
+      const streak = snapshot.dealer_streak || 0;
       summary.textContent = pid === winner ? `胡牌 ${result.tai} 台`
         : `莊・連 ${streak}　${result.payments[pid] < 0 ? `加 ${2 * streak + 1} 台` : '本局未收付'}`;
       details.append(summary);
@@ -671,18 +671,29 @@ function showResult(){
         const payment = -result.payments[pid];
         addScore('基本收付', `${basic}`);
         addScore(`莊家加台　${2 * streak + 1} × ${result.tai_points}`, `${payment - basic}`);
-        addScore(`付給 ${names[winner]}`, `${payment}`);
+        addScore(`付給 ${playerNames[winner]}`, `${payment}`);
       }
       card.append(details);
     }
     $('result-players').append(card);
   }
-  $('result-new').disabled = !!state.room && !state.room.host;
-  if (state.room && !state.room.host) $('result-new').textContent = '等待房主開啟下一局';
+  if (onBack) {
+    $('result-new').textContent = '返回紀錄';
+    $('result-new').onclick = onBack;
+    return;
+  }
+  $('result-new').disabled = !!snapshot.room && !snapshot.room.host;
+  if (snapshot.room && !snapshot.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick = () => newGame(true);
 }
 $('close-modal').onclick=()=>$('modal').close();
-$('modal').onclick=e=>{if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
+$('modal').addEventListener('cancel', event => {
+  const help = $('modal').querySelector('.session-help[open]');
+  if (!help) return;
+  event.preventDefault(); help.open = false;
+  help.querySelector('summary').focus({preventScroll:true});
+});
+$('modal').onclick=e=>{const help=$('modal').querySelector('.session-help[open]');if(help&&!help.contains(e.target)){help.open=false;return;}if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
 $('sound').onclick=()=>{sound=!sound;localStorage.setItem('qinghe-sound',sound);updateSound();beep();toast(sound?'音效已開啟':'音效已關閉');};
 function updateSound(){$('sound').innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/>${sound?'<path d="M16 8q4 4 0 8M19 5q7 7 0 14"/>':'<path d="m17 9 5 6m0-6-5 6"/>'}</svg>`;$('sound').setAttribute('aria-label',sound?'關閉音效':'開啟音效');$('sound').setAttribute('aria-pressed',String(sound));}
 updateSound();
@@ -890,99 +901,208 @@ $('settings').onclick=()=>{
   };
 };
 $('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新 Session？','<p>原 Session 的分數、紀錄與接續入口都會保留。新 Session 每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新 Session</button>');$('confirm-new').onclick=()=>newGame();};
-$('hand-history').onclick = showHistory;
-async function showHistory() {
+function refreshSessionHeaders() {
+  const list = $('session-list');
+  if (!list) return;
+  const top = list.getBoundingClientRect().top;
+  for (const table of list.querySelectorAll('.session-table-scroll')) {
+    const bounds = table.getBoundingClientRect();
+    const header = table.querySelector('thead')?.getBoundingClientRect().height || 0;
+    const offset = Math.max(0, Math.min(top - bounds.top, bounds.height - header));
+    table.style.setProperty('--table-head-top', `${offset}px`);
+  }
+}
+window.addEventListener('resize', refreshSessionHeaders);
+$('hand-history').onclick = () => showHistory();
+function historyAction(label, icon, action) {
+  const button = document.createElement('button');
+  button.className = 'history-action'; button.title = label;
+  button.setAttribute('aria-label', label);
+  button.innerHTML = icon;
+  button.onclick = action;
+  return button;
+}
+async function showHistoricalResult(id, returnButton) {
+  if (busy || replay) return;
+  const list = $('session-list');
+  const content = [...$('modal-content').childNodes];
+  const scrollPositions = [list, ...list.querySelectorAll('.session-table-scroll')]
+    .map(node => ({node, top:node.scrollTop, left:node.scrollLeft}));
+  busy = true;
   try {
-    const [{hands}, {sessions}] = await Promise.all([
-      request('/api/history'), request('/api/sessions'),
-    ]);
-    modal('我的 Session／牌局紀錄', '<p>單人 Session 各自保留累計分數，隨時從最新進度接續。完成第一局後正式成立；首局未完也會保存同一副牌。展開查看完整統計與各局紀錄。</p><div id="session-list"></div><h3>近期單局紀錄</h3><p>最近 100 局，包含朋友對局。</p><div id="record-list" class="history-scroll"></div>', 'session-dialog');
+    const {frames} = await request(`/api/replay?hand_id=${encodeURIComponent(id)}`);
+    if (!$('modal').open || $('session-list') !== list) return;
+    const snapshot = frames?.at(-1)?.state;
+    if (!snapshot?.done || !snapshot.settlement) throw new Error('找不到完整的結算紀錄。');
+    showResult(snapshot, snapshot.replay_names, () => {
+      $('modal').className = 'session-dialog';
+      $('modal-content').replaceChildren(...content);
+      for (const {node, top, left} of scrollPositions) {
+        node.scrollTop = top; node.scrollLeft = left;
+      }
+      refreshSessionHeaders();
+      returnButton.focus({preventScroll:true});
+    });
+  } catch (error) { toast(error.message); }
+  finally { busy = false; }
+}
+async function showHistory(openSessionId = null) {
+  try {
+    const {sessions} = await request('/api/sessions');
+    let currentReady = false;
+    if (!state?.room && sessions.some(session => session.id === state?.session_id)) {
+      try { await request('/api/state'); currentReady = true; } catch {}
+    }
+    openSessionId ??= sessions[0]?.id;
+    modal('Session 紀錄', '<details class="session-help"><summary aria-label="Session 與統計說明" title="Session 與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>每個 Session 保留獨立積分，可從最新進度繼續。</li><li>首局未完也會保存原牌；完成第一局後正式成立。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計；配色依查看時最新保存的門風。</li><li>舊引擎紀錄可查看統計，無法開啟重播與牌面結算。</li></ul></div></details><div id="session-list" role="region" aria-label="Session 清單" tabindex="0"></div>', 'session-dialog');
     const sessionList = $('session-list');
-    if (!sessions.length) sessionList.textContent = '尚無單人 Session。';
+    sessionList.onscroll = refreshSessionHeaders;
+    if (!sessions.length) sessionList.textContent = '尚無單人 Session，開始對局後會自動保存。';
     for (const session of sessions) {
       const card = document.createElement('details'); card.className = 'session-card';
       const summary = document.createElement('summary');
-      summary.textContent = `${new Date(session.started_at).toLocaleString()} · ${session.established ? '單人 Session' : '首局待完成'} · 已完成 ${session.completed_hands} 局${session.id === state?.session_id ? ' · 目前牌桌' : ''}`;
-      const info = document.createElement('p');
-      info.textContent = `ID ${session.id} · 第 ${session.round} 局${session.done ? '已結算' : '進行中'} · ${winds[['E','S','W','N'].indexOf(session.quan_feng)]}風圈 · 莊家 ${session.players[session.dealer]}`;
-      const totals = document.createElement('p');
-      totals.textContent = session.players.map((name, pid) => `${name} ${session.totals[pid]} 點`).join(' ／ ');
-      card.append(summary, info, totals);
-      if (session.resumable) {
-        const resume = document.createElement('button'); resume.textContent = '繼續此 Session';
-        resume.onclick = () => resumeHand(session.hand_id); card.append(resume);
-      } else {
-        const warning = document.createElement('p');
-        warning.textContent = '此紀錄缺少相容續局資訊，仍可查看統計。'; card.append(warning);
+      const date = document.createElement('strong');
+      date.textContent = new Date(session.started_at).toLocaleString();
+      const progress = document.createElement('span');
+      progress.textContent = session.established ? `已完成 ${session.completed_hands} 局` : '首局待完成';
+      const id = document.createElement('span'); id.className = 'session-id';
+      id.textContent = `ID ${session.id.slice(0,8)}`; id.title = `ID ${session.id}`;
+      summary.append(date, progress, id);
+      if (session.id === state?.session_id) {
+        const badge = document.createElement('span'); badge.className = 'session-current';
+        badge.textContent = '目前牌桌'; summary.append(badge);
       }
-      const content = document.createElement('div'); card.append(content);
+      const body = document.createElement('div'); body.className = 'session-body';
+      if (session.resumable) {
+        const resume = document.createElement('button'); resume.className = 'session-resume';
+        resume.textContent = '繼續此 Session';
+        resume.disabled = session.id === state?.session_id && currentReady;
+        if (session.id === state?.session_id && !currentReady) {
+          resume.textContent = '恢復此 Session'; resume.title = '從最後保存的進度恢復';
+        }
+        if (resume.disabled) resume.title = '目前正在此 Session';
+        resume.onclick = event => { event.stopPropagation(); resumeHand(session.hand_id); };
+        summary.append(resume);
+      } else {
+        const warning = document.createElement('span'); warning.textContent = '僅供查閱';
+        summary.append(warning);
+      }
+      const content = document.createElement('div'); content.className = 'session-detail';
+      body.append(content); card.append(summary, body);
       let loaded = false, loading = false;
       card.ontoggle = async () => {
+        refreshSessionHeaders();
         if (!card.open || loaded || loading) return;
         loading = true; content.textContent = '載入統計…';
         try {
           const detail = await request(`/api/session?session_id=${encodeURIComponent(session.id)}`);
           content.replaceChildren();
-          if (detail.points.length > 1) content.append(renderScoreChart(detail.points, detail.players));
-          const caption = document.createElement('p');
-          const patterns = ['綠實線', '橘長虛線', '藍短虛線', '紫點畫線'];
-          caption.textContent = (detail.points.length > 1
-            ? detail.players.map((name, pid) => `${name}：${patterns[pid]}`).join(' ／ ')
-            : '完成第一局後顯示分數走勢。') + ` 流局 ${detail.draws} 局。`;
-          content.append(caption);
+          const scores = document.createElement('div'); scores.className = 'session-scores';
+          const rankings = document.createElement('ol'); rankings.className = 'session-rankings';
+          const renderRankings = totals => {
+            rankings.replaceChildren();
+            const ranked = [0,1,2,3].sort((a,b) => totals[b]-totals[a] || a-b);
+            ranked.forEach(pid => {
+              const item = document.createElement('li');
+              item.className = 'seat-person'; item.dataset.player = pid; item.dataset.wind = detail.seat_winds[pid];
+              const avatar = document.createElement('div'); avatar.className = `avatar a${pid}`;
+              avatar.textContent = Array.from(detail.players[pid])[0]; avatar.setAttribute('aria-hidden','true');
+              const info = document.createElement('div'); info.className = 'player-info';
+              const person = document.createElement('strong'); person.className = 'player-name';
+              const wind = winds[['E','S','W','N'].indexOf(detail.seat_winds[pid])];
+              person.textContent = detail.players[pid]; person.title = `${wind}家：${detail.players[pid]}`;
+              const total = document.createElement('small');
+              total.textContent = `${totals[pid].toLocaleString()} 點`;
+              info.append(person, total);
+              const rank = document.createElement('span'); rank.className = 'session-rank-tag';
+              const place = ranked.findIndex(other => totals[other] === totals[pid]) + 1;
+              rank.textContent = `第 ${place} 名`;
+              item.append(avatar, info, rank); rankings.append(item);
+            });
+          };
+          if (detail.points.length > 1) {
+            scores.append(renderScoreChart(detail.points, detail.players, detail.seat_winds, point => renderRankings(point.totals)));
+          } else {
+            renderRankings(detail.totals);
+            const empty = document.createElement('p'); empty.className = 'session-chart-empty';
+            empty.textContent = '完成第一局後顯示分數走勢'; scores.append(empty);
+          }
+          scores.append(rankings); content.append(scores);
+          const heading = document.createElement('h3'); heading.textContent = '四家統計';
           const stats = document.createElement('table'); stats.className = 'session-stats';
           const header = document.createElement('tr');
-          for (const text of ['玩家', '目前分數', '胡牌', '自摸', '放槍', '平均每局收付']) {
-            const cell = document.createElement('th'); cell.textContent = text; header.append(cell);
+          for (const text of ['玩家', '累計分數', '和牌', '和牌率', '自摸', '自摸率', '放槍', '放槍率', '平均收付']) {
+            const cell = document.createElement('th'); cell.scope = 'col'; cell.textContent = text; header.append(cell);
           }
-          stats.append(header);
+          const head = document.createElement('thead'); head.append(header); stats.append(head);
+          const rows = document.createElement('tbody');
+          const count = detail.hands.length;
+          const rate = value => count ? `${(value / count * 100).toFixed(1)}%` : '—';
           detail.seats.forEach((seat, pid) => {
+            const row = document.createElement('tr'); row.dataset.wind = detail.seat_winds[pid];
+            [detail.players[pid], detail.totals[pid].toLocaleString(), seat.wins, rate(seat.wins),
+              seat.tsumo, rate(seat.tsumo), seat.deal_ins, rate(seat.deal_ins),
+              seat.average_payment.toFixed(1)].forEach((text, column) => {
+              const cell = document.createElement(column === 0 ? 'th' : 'td');
+              if (column === 0) cell.scope = 'row';
+              cell.textContent = text; row.append(cell);
+            });
+            rows.append(row);
+          });
+          stats.append(rows);
+          const scroll = document.createElement('div'); scroll.className = 'session-table-scroll';
+          scroll.setAttribute('role','region'); scroll.setAttribute('aria-label','四家統計');
+          scroll.tabIndex = 0; scroll.append(stats); content.append(heading, scroll);
+          const recordHeading = document.createElement('h3');
+          recordHeading.textContent = `逐局紀錄（${count} 局，流局 ${detail.draws} 局）`;
+          const history = document.createElement('table'); history.className = 'session-records';
+          const recordHead = document.createElement('thead');
+          const titles = document.createElement('tr');
+          for (const text of ['局', '結果', '和牌者', '台數', ...detail.players, '重播', '結算']) {
+            const cell = document.createElement('th'); cell.scope = 'col'; cell.textContent = text;
+            cell.title = text; titles.append(cell);
+          }
+          recordHead.append(titles); history.append(recordHead);
+          const records = document.createElement('tbody');
+          detail.hands.map((hand, index) => ({hand, point:detail.points[index+1]})).reverse().forEach(({hand, point}) => {
             const row = document.createElement('tr');
-            for (const text of [detail.players[pid], detail.totals[pid], seat.wins,
-              seat.tsumo, seat.deal_ins, seat.average_payment.toFixed(1)]) {
+            for (const text of [hand.round, hand.winner === null ? '流局' : hand.win_source === 'TSUMO' ? '自摸' : '和牌',
+              hand.winner === null ? '—' : detail.players[hand.winner], hand.tai ?? '—']) {
               const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
             }
-            stats.append(row);
-          });
-          const scroll = document.createElement('div'); scroll.className = 'session-stats-scroll';
-          scroll.append(stats); content.append(scroll);
-          const history = document.createElement('div'); history.className = 'history-scroll';
-          for (const hand of [...detail.hands].reverse()) {
-            const row = document.createElement('div'); row.className = 'history-row';
-            const label = document.createElement('span'); label.className = 'history-info';
-            label.textContent = `第 ${hand.round} 局 · ${hand.winner === null ? '流局' : `${detail.players[hand.winner]} ${hand.win_source === 'TSUMO' ? '自摸' : '胡牌'} ${hand.tai} 台`} · 結算 ${detail.points[detail.hands.indexOf(hand) + 1].totals.join(' ／ ')} 點`;
-            row.append(label);
-            if (hand.replayable) {
-              const replay = document.createElement('button'); replay.textContent = '重播';
-              replay.onclick = () => showReplay(hand.id); row.append(replay);
+            point.totals.forEach((value, pid) => {
+              const cell = document.createElement('td'); cell.dataset.wind = detail.seat_winds[pid];
+              const total = document.createElement('span'); total.textContent = value.toLocaleString();
+              const payment = document.createElement('small'); const amount = hand.payments[pid];
+              payment.className = amount > 0 ? 'points-positive' : amount < 0 ? 'points-negative' : '';
+              payment.textContent = `${amount > 0 ? '+' : ''}${amount}`;
+              cell.append(total, payment); row.append(cell);
+            });
+            const actions = [
+              historyAction(`重播第 ${hand.round} 局`, replayIcon('play'), () => showReplay(hand.id)),
+              historyAction(`查看第 ${hand.round} 局結算`, '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>', event => showHistoricalResult(hand.id, event.currentTarget)),
+            ];
+            for (const action of actions) {
+              const cell = document.createElement('td'); cell.className = 'history-actions';
+              if (hand.replayable) cell.append(action); else cell.textContent = '—';
+              row.append(cell);
             }
-            history.append(row);
-          }
-          content.append(history); loaded = true;
+            records.append(row);
+          });
+          history.append(records);
+          const recordScroll = document.createElement('div');
+          recordScroll.className = 'session-table-scroll session-records-scroll';
+          recordScroll.setAttribute('role','region'); recordScroll.setAttribute('aria-label','逐局紀錄');
+          recordScroll.tabIndex = 0; recordScroll.append(history);
+          const caption = document.createElement('p'); caption.className = 'session-record-caption';
+          caption.textContent = '分數上排為累計，下排為本局收付';
+          content.append(recordHeading, caption, recordScroll); loaded = true;
+          refreshSessionHeaders();
         } catch (error) { content.textContent = error.message; }
         finally { loading = false; }
       };
       sessionList.append(card);
-    }
-    const list = $('record-list');
-    if (!hands.length) list.textContent = '尚無牌局紀錄。';
-    for (const hand of hands) {
-      const row = document.createElement('div'); row.className = 'history-row';
-      const info = document.createElement('span'); info.className = 'history-info';
-      const outcome = hand.payment === null ? '未完成' : hand.winner
-        ? `${hand.winner} ${hand.win_source === 'TSUMO' ? '自摸' : '胡牌'} ${hand.tai} 台 · 你 ${hand.payment > 0 ? '+' : ''}${hand.payment} 點`
-        : '流局';
-      info.textContent = `${hand.source === 'multiplayer' ? '朋友對局' : '練習'} · ${new Date(hand.started_at).toLocaleString()} · 第 ${hand.round} 局 · ${outcome}`;
-      row.append(info);
-      for (const [enabled, text, action] of [
-        [hand.replayable, '重播', () => showReplay(hand.id)],
-        [hand.resumable, '繼續此桌', () => resumeHand(hand.id)],
-      ]) {
-        if (!enabled) continue;
-        const button = document.createElement('button'); button.textContent = text;
-        button.onclick = action; row.append(button);
-      }
-      list.append(row);
+      if (session.id === openSessionId) card.open = true;
     }
   } catch (error) { toast(error.message); }
 }

@@ -85,6 +85,8 @@ def test_session_statistics_include_old_hands_draws_and_enforce_ownership(tmp_pa
         totals = [1000] * 4
         for index in range(1, 103):
             document = deepcopy(template)
+            document['setup']['seat_winds'] = (
+                ['W', 'N', 'E', 'S'] if index == 102 else ['E', 'S', 'W', 'N'])
             document.update(hand_id=f'summary-{index}', status='completed', settlement={
                 'winner': 0 if index <= 101 else None,
                 'win_source': 'RON' if index <= 101 else None,
@@ -105,6 +107,7 @@ def test_session_statistics_include_old_hands_draws_and_enforce_ownership(tmp_pa
         assert detail['totals'] == [4030, -2030, 1000, 1000]
         assert detail['points'][0]['totals'] == [1000] * 4
         assert detail['points'][-1]['totals'] == detail['totals']
+        assert detail['seat_winds'] == ['W', 'N', 'E', 'S']
         assert detail['seats'][0]['wins'] == detail['seats'][0]['ron'] == 101
         assert detail['seats'][1]['deal_ins'] == 101
         assert detail['seats'][0]['net'] == 3030
