@@ -70,7 +70,11 @@ def test_lobby_handoff_retry_and_private_export(store):
     assert private_state(replay_hand(saved)) == private_state(room.table.env)
     snapshot = room.snapshot('private-cookie-host')
     assert all(key not in snapshot for key in ('metadata', 'setup', 'initial_state', 'steps'))
-    assert saved['metadata']['table_id'] not in json.dumps(snapshot)
+    # Session IDs identify the current card; participant IDs remain private.
+    assert snapshot['session_id'] == saved['metadata']['table_id']
+    people = saved['metadata']['players'] + saved['metadata']['seat_events']
+    assert all(person['player_id'] not in json.dumps(snapshot)
+               for person in people if person.get('player_id'))
 
 
 def test_completed_settlement_backup_and_restart_preserve_records(store, tmp_path):

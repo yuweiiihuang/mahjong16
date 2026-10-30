@@ -317,6 +317,7 @@ main{height:100%;padding:0}
 .session-card>summary::-webkit-details-marker{display:none}
 .session-card>summary::before{content:'';width:6px;height:6px;flex:none;border-right:1.5px solid;border-bottom:1.5px solid;transform:rotate(-45deg);margin-right:4px}
 .session-card[open]>summary::before{transform:rotate(45deg)}
+.session-mode{font-size:12px;color:#536957}
 .session-card>summary strong{font-size:14px;color:#173d35}
 .session-card[open]>summary{border-bottom:1px solid #dce2d4;background:#eef3e9}
 .session-current{margin-left:0;padding:3px 6px;border-radius:3px;background:#e5ecd8;color:#456243;white-space:nowrap}
@@ -344,6 +345,9 @@ main{height:100%;padding:0}
 .chart-active-tick{font-weight:600;color:#173d35;background:#fffdf9}
 .chart-guide{position:absolute;top:0;bottom:0;border-left:1px solid #839686;pointer-events:none}
 .chart-point{position:absolute;width:8px;height:8px;transform:translate(-50%,-50%);border:1px solid #fffdf9;border-radius:50%;pointer-events:none}
+.chart-replay{position:absolute;right:0;bottom:0;display:grid;place-items:center;width:28px;height:28px;color:#536957;border:1px solid #d0d8c8;border-radius:6px;background:transparent}
+.chart-replay:hover{background:#eef3e9}.chart-replay:focus-visible{outline:2px solid #759b74;outline-offset:2px}
+.chart-replay svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .chart-axis-label{position:absolute;left:48px;right:8px;bottom:0;text-align:center;color:#536957;font-size:12px;line-height:24px}
 .chart-plot,.chart-ticks{cursor:crosshair}
 .session-chart:focus-visible{outline:2px solid #759b74;outline-offset:3px}

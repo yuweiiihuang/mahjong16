@@ -380,7 +380,7 @@ class WebTable:
                          'flowers': list(p.flowers), 'melds': deepcopy(p.melds),
                          'ting': p.declared_ting} for p in env.players],
         })
-        if self.record_source == 'practice' and self.recording_enabled:
+        if self.recording_enabled:
             result['session_id'] = self.table_id
         # Playback must not reveal opponents' concealed kongs or declared waits.
         for event in result['events']:
@@ -624,8 +624,9 @@ class WebHandler(SimpleHTTPRequestHandler):
         sid = self.identity()
         with self.session_lock:
             if self.sessions[sid] is None:
-                heads = (self.record_store.practice_hands(self.player_id, heads=True)
-                         if self.record_store and self.player_id else [])
+                heads = (self.record_store.session_hands(
+                    self.player_id, heads=True, practice_only=True)
+                    if self.record_store and self.player_id else [])
                 # Legacy records remain history, not abandoned resumable deals.
                 heads = [head for head in heads if head['recovery_version'] is not None]
                 if heads:
@@ -672,18 +673,18 @@ class WebHandler(SimpleHTTPRequestHandler):
         try:
             if path.path in ('/api/history', '/api/replay', '/api/sessions', '/api/session'):
                 from app.web_records import (
-                    history, replay_frames, practice_summary, practice_statistics,
+                    history, replay_frames, session_summary, session_statistics,
                 )
 
                 sid = self.identity()
                 if self.record_store is None or self.player_id is None:
                     raise ValueError('目前未啟用牌譜保存。')
                 if path.path == '/api/sessions':
-                    data = {'sessions': [practice_summary(head) for head in reversed(
-                        self.record_store.practice_hands(self.player_id, heads=True))]}
+                    data = {'sessions': [session_summary(head) for head in reversed(
+                        self.record_store.session_hands(self.player_id, heads=True))]}
                 elif path.path == '/api/session':
                     table_id = parse_qs(path.query).get('session_id', [''])[0]
-                    data = practice_statistics(self.record_store, self.player_id, table_id)
+                    data = session_statistics(self.record_store, self.player_id, table_id)
                 elif path.path == '/api/history':
                     data = {'hands': history(self.record_store, self.player_id)}
                 else:
@@ -871,7 +872,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                         if not table.env.done:
                             raise ValueError('本局尚未結束，請先打完再開新 Session。')
                         if self.record_store and self.player_id:
-                            heads = self.record_store.practice_hands(self.player_id, heads=True)
+                            heads = self.record_store.session_hands(
+                                self.player_id, heads=True, practice_only=True)
                             if any(head['recovery_version'] is not None and
                                    head['status'] != 'completed' for head in heads):
                                 raise ValueError('另有尚未打完的單人牌局，請從紀錄返回完成。')

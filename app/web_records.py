@@ -14,7 +14,9 @@ def viewer_seat(document: dict, player_id: str, *, current: bool = False) -> int
     matches = [pid for pid, player in enumerate(players) if player['player_id'] == player_id]
     if not current:
         matches.extend(event['pid'] for event in metadata.get('seat_events', [])
-                       if event['player_id'] == player_id and 'pid' in event)
+                       if event['player_id'] == player_id and 'pid' in event
+                       and (document['status'] != 'completed'
+                            or event['after_seq'] < len(document['steps'])))
     if not matches:
         raise ValueError('找不到你的牌局紀錄。')
     return matches[-1]
@@ -37,12 +39,18 @@ def can_resume(document: dict, store: HandStore, player_id: str) -> bool:
     return True
 
 
-def practice_summary(head: dict) -> dict:
+def _player_names(players: list[dict]) -> list[str]:
+    """Use saved human names and the table's canonical names for bot seats."""
+    return [player['name'] if player['human'] else name for player, name in
+            zip(players, ['電腦玩家', '陳予安', '林小滿', '周子墨'])]
+
+
+def session_summary(head: dict) -> dict:
     """Describe one durable session without disclosing any concealed game state."""
-    names = [player['name'] if player['human'] else name for player, name in
-             zip(head['players'], ['玩家', '陳予安', '林小滿', '周子墨'])]
+    names = _player_names(head['current_players'] or head['players'])
     return {
         'id': head['table_id'], 'hand_id': head['hand_id'], 'players': names,
+        'source': head['source'], 'room_code': head['room_code'],
         'started_at': head['session_started'], 'round': head['round'],
         'completed_hands': head['completed_hands'],
         'established': head['completed_hands'] > 0,
@@ -50,17 +58,18 @@ def practice_summary(head: dict) -> dict:
         'totals': head['totals_after'] or head['totals_before'],
         'quan_feng': head['quan_feng'], 'dealer': head['dealer'],
         'seat_winds': head['seat_winds'],
-        'resumable': head['recovery_version'] == 1 and
+        'resumable': head['current_participant'] and head['recovery_version'] == 1 and
                      head['engine_version'] == engine_version() and head['reason'] in
-                     (None, 'server_restart', 'replaced_by_resume', 'session_expired'),
+                     ((None, 'server_restart', 'replaced_by_resume', 'session_expired')
+                      if head['source'] == 'practice' else (None, 'server_restart')),
     }
 
 
-def practice_statistics(store: HandStore, player_id: str, table_id: str) -> dict:
+def session_statistics(store: HandStore, player_id: str, table_id: str) -> dict:
     """Aggregate every settled hand, including zero-payment draws, in one owned session."""
-    hands = store.practice_hands(player_id, table_id=table_id)
+    hands = store.session_hands(player_id, table_id=table_id)
     if not hands:
-        raise ValueError('找不到你的單人 Session。')
+        raise ValueError('找不到你的 Session。')
     seats = [{'wins': 0, 'tsumo': 0, 'ron': 0, 'deal_ins': 0, 'net': 0} for _ in range(4)]
     points = [{'round': 0, 'totals': hands[0]['totals_before']}]
     records = []
@@ -84,12 +93,13 @@ def practice_statistics(store: HandStore, player_id: str, table_id: str) -> dict
             'id': hand['hand_id'], 'round': hand['round'], 'winner': winner,
             'win_source': result['win_source'], 'payments': result['payments'],
             'tai': result['tai'][winner] if winner is not None else None,
-            'replayable': hand['engine_version'] == engine_version(),
+            'players': _player_names(hand['players']),
+            'replayable': hand['participant'] and hand['engine_version'] == engine_version(),
         })
     count = len(records)
     for seat in seats:
         seat['average_payment'] = seat['net'] / count if count else 0
-    return {**practice_summary(hands[-1]), 'seats': seats, 'draws': draws,
+    return {**session_summary(hands[-1]), 'seats': seats, 'draws': draws,
             'points': points, 'hands': records}
 
 
@@ -97,7 +107,10 @@ def history(store: HandStore, player_id: str) -> list[dict]:
     """Return the last 100 participant records, excluding private state and credentials."""
     items = []
     for document in store.player_records(player_id):
-        seat = viewer_seat(document, player_id)
+        try:
+            seat = viewer_seat(document, player_id)
+        except ValueError:
+            continue  # A post-settlement join grants a current seat, not past concealed hands.
         metadata = document['metadata']
         result = document['settlement']
         winner = result['winner'] if result else None
@@ -170,6 +183,8 @@ def replay_frames(document: dict, player_id: str, viewer: int | None = None) -> 
         return {'seq': seq, 'event': public_event, 'state': state}
 
     def seat_changes(seq: int) -> None:
+        if env.done:
+            return  # Later lobby changes must not rename the settled hand.
         for change in document['metadata'].get('seat_events', []):
             if change['after_seq'] == seq:
                 table.record_players[change['pid']].update(

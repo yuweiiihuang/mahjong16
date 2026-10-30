@@ -3,7 +3,7 @@ import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
 import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
 import { loadTileImage } from './tile-images.mjs';
 import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
-import { renderScoreChart } from './session-chart.mjs?v=session-hover-7';
+import { renderScoreChart } from './session-chart.mjs?v=session-reveal-1';
 import { meldCuePosition } from './meld-cue.mjs?v=right-top-1';
 
 const $ = id => document.getElementById(id);
@@ -577,13 +577,13 @@ async function newGame(next = false){
   try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done && !next)toast('新牌桌開始，每位玩家 1,000 點。');}
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
-function modal(title, content, className = ''){
+function modal(title, content, className = '', show = true){
   const tableAction = $('new-game');
   if (tableAction?.closest('#modal')) $('table-actions').append(tableAction);
   $('toast').classList.remove('visible');
   $('modal').className = className;
   $('modal-content').innerHTML=`<h2 id="modal-title"${className === 'result-dialog' ? ' tabindex="-1"' : ''}>${escapeHtml(title)}</h2>${content}<p id="modal-status" role="status" hidden></p>`;
-  if(!$('modal').open)$('modal').showModal();
+  if(show && !$('modal').open)$('modal').showModal();
   if (className === 'result-dialog') $('modal-title').focus({preventScroll:true});
 }
 function showResult(snapshot = state, playerNames = names, onBack = null){
@@ -947,17 +947,20 @@ async function showHistoricalResult(id, returnButton) {
   finally { busy = false; }
 }
 async function showHistory(openSessionId = null) {
+  const opener = $('hand-history');
+  if (opener.disabled) return;
+  opener.disabled = true;
   try {
     const {sessions} = await request('/api/sessions');
     let currentReady = false;
-    if (!state?.room && sessions.some(session => session.id === state?.session_id)) {
-      try { await request('/api/state'); currentReady = true; } catch {}
+    if (sessions.some(session => session.id === state?.session_id)) {
+      try { await request(state?.room ? '/api/room/state' : '/api/state'); currentReady = true; } catch {}
     }
     openSessionId ??= sessions[0]?.id;
-    modal('Session 紀錄', '<details class="session-help"><summary aria-label="Session 與統計說明" title="Session 與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>每個 Session 保留獨立積分，可從最新進度繼續。</li><li>首局未完也會保存原牌；完成第一局後正式成立。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計；配色依查看時最新保存的門風。</li><li>舊引擎紀錄可查看統計，無法開啟重播與牌面結算。</li></ul></div></details><div id="session-list" role="region" aria-label="Session 清單" tabindex="0"></div>', 'session-dialog');
+    modal('Session 紀錄', '<details class="session-help"><summary aria-label="Session 與統計說明" title="Session 與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>單人與多人牌桌各自記錄 Session；能否接續依目前座位與牌桌狀態決定。</li><li>首局未完也會保存原牌；完成第一局後正式成立。多人桌須開始對局後才會出現在紀錄。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計，包含中途接替該座位的玩家；配色依最新保存門風。</li><li>僅自己參與過且引擎相容的已完成局可查看暗牌結算與重播。</li></ul></div></details><div id="session-list" role="region" aria-label="Session 清單" tabindex="0"></div>', 'session-dialog', false);
     const sessionList = $('session-list');
     sessionList.onscroll = refreshSessionHeaders;
-    if (!sessions.length) sessionList.textContent = '尚無單人 Session，開始對局後會自動保存。';
+    if (!sessions.length) sessionList.textContent = '尚無 Session，開始對局後會自動保存。';
     for (const session of sessions) {
       const card = document.createElement('details'); card.className = 'session-card';
       const summary = document.createElement('summary');
@@ -967,7 +970,10 @@ async function showHistory(openSessionId = null) {
       progress.textContent = session.established ? `已完成 ${session.completed_hands} 局` : '首局待完成';
       const id = document.createElement('span'); id.className = 'session-id';
       id.textContent = `ID ${session.id.slice(0,8)}`; id.title = `ID ${session.id}`;
-      summary.append(date, progress, id);
+      const mode = document.createElement('span'); mode.className = 'session-mode';
+      mode.textContent = session.source === 'multiplayer'
+        ? `多人${session.room_code ? ` · 房間 ${session.room_code}` : ''}` : '單人';
+      summary.append(date, mode, progress, id);
       if (session.id === state?.session_id) {
         const badge = document.createElement('span'); badge.className = 'session-current';
         badge.textContent = '目前牌桌'; summary.append(badge);
@@ -975,7 +981,7 @@ async function showHistory(openSessionId = null) {
       const body = document.createElement('div'); body.className = 'session-body';
       if (session.resumable) {
         const resume = document.createElement('button'); resume.className = 'session-resume';
-        resume.textContent = '繼續此 Session';
+        resume.textContent = session.source === 'multiplayer' ? '返回牌桌' : '繼續此 Session';
         resume.disabled = session.id === state?.session_id && currentReady;
         if (session.id === state?.session_id && !currentReady) {
           resume.textContent = '恢復此 Session'; resume.title = '從最後保存的進度恢復';
@@ -1067,7 +1073,7 @@ async function showHistory(openSessionId = null) {
           detail.hands.map((hand, index) => ({hand, point:detail.points[index+1]})).reverse().forEach(({hand, point}) => {
             const row = document.createElement('tr');
             for (const text of [hand.round, hand.winner === null ? '流局' : hand.win_source === 'TSUMO' ? '自摸' : '和牌',
-              hand.winner === null ? '—' : detail.players[hand.winner], hand.tai ?? '—']) {
+              hand.winner === null ? '—' : (hand.players || detail.players)[hand.winner], hand.tai ?? '—']) {
               const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
             }
             point.totals.forEach((value, pid) => {
@@ -1102,9 +1108,15 @@ async function showHistory(openSessionId = null) {
         finally { loading = false; }
       };
       sessionList.append(card);
-      if (session.id === openSessionId) card.open = true;
+      if (session.id === openSessionId) {
+        card.open = true;
+        await card.ontoggle();
+      }
     }
+    if (!$('modal').open) $('modal').showModal();
+    refreshSessionHeaders();
   } catch (error) { toast(error.message); }
+  finally { opener.disabled = false; }
 }
 async function resumeHand(id) {
   if (busy) return;

@@ -164,9 +164,9 @@ class HandStore:
                 (table_id,)).fetchone()
         return row[0] if row else None
 
-    def practice_hands(self, player_id: str, *, table_id: str | None = None,
-                       heads: bool = False) -> list[dict]:
-        """Read owned practice summaries without private walls, steps or a 100-hand cutoff."""
+    def session_hands(self, player_id: str, *, table_id: str | None = None,
+                      heads: bool = False, practice_only: bool = False) -> list[dict]:
+        """Read public table summaries for participants; retain per-hand replay ownership."""
         query = '''SELECT h.hand_id, h.table_id, h.started_at,
             json_extract(h.document, '$.metadata.hand_index') AS round,
             json_extract(h.document, '$.status') AS status,
@@ -174,6 +174,11 @@ class HandStore:
             json_extract(h.document, '$.metadata.recovery.version') AS recovery_version,
             h.reason,
             json_extract(h.document, '$.metadata.players') AS players,
+            json_extract(h.document, '$.metadata.source') AS source,
+            json_extract(h.document, '$.metadata.seat_events') AS seat_events,
+            json_array_length(h.document, '$.steps') AS step_count,
+            json_extract(h.document, '$.metadata.recovery.players') AS current_players,
+            json_extract(h.document, '$.metadata.recovery.room.code') AS room_code,
             json_extract(h.document, '$.metadata.totals_before') AS totals_before,
             json_extract(h.document, '$.metadata.totals_after') AS totals_after,
             json_extract(h.document, '$.settlement') AS result,
@@ -184,9 +189,21 @@ class HandStore:
             (SELECT MIN(started_at) FROM hands WHERE table_id=h.table_id) AS session_started,
             (SELECT COUNT(*) FROM hands WHERE table_id=h.table_id
                 AND status='completed') AS completed_hands
-            FROM hands h WHERE json_extract(h.document, '$.metadata.source')='practice'
-            AND json_extract(h.document, '$.metadata.players[0].player_id')=?'''
-        parameters = [player_id]
+            FROM hands h WHERE json_extract(h.document, '$.metadata.source')
+                IN ('practice', 'multiplayer')'''
+        if practice_only:
+            query += """ AND json_extract(h.document, '$.metadata.source')='practice'
+                AND json_extract(h.document, '$.metadata.players[0].player_id')=?"""
+            parameters = [player_id]
+        else:
+            query += ''' AND h.table_id IN (SELECT member.table_id FROM hands member
+                WHERE EXISTS (SELECT 1 FROM json_each(
+                    json_extract(member.document, '$.metadata.players'))
+                    WHERE json_extract(value, '$.player_id')=?)
+                OR EXISTS (SELECT 1 FROM json_each(
+                    json_extract(member.document, '$.metadata.seat_events'))
+                    WHERE json_extract(value, '$.player_id')=?))'''
+            parameters = [player_id, player_id]
         if table_id is not None:
             query += ' AND h.table_id=?'
             parameters.append(table_id)
@@ -203,8 +220,18 @@ class HandStore:
             cursor.close()
         items = [dict(zip(keys, row)) for row in rows]
         for item in items:
-            for key in ('players', 'totals_before', 'totals_after', 'result', 'seat_winds'):
+            for key in ('players', 'totals_before', 'totals_after', 'result', 'seat_winds',
+                        'seat_events', 'current_players'):
                 item[key] = json.loads(item[key]) if item[key] is not None else None
+            events = [event for event in item['seat_events'] or []
+                      if item['status'] != 'completed' or event['after_seq'] < item['step_count']]
+            item['participant'] = any(player.get('player_id') == player_id
+                                      for player in item['players'] + events)
+            item['current_participant'] = any(player.get('player_id') == player_id
+                                             for player in item['current_players'] or [])
+            for event in events:
+                if 'pid' in event:
+                    item['players'][event['pid']].update(event)
         return items
 
     def selected_practice(self, player_id: str) -> str | None:

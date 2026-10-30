@@ -34,8 +34,10 @@ export function renderScoreChart(points, names, seatWinds, onSelect = () => {}, 
       plot.append(caption);
     }
   }
+  const lines = [];
   for (let pid = 0; pid < 4; pid++) {
     const line = doc.createElementNS(ns, 'polyline');
+    line.setAttribute('class', 'chart-series');
     line.setAttribute('points', points.map((point, i) =>
       `${i * 525 / Math.max(1, points.length - 1)},${y(point.totals[pid])}`
     ).join(' '));
@@ -43,7 +45,7 @@ export function renderScoreChart(points, names, seatWinds, onSelect = () => {}, 
     line.setAttribute('stroke-width', '3');
     line.setAttribute('vector-effect', 'non-scaling-stroke');
     const title = doc.createElementNS(ns, 'title'); title.textContent = names[pid];
-    line.append(title); svg.append(line);
+    line.append(title); svg.append(line); lines.push(line);
   }
   plot.append(svg); chart.append(plot);
   const ticks = doc.createElement('div'); ticks.className = 'chart-ticks';
@@ -65,6 +67,20 @@ export function renderScoreChart(points, names, seatWinds, onSelect = () => {}, 
     plot.append(marker); return marker;
   });
   label('chart-axis-label', '局數');
+  const play = () => {
+    if (doc.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const line of lines) {
+      line.getAnimations().forEach(animation => animation.cancel());
+      line.animate([{clipPath:'inset(-4px 100% -4px -4px)'},
+        {clipPath:'inset(-4px -4px -4px -4px)'}], {duration:900, easing:'ease-out'});
+    }
+  };
+  const replay = doc.createElement('button'); replay.className = 'chart-replay';
+  replay.type = 'button'; replay.title = '重播分數曲線動畫';
+  replay.setAttribute('aria-label', replay.title);
+  replay.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></svg>';
+  replay.onclick = play; chart.append(replay);
+  play();
   let selected = -1, showingGuide = false;
   const select = (index, inspecting = true) => {
     const next = Math.max(0, Math.min(points.length - 1, index));
