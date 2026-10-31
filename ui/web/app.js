@@ -1,12 +1,22 @@
+import { botIndicator, botGlyph, seatChoices } from './bot-indicator.mjs?v=seat-next-ai-7';
 import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
-import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-full-4';
+import { TILE_FONTS, DEFAULT_TILE_FONT, validTileFont, tileAsset } from './tile-fonts.mjs?v=imahjong-labels-5';
 import { loadTileImage } from './tile-images.mjs';
 import { randomPlayerName } from './player-names.mjs?v=selected-names-8';
 import { renderScoreChart } from './session-chart.mjs?v=session-reveal-1';
 import { meldCuePosition } from './meld-cue.mjs?v=right-top-1';
 
 const $ = id => document.getElementById(id);
+// Programmatic focus can inherit a keyboard ring after mouse/touch input.
+document.addEventListener('keydown', event => {
+  if (!event.metaKey && !event.ctrlKey && !event.altKey) {
+    document.documentElement.classList.add('keyboard-navigation');
+  }
+}, true);
+document.addEventListener('pointerdown', () => {
+  document.documentElement.classList.remove('keyboard-navigation');
+}, true);
 function syncControlsSide() {
   // Safari's legacy value preserves the physical rotation direction on iPhone.
   const angle=typeof window.orientation==='number'?window.orientation:
@@ -132,9 +142,16 @@ function person(pid) {
   wrap.className = 'seat-person';
   const name = escapeHtml(names[pid]);
   const bot = replay ? state.replay_humans?.[pid] === false
-    : state.room ? !state.room.members[pid].human : pid !== 0;
-  wrap.innerHTML = `<div class="avatar-wrap"><div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div>${bot ? '<span class="bot-status" role="img" aria-label="電腦玩家"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="3"/><path d="M12 3v4M1 12v5M23 12v5M8 12v3M16 12v3M8 18h8"/></svg></span>' : ''}</div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span></strong><small>${state.totals[pid]} 點</small><span class="player-badges">${state.dealer === pid ? `<span class="dealer" aria-label="莊家${state.dealer_streak ? `，連莊 ${state.dealer_streak}` : '，起莊'}">莊</span>` : ''}${state.players[pid].ting ? '<span class="ting-status" aria-label="已宣告聽牌">聽</span>' : ''}</span></div>`;
-  if (pid === 0 && !replay) {
+    : state.room ? (!state.room.members[pid].human || state.room.members[pid].bot_controlled) : pid !== 0;
+  wrap.innerHTML = `<div class="avatar-wrap"><div class="avatar a${pid}">${escapeHtml(Array.from(names[pid])[0])}</div></div><div class="player-info"><strong><span class="player-name" title="${name}">${name}</span></strong><small>${state.totals[pid]} 點</small><span class="player-badges">${state.dealer === pid ? `<span class="dealer" aria-label="莊家${state.dealer_streak ? `，連莊 ${state.dealer_streak}` : '，起莊'}">莊</span>` : ''}${state.players[pid].ting ? '<span class="ting-status" aria-label="已宣告聽牌">聽</span>' : ''}</span></div>`;
+  if (bot) {
+    const degraded = Boolean(state.ai_degraded?.[pid]);
+    const indicator = botIndicator({used:true,level:degraded ? 'standard' : state.ai_hand_levels?.[pid] || state.ai_levels?.[pid] || 'unknown',
+      degraded,fallback_reason:state.ai_failure_reasons?.[pid]}, true);
+    indicator.classList.add(`a${pid}`);
+    wrap.querySelector('.avatar').replaceWith(indicator);
+  }
+  if (pid === 0 && !replay && !bot) {
     const avatar = wrap.querySelector('.avatar');
     const button = document.createElement('button');
     button.type = 'button'; button.className = `${avatar.className} avatar-edit`;
@@ -331,6 +348,18 @@ function renderActions(){
   if (playbackFrame) {
     return;
   }
+  if (state.waiting && !state.room) {
+    const start = actionButton('開始對局', null, true);
+    start.onclick = async () => {
+      if (busy) return;
+      busy = true;
+      try { await present(await request('/api/start', {})); }
+      catch (error) { toast(error.message); }
+      finally { busy = false; render(); }
+    };
+    target.append(start);
+    return;
+  }
   if (state.room && !state.room.started) {
     if (state.room.host) {
       const start = actionButton('開始對局', null, true);
@@ -428,9 +457,9 @@ function render(){
     clearTimeout(meldCueTimer);
   }
   if (state.done || playbackFrame || !state.legal_actions.some(a => a.type === 'TING')) tingMode = false;
-  const waiting = state.room && !state.room.started;
-  const humans = waiting ? state.room.members.filter(member => member.human).length : 0;
-  setTableStatus(waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
+  const waiting = state.waiting || (state.room && !state.room.started);
+  const humans = state.room ? state.room.members.filter(member => member.human).length : 1;
+  setTableStatus(waiting && !state.room ? '開局前可在「牌桌設定」調整四席 AI 強度。\n準備好後，按「開始對局」。' : waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
     ? '邀請朋友加入後，按「開始對局」。空位由電腦補上。' : '等待房主開始對局。'}` : '');
   names = replay ? state.replay_names : state.room ? state.room.members.map(member => member.name)
     : [state.player_name || playerName || '玩家', '陳予安', '林小滿', '周子墨'];
@@ -441,7 +470,7 @@ function render(){
   $('new-game').disabled = Boolean(replay) || busy || (!state.room && !state.done);
   $('new-game').title = state.room || state.done ? '' : '胡牌或流局後才能開新 Session';
   $('remaining').textContent=state.remaining;
-  $('round').textContent=`第 ${state.round} 局`;
+  $('round').textContent=state.waiting ? '等待開局' : `第 ${state.round} 局`;
   $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
   $('jang').textContent = Number.isInteger(state.jang_count) ? `第 ${state.jang_count + 1} 將` : '將數未記錄';
   const order = state.seating_order, ownSeat = order.indexOf(0);
@@ -474,6 +503,10 @@ function toast(message) {
   }
   clearTimeout(toastTimer);
   $('toast').textContent=message;
+  const toolbar = $('settings').closest('.header-right').getBoundingClientRect();
+  $('toast').style.top = `${toolbar.bottom + 12}px`;
+  $('toast').style.right = `${Math.max(0, Math.min(window.innerWidth - toolbar.right,
+    window.innerWidth - $('toast').offsetWidth - 12))}px`;
   $('toast').classList.add('visible');
   toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);
 }
@@ -484,7 +517,7 @@ function setTableStatus(message) {
 async function request(path,body){
   if (replay && body !== undefined) throw new Error('重播中不能操作牌局，請先離開重播。');
   const headers = {'Content-Type':'application/json'};
-  if (state?.session_id && ['/api/action','/api/next','/api/new'].includes(path)) {
+  if (state?.session_id && ['/api/action','/api/next','/api/new','/api/start','/api/ai'].includes(path)) {
     headers['X-Qinghe-Session'] = state.session_id;
   }
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers,body:JSON.stringify(body)});
@@ -578,6 +611,9 @@ async function newGame(next = false){
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = '', show = true){
+  settingsCloseGuard = null;
+  settingsClosePrompt?.remove();
+  settingsClosePrompt = null;
   const tableAction = $('new-game');
   if (tableAction?.closest('#modal')) $('table-actions').append(tableAction);
   $('toast').classList.remove('visible');
@@ -686,14 +722,21 @@ function showResult(snapshot = state, playerNames = names, onBack = null){
   if (snapshot.room && !snapshot.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick = () => newGame(true);
 }
-$('close-modal').onclick=()=>$('modal').close();
+let settingsCloseGuard = null, settingsClosePrompt = null;
+function requestModalClose(action = null) {
+  const proceed = typeof action === 'function' ? action : () => $('modal').close();
+  if (settingsCloseGuard) { settingsCloseGuard(proceed); return; }
+  proceed();
+}
+$('close-modal').onclick=requestModalClose;
 $('modal').addEventListener('cancel', event => {
+  if (settingsCloseGuard) { event.preventDefault(); requestModalClose(); return; }
   const help = $('modal').querySelector('.session-help[open]');
   if (!help) return;
   event.preventDefault(); help.open = false;
   help.querySelector('summary').focus({preventScroll:true});
 });
-$('modal').onclick=e=>{const help=$('modal').querySelector('.session-help[open]');if(help&&!help.contains(e.target)){help.open=false;return;}if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('modal').close();}};
+$('modal').onclick=e=>{const help=$('modal').querySelector('.session-help[open]');if(help&&!help.contains(e.target)){help.open=false;return;}if(e.target===$('modal')){const r=$('modal').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)requestModalClose();}};
 $('sound').onclick=()=>{sound=!sound;localStorage.setItem('qinghe-sound',sound);updateSound();beep();toast(sound?'音效已開啟':'音效已關閉');};
 function updateSound(){$('sound').innerHTML=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/>${sound?'<path d="M16 8q4 4 0 8M19 5q7 7 0 14"/>':'<path d="m17 9 5 6m0-6-5 6"/>'}</svg>`;$('sound').setAttribute('aria-label',sound?'關閉音效':'開啟音效');$('sound').setAttribute('aria-pressed',String(sound));}
 updateSound();
@@ -757,6 +800,9 @@ function renderSortSettings() {
   });
 }
 $('modal').addEventListener('close', () => {
+  settingsCloseGuard = null;
+  settingsClosePrompt?.remove();
+  settingsClosePrompt = null;
   const tableAction = $('new-game');
   if (tableAction?.closest('#modal')) $('table-actions').append(tableAction);
   settingsSortable?.destroy();
@@ -766,33 +812,46 @@ $('modal').addEventListener('close', () => {
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
   modal('牌桌設定',`
-    <div id="settings-table-actions" class="settings-table-actions"></div>
+    <div id="settings-header" class="settings-header"><div id="settings-table-actions" class="settings-table-actions"></div></div>
+    <div class="settings-body">
+    <section class="settings-section" aria-labelledby="ai-settings-heading">
+      <h3 id="ai-settings-heading">AI強度<small id="ai-next-note" hidden>下一局開始套用</small></h3>
+      ${state.ai_editable ? '' : '<p>僅房主可調整</p>'}
+      <div class="ai-seats-grid">
+      ${seatChoices(state).map(({level,pid,id,wind}) => `<label class="setting-row ai-setting-row"><span class="ai-seat-label"><span class="ai-setting-icon" aria-hidden="true">${botGlyph(level)}</span><span>席位 ${'ABCD'[id]}<small>${winds[['E','S','W','N'].indexOf(wind)]}家${(state.room ? state.room.members[pid].human : pid === 0) ? ' · 真人' : ''}</small></span></span><select data-ai-seat="${pid}" aria-label="席位 ${'ABCD'[id]} AI 強度" ${state.ai_editable ? '' : 'disabled'}><option value="standard" ${level === 'standard' ? 'selected' : ''}>標準</option><option value="advanced" ${level === 'advanced' ? 'selected' : ''}>進階</option></select></label>`).join('')}
+      </div>
+    </section>
     <section class="settings-section" aria-labelledby="play-settings-heading">
-      <h3 id="play-settings-heading">對局與顯示</h3>
-      <label class="setting-row"><span class="pace-label">對局節奏${roomMode ? '<small id="pace-help">多人模式由伺服器統一設定</small>' : ''}</span><select id="pace-setting" ${roomMode ? 'disabled aria-describedby="pace-help"' : ''}>${roomMode ? '<option value="shared">統一節奏</option>' : '<option value="fast">快速</option><option value="natural">一般（預設）</option><option value="relaxed">慢速</option>'}</select></label>
+      <h3 id="play-settings-heading">對局操作</h3>
+      <label class="setting-row"><span class="pace-label">對局節奏${roomMode ? '<small id="pace-help">多人模式由伺服器統一設定</small>' : ''}</span><select id="pace-setting" ${roomMode ? 'disabled aria-describedby="pace-help"' : ''}>${roomMode ? '<option value="shared">統一節奏</option>' : '<option value="fast">快速</option><option value="natural">一般</option><option value="relaxed">慢速</option>'}</select></label>
       <fieldset class="chi-mode-options"><legend>多種吃牌選擇</legend>
         <label class="chi-mode-card"><input type="radio" name="chi-mode" value="groups" ${chiMode==='groups'?'checked':''}><span id="chi-groups-icon" class="chi-mode-graphic" aria-hidden="true"></span><span class="chi-mode-caption">選整組順子</span></label>
         <label class="chi-mode-card"><input type="radio" name="chi-mode" value="tiles" ${chiMode==='tiles'?'checked':''}><span id="chi-tiles-icon" class="chi-mode-graphic" aria-hidden="true"></span><span class="chi-mode-caption">選兩張牌後確認</span></label>
       </fieldset>
+      <label class="setting-row">聽牌後自動出牌<input id="auto-ting-setting" type="checkbox" ${autoTingDiscard?'checked':''} ${state.auto_ting_discard === undefined?'disabled':''}></label>
+    </section>
+    <section class="settings-section" aria-labelledby="display-settings-heading">
+      <h3 id="display-settings-heading">畫面與音效</h3>
       <div class="settings-toggles">
-        <label class="setting-row">聽牌後自動出牌<input id="auto-ting-setting" type="checkbox" ${autoTingDiscard?'checked':''} ${state.auto_ting_discard === undefined?'disabled':''}></label>
         <label class="setting-row">操作音效<input id="sound-setting" type="checkbox" ${sound?'checked':''}></label>
         <label class="setting-row">減少桌面陰影<input id="flat-setting" type="checkbox" ${compact?'checked':''}></label>
       </div>
-    </section>
-    <section class="settings-section" aria-labelledby="tile-font-heading">
-      <h3 id="tile-font-heading">牌面與排列</h3>
+      <div class="settings-face-controls">
       <label class="setting-row">樣式<select id="tile-font-setting">${TILE_FONTS.map(font=>`<option value="${font.id}">${font.name}</option>`).join('')}</select></label>
-      <label class="setting-row">排列<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字（預設）</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label>
+      <label class="setting-row">排列<select id="sort-preset"><option value="0,1,2,3">萬 → 筒 → 條 → 字</option><option value="1,2,0,3">筒 → 條 → 萬 → 字</option><option value="3,0,1,2">字 → 萬 → 筒 → 條</option><option value="custom" disabled>自訂順序</option></select></label>
+      </div>
       <div class="settings-tile-row">
-        <div id="sort-order" class="sort-order" role="group" aria-label="牌種排序與樣式預覽" aria-describedby="sort-help"></div>
+        <div id="sort-order" class="sort-order" role="group" aria-label="牌種排序與樣式預覽" ></div>
         <div id="fixed-face-preview" class="fixed-face-preview" role="group" aria-label="白板與花牌樣式預覽"></div>
       </div>
-      <p id="sort-help">左右拖拉牌圖示調整順序，也可選中後按左右方向鍵。</p>
       <details id="tile-face-details"><summary>查看完整牌面</summary><div id="tile-font-preview" class="full-face-preview"></div></details>
+      <p class="settings-source">牌面來源：<a href="https://github.com/SyaoranHinata/I.Mahjong" target="_blank" rel="noopener">I.Mahjong</a></p>
     </section>
-    <div class="settings-footer"><p>儲存後套用，下次開啟會保留。<br>牌面來源：<a href="https://github.com/SyaoranHinata/I.Mahjong" target="_blank" rel="noopener">I.Mahjong</a></p><button class="modal-primary" id="save-settings">儲存</button></div>
+    </div>
+    <div class="settings-footer"><button class="modal-primary" id="save-settings">儲存</button></div>
   `,'settings-dialog');
+  $('settings-header').prepend($('modal-title'));
+  document.querySelector('.settings-footer').prepend($('modal-status'));
   $('settings-table-actions').append($('new-game'));
   for (const [id, combinations] of [['chi-groups-icon', [[0,1,2],[1,2,3]]],
     ['chi-tiles-icon', [[0,1,2]]]]) {
@@ -844,21 +903,77 @@ $('settings').onclick=()=>{
     });
   };
   previewFont();
+  const readAiLevels = () => [...document.querySelectorAll('[data-ai-seat]')]
+    .sort((a,b)=>Number(a.dataset.aiSeat)-Number(b.dataset.aiSeat)).map(select=>select.value);
+  const updateAiNote = () => {
+    $('ai-next-note').hidden = JSON.stringify(readAiLevels()) === JSON.stringify(state.ai_hand_levels || state.ai_levels);
+  };
+  for (const select of document.querySelectorAll('[data-ai-seat]')) {
+    select.onchange = () => {
+      select.closest('.ai-setting-row').querySelector('.ai-setting-icon').innerHTML = botGlyph(select.value);
+      updateAiNote();
+    };
+  }
+  updateAiNote();
   $('pace-setting').value = roomMode ? 'shared' : pace;
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
+  const settingsDraft = () => JSON.stringify({
+    order:settingsOrder,
+    controls:[...document.querySelectorAll('.settings-body input, .settings-body select')]
+      .map(input => [input.id || input.name || input.dataset.aiSeat,
+        input.type === 'checkbox' || input.type === 'radio' ? input.checked : input.value]),
+  });
+  const initialDraft = settingsDraft();
+  settingsCloseGuard = proceed => {
+    if ($('save-settings').disabled || busy) return;
+    if (settingsDraft() === initialDraft) { proceed(); return; }
+    if (settingsClosePrompt?.open) return;
+    const prompt = document.createElement('dialog');
+    settingsClosePrompt = prompt;
+    prompt.className = 'settings-close-prompt';
+    prompt.setAttribute('aria-labelledby','settings-close-title');
+    prompt.innerHTML = `<h2 id="settings-close-title">設定尚未儲存</h2>
+      <div class="settings-close-actions"><button class="outline" data-choice="edit" autofocus>繼續編輯</button>
+      <button class="outline" data-choice="discard">捨棄</button>
+      <button class="modal-primary" data-choice="save">儲存</button></div>`;
+    document.body.append(prompt);
+    prompt.addEventListener('close', () => {
+      prompt.remove();
+      if (settingsClosePrompt === prompt) settingsClosePrompt = null;
+    });
+    prompt.onclick = async event => {
+      const choice = event.target.closest('[data-choice]')?.dataset.choice;
+      if (!choice) return;
+      prompt.close();
+      if (choice === 'discard') proceed();
+      if (choice === 'save') {
+        const dialog = $('modal');
+        const afterSave = () => proceed();
+        dialog.addEventListener('close', afterSave, {once:true});
+        const saved = await $('save-settings').onclick();
+        if (!saved) dialog.removeEventListener('close', afterSave);
+      }
+    };
+    prompt.showModal();
+  };
   $('save-settings').onclick=async()=>{
     const button = $('save-settings');
     if (button.disabled || busy) return;
     const next = {font:$('tile-font-setting').value, order:[...settingsOrder],
       sound:$('sound-setting').checked, compact:$('flat-setting').checked,
       pace:roomMode ? pace : $('pace-setting').value,
+      aiLevels:readAiLevels(),
+      aiEditable:state.ai_editable,
       autoTingDiscard:$('auto-ting-setting').checked,
       chiMode:document.querySelector('input[name="chi-mode"]:checked').value};
     button.disabled = true;
     button.textContent = '儲存中…';
     busy = true;
     try {
+      if (next.aiEditable && JSON.stringify(next.aiLevels) !== JSON.stringify(state.ai_levels)) {
+        state = await request('/api/ai', {levels:next.aiLevels});
+      }
       if (tableView) await tableView.setFaceFont(next.font);
       if (!state || state.auto_ting_discard !== undefined) {
         const result = await request('/api/preferences', {auto_ting_discard:next.autoTingDiscard});
@@ -869,7 +984,7 @@ $('settings').onclick=()=>{
       busy = false;
       button.disabled = false;
       button.textContent = '儲存';
-      toast('設定儲存失敗，請再試一次');
+      toast(error.status ? error.message : '設定儲存失敗，請再試一次');
       return;
     }
     busy = false;
@@ -897,10 +1012,10 @@ $('settings').onclick=()=>{
     renderHand();
     if (state) renderActions();
     if ($('save-settings') === button) $('modal').close();
-    toast('設定已儲存');
+    return true;
   };
 };
-$('new-game').onclick=()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新 Session？','<p>原 Session 的分數、紀錄與接續入口都會保留。新 Session 每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新 Session</button>');$('confirm-new').onclick=()=>newGame();};
+$('new-game').onclick=()=>requestModalClose(()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新 Session？','<p>原 Session 的分數、紀錄與接續入口都會保留。新 Session 每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新 Session</button>');$('confirm-new').onclick=()=>newGame();});
 function refreshSessionHeaders() {
   const list = $('session-list');
   if (!list) return;
@@ -951,7 +1066,8 @@ async function showHistory(openSessionId = null) {
   if (opener.disabled) return;
   opener.disabled = true;
   try {
-    const {sessions} = await request('/api/sessions');
+    const result = await request('/api/sessions');
+    const sessions = result.sessions.filter(session => session.completed_hands > 0 || session.resumable);
     let currentReady = false;
     if (sessions.some(session => session.id === state?.session_id)) {
       try { await request(state?.room ? '/api/room/state' : '/api/state'); currentReady = true; } catch {}
@@ -1005,7 +1121,7 @@ async function showHistory(openSessionId = null) {
           content.replaceChildren();
           const scores = document.createElement('div'); scores.className = 'session-scores';
           const rankings = document.createElement('ol'); rankings.className = 'session-rankings';
-          const renderRankings = totals => {
+          const renderRankings = (totals, usage = detail.ai) => {
             rankings.replaceChildren();
             const ranked = [0,1,2,3].sort((a,b) => totals[b]-totals[a] || a-b);
             ranked.forEach(pid => {
@@ -1013,6 +1129,12 @@ async function showHistory(openSessionId = null) {
               item.className = 'seat-person'; item.dataset.player = pid; item.dataset.wind = detail.seat_winds[pid];
               const avatar = document.createElement('div'); avatar.className = `avatar a${pid}`;
               avatar.textContent = Array.from(detail.players[pid])[0]; avatar.setAttribute('aria-hidden','true');
+              const avatarWrap = document.createElement('div'); avatarWrap.className = 'avatar-wrap';
+              avatarWrap.append(avatar);
+              if (usage?.[pid]) {
+                const indicator = botIndicator(usage[pid], true);
+                if (indicator) { indicator.classList.add(`a${pid}`); avatarWrap.replaceChildren(indicator); }
+              }
               const info = document.createElement('div'); info.className = 'player-info';
               const person = document.createElement('strong'); person.className = 'player-name';
               const wind = winds[['E','S','W','N'].indexOf(detail.seat_winds[pid])];
@@ -1023,11 +1145,11 @@ async function showHistory(openSessionId = null) {
               const rank = document.createElement('span'); rank.className = 'session-rank-tag';
               const place = ranked.findIndex(other => totals[other] === totals[pid]) + 1;
               rank.textContent = `第 ${place} 名`;
-              item.append(avatar, info, rank); rankings.append(item);
+              item.append(avatarWrap, info, rank); rankings.append(item);
             });
           };
           if (detail.points.length > 1) {
-            scores.append(renderScoreChart(detail.points, detail.players, detail.seat_winds, point => renderRankings(point.totals)));
+            scores.append(renderScoreChart(detail.points, detail.players, detail.seat_winds, point => renderRankings(point.totals, point.ai)));
           } else {
             renderRankings(detail.totals);
             const empty = document.createElement('p'); empty.className = 'session-chart-empty';
@@ -1060,7 +1182,7 @@ async function showHistory(openSessionId = null) {
           scroll.setAttribute('role','region'); scroll.setAttribute('aria-label','四家統計');
           scroll.tabIndex = 0; scroll.append(stats); content.append(heading, scroll);
           const recordHeading = document.createElement('h3');
-          recordHeading.textContent = `逐局紀錄（${count} 局，流局 ${detail.draws} 局）`;
+          recordHeading.textContent = '逐局紀錄';
           const history = document.createElement('table'); history.className = 'session-records';
           const recordHead = document.createElement('thead');
           const titles = document.createElement('tr');
@@ -1082,7 +1204,12 @@ async function showHistory(openSessionId = null) {
               const payment = document.createElement('small'); const amount = hand.payments[pid];
               payment.className = amount > 0 ? 'points-positive' : amount < 0 ? 'points-negative' : '';
               payment.textContent = `${amount > 0 ? '+' : ''}${amount}`;
-              cell.append(total, payment); row.append(cell);
+              const score = document.createElement('span'); score.className = 'session-score-value';
+              if (hand.ai?.[pid]) {
+                const indicator = botIndicator(hand.ai[pid]);
+                if (indicator) score.append(indicator);
+              }
+              score.append(total); cell.append(score, payment); row.append(cell);
             });
             const actions = [
               historyAction(`重播第 ${hand.round} 局`, replayIcon('play'), () => showReplay(hand.id)),
@@ -1100,9 +1227,7 @@ async function showHistory(openSessionId = null) {
           recordScroll.className = 'session-table-scroll session-records-scroll';
           recordScroll.setAttribute('role','region'); recordScroll.setAttribute('aria-label','逐局紀錄');
           recordScroll.tabIndex = 0; recordScroll.append(history);
-          const caption = document.createElement('p'); caption.className = 'session-record-caption';
-          caption.textContent = '分數上排為累計，下排為本局收付';
-          content.append(recordHeading, caption, recordScroll); loaded = true;
+          content.append(recordHeading, recordScroll); loaded = true;
           refreshSessionHeaders();
         } catch (error) { content.textContent = error.message; }
         finally { loading = false; }
@@ -1492,3 +1617,11 @@ $('multiplayer').onclick = () => {
     console.error(e);
   }
 })();
+
+setInterval(async () => {
+  if (!state?.ai_pending || roomMode || busy || replay || !tableView) return;
+  busy = true;
+  try { await present(await request('/api/state')); }
+  catch (error) { toast(error.message); }
+  finally { busy = false; if (state) render(); }
+}, 250);

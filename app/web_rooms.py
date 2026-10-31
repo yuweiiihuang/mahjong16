@@ -112,6 +112,7 @@ class WebRoom:
                 self.event = None
                 self.ready_at = 0
             self.publish()
+        self.table.cancel_ai()
         self.touch(sid)
 
     def rename(self, sid: str, name: str) -> None:
@@ -137,6 +138,8 @@ class WebRoom:
         """Renew a member's reconnect grace and return the authoritative seat."""
         if sid not in self.seats:
             raise ValueError('你尚未加入這個房間。')
+        if time.monotonic() - self.seen.get(sid, 0) >= self.RECONNECT_SECONDS:
+            self.table.cancel_ai()
         self.last_active = self.seen[sid] = time.monotonic()
         return self.seats.index(sid)
 
@@ -145,6 +148,7 @@ class WebRoom:
         viewer = self.seats.index(sid)
         state = self.table.snapshot(viewer)
         state = relative_snapshot(state, viewer)
+        state.pop('ai_pending', None)  # Unresolved reaction progress is private.
         relative = lambda pid: None if pid is None else (pid - viewer) % 4
         order = [(viewer + i) % 4 for i in range(4)]
         now = time.monotonic()
@@ -154,11 +158,16 @@ class WebRoom:
                 {'name': (self.names[self.seats[pid]] if self.seats[pid] else
                           ['電腦玩家', '陳予安', '林小滿', '周子墨'][pid]),
                  'human': self.seats[pid] is not None,
+                 'bot_controlled': (self.seats[pid] is None or
+                                    now - self.seen.get(self.seats[pid], 0)
+                                    >= self.RECONNECT_SECONDS),
                  'connected': (self.seats[pid] is not None and
                                now - self.seen.get(self.seats[pid], 0) < 30)}
                 for pid in order
             ],
         }
+        state['ai_editable'] = sid == self.owner
+        state['waiting'] = not self.started
         state['version'] = self.version
         state['display_event'] = (None if not self.event else
                                   {**self.event, 'pid': relative(self.event['pid'])})
@@ -172,6 +181,21 @@ class WebRoom:
             for player in state['players']:
                 player.update(count=0, has_drawn=False, flowers=[], melds=[])
         return state
+
+    def set_ai_levels(self, sid: str, levels: list[str]) -> None:
+        """Host writes relative-seat settings; all members can inspect them."""
+        viewer = self.touch(sid)
+        if sid != self.owner:
+            raise ValueError('只有房主能調整 AI 強度。')
+        if (not isinstance(levels, list) or len(levels) != 4 or
+                any(level not in ('standard', 'advanced') for level in levels)):
+            raise ValueError('請為四個座位選擇標準或進階 AI。')
+        absolute = [levels[(pid - viewer) % 4] for pid in range(4)]
+        if self.started:
+            self.table.set_ai_levels(absolute)
+        else:
+            self.table.ai_levels = absolute
+        self.publish()
 
     def start(self, sid: str, next_hand: bool = False) -> None:
         """Let the host deal, or advance after the current hand has settled."""
@@ -188,7 +212,7 @@ class WebRoom:
         else:
             for pid in range(4):
                 self.record_seat(pid)
-            self.table.new_table(activate_recording=True)
+            self.table.new_table(activate_recording=True, reset_ai=False)
         self.started = True
         self.event = None
         self.thinking = False
@@ -276,7 +300,9 @@ class WebRoom:
             self.ready_at = now + .7
             self.publish()
             return
-        self.apply(self.table.bot.choose(self.table.env._obs(pid)), pid=pid, source='bot')
+        action = self.table.choose_bot(pid)
+        if action is not None:
+            self.apply(action, pid=pid, source='bot')
 
 
 class RoomRegistry:
@@ -351,6 +377,8 @@ class RoomRegistry:
                         raise ValueError('目前房間已滿，請稍後再試。')
                     if player_id not in saved['seats']:
                         raise ValueError('這個座位已經讓出，無法續局。')
+                    if room is not None:
+                        room.table.cancel_ai()
                     table = restore(document)
                     owner = 'reserved:' + (saved['owner'] or player_id)
                     room = WebRoom(saved['code'], owner, table)
@@ -382,6 +410,7 @@ class RoomRegistry:
             if room:
                 with room.changed:
                     pid = room.seats.index(sid)
+                    room.table.cancel_ai()
                     room.seats[pid] = None
                     room.seen.pop(sid, None)
                     room.names.pop(sid, None)

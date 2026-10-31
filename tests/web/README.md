@@ -121,3 +121,12 @@ Node 的 refresh/context-menu 回歸不代表實機 WebGL／iOS 行為已驗證�
 歷史結算返回檢查：先把逐局表格捲到任一結算按鈕可見，再執行
 `session_history.browser.mjs` 的 `checkHistoryReturn(testTab)`，比較返回前後
 的清單／表格捲動位置及焦點。原生座標點擊避免定位器自動置中改變被測位置。
+
+設定未儲存關閉檢查：在設定可編輯的隔離測試桌執行
+`settings_close.browser.mjs` 的 `checkSettingsClose(testTab)`。涵蓋叉叉、Esc、
+背景點擊、繼續編輯、改回原值及捨棄後重新開啟；不儲存偏好。
+提示中的儲存成功與失敗仍需搭配設定儲存測試及瀏覽器驗收。
+
+焦點框檢查：用鍵盤開啟有台數明細的歷史結算後，執行
+`modal_focus.browser.mjs` 的 `checkResultFocus(testTab)`；標題不畫焦點框，
+滑鼠點擊不殘留框線，而 Tab 導覽仍顯示焦點。另檢查手機觸控及返回紀錄。

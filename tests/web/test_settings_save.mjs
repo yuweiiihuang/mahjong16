@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../ui/web/app.js', import.meta.url), 'utf8');
+const readLevels = source.slice(source.indexOf('  const readAiLevels ='),
+  source.indexOf('  const updateAiNote ='));
 const handler = source.slice(source.indexOf("  $('save-settings').onclick=async"),
   source.indexOf("\n};\n$('new-game').onclick"));
 
@@ -36,7 +38,7 @@ test('settings save syncs preferences, preserves newer dialogs and restores cont
         return {auto_ting_discard:false};
       }, present:async () => {}, render() {},
     });
-    vm.runInContext(handler, context);
+    vm.runInContext(readLevels + handler, context);
     context.busy = true;
     const blocked = nodes['save-settings'].onclick();
     assert.equal(finish, undefined);

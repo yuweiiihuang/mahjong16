@@ -1,5 +1,5 @@
 export const TILE_FONTS = [
-  {id:'mahjong-tw', name:'臺灣牌面（預設）'},
+  {id:'mahjong-tw', name:'臺灣牌面'},
   {id:'mahjong-jp', name:'日式牌面'},
 ];
 export const DEFAULT_TILE_FONT = 'mahjong-tw';

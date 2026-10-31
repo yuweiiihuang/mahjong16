@@ -348,6 +348,8 @@ def test_http_saved_action_retry_and_storage_failure_response(store, monkeypatch
         assert _document(store, room.table) == saved
         # A fresh practice table also uses the same persistent path and error contract.
         status, practice, player = request('/api/state')
+        assert status == 200 and practice['waiting']
+        status, practice, _ = request('/api/start', {}, player)
         assert status == 200
         table = Handler.sessions[player.split('=')[1]]
         prefix = _document(store, table)

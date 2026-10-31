@@ -22,6 +22,12 @@ test('session header contains the ID and disables resuming the current table onl
     totals:[1000,1000,1000,1000],points:[],seats:[],hands:[],draws:0};
   const sessions = ['current','other'].map(id => ({id,hand_id:`hand-${id}`,
     started_at:'2026-10-30T00:00:00Z',established:true,completed_hands:3,resumable:true}));
+  sessions.unshift({id:'abandoned',hand_id:'hand-abandoned',
+    started_at:'2026-10-30T00:00:00Z',established:false,completed_hands:0,resumable:false});
+  sessions.push({id:'unfinished',hand_id:'hand-unfinished',
+    started_at:'2026-10-30T00:00:00Z',established:false,completed_hands:0,resumable:true});
+  sessions.push({id:'read-only',hand_id:'hand-read-only',
+    started_at:'2026-10-30T00:00:00Z',established:true,completed_hands:1,resumable:false});
   let healthy = true;
   const ctx = vm.createContext({document:{createElement:element},state:{session_id:'current'},
     $:id=>id === 'modal' ? dialog : list,winds:['東','南','西','北'],refreshSessionHeaders(){},request:async path=>{
@@ -37,6 +43,9 @@ test('session header contains the ID and disables resuming the current table onl
     'repeated clicks during loading must share one opening');
   assert.deepEqual(opened,[true],'open the dialog with its initial Session already rendered');
   const headers = list.children.map(card=>card.children[0]);
+  assert.deepEqual(headers.map(header => header.children.find(el=>el.className==='session-id').textContent),
+    ['ID current','ID other','ID unfinish','ID read-onl'],
+    'hide only unfinished sessions that cannot be resumed');
   assert.equal(list.children[0].open,true);
   assert.equal(headers[0].children.find(el=>el.className==='session-id').textContent,'ID current');
   const buttons = headers.map(header=>header.children.find(el=>el.tag==='button'));
@@ -56,7 +65,8 @@ test('session header contains the ID and disables resuming the current table onl
   assert.deepEqual(resumed,['hand-other','hand-current']);
   healthy = true;
   ctx.state.room = {code:'ABCD'};
-  sessions[0].source = 'multiplayer'; sessions[0].room_code = 'ABCD';
+  const current = sessions.find(session => session.id === 'current');
+  current.source = 'multiplayer'; current.room_code = 'ABCD';
   list.children = [];
   await ctx.showHistory();
   const roomHeader = list.children[0].children[0];

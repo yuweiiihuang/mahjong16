@@ -1,0 +1,5 @@
+# Opt-in image target 'advanced'; preserve the existing production project and records volume.
+services:
+  web:
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=128m

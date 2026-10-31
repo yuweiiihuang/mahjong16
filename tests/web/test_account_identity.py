@@ -146,10 +146,12 @@ def test_account_reconnects_without_cookies_and_switch_does_not_reuse_a_seat(
 def test_practice_uses_the_same_account_id_after_new_table(account_server):
     address, handler, store = account_server
     assert call(address, '/api/state')[0] == 200
+    assert call(address, '/api/start', body={})[0] == 200
     table = next(iter(handler.sessions.values()))
     while not table.env.done:
         table.act(table.bot.choose(table.env._obs(0)))
     assert call(address, '/api/new', body={})[0] == 200
+    assert call(address, '/api/start', body={})[0] == 200
     documents = [stored_hand(store.path, row['hand_id']) for row in stored_hands(store.path)]
     ids = [doc['metadata']['players'][0]['player_id'] for doc in documents]
     assert len(ids) == 2 and ids[0] == ids[1]
@@ -277,7 +279,8 @@ def test_rename_updates_only_callers_seat_and_records_name_without_changing_id(a
 
 def test_practice_rename_is_server_side_and_keeps_player_identity(account_server):
     address, _, store = account_server
-    before = json.loads(call(address, '/api/state')[2])
+    assert call(address, '/api/state')[0] == 200
+    before = json.loads(call(address, '/api/start', body={})[2])
     original = stored_hand(store.path, stored_hands(store.path)[0]['hand_id'])
     status, _, payload = call(address, '/api/player/name', body={'name': '練習玩家'})
     after = json.loads(payload)

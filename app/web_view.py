@@ -8,6 +8,9 @@ def relative_snapshot(state: dict, viewer: int) -> dict:
     order = [(viewer + i) % 4 for i in range(4)]
     for key in ('players', 'melds_all', 'rivers', 'seat_winds', 'totals'):
         state[key] = [state[key][pid] for pid in order]
+    for key in ('ai_levels', 'ai_degraded', 'seat_ids', 'ai_failure_reasons', 'ai_hand_levels'):
+        if key in state:
+            state[key] = [state[key][pid] for pid in order]
     if 'final_hands' in state:
         state['final_hands'] = [state['final_hands'][pid] for pid in order]
     for key in ('player', 'actor', 'winner', 'dealer'):

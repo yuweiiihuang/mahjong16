@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from app.hand_store import HandStore
+from app.ai_history import seat_ai_history
 from app.web_view import relative_snapshot
 from domain.gameplay.recording import engine_version, replay_hand
 from domain.scoring.score_types import ScoringTable
@@ -51,6 +52,7 @@ def session_summary(head: dict) -> dict:
     return {
         'id': head['table_id'], 'hand_id': head['hand_id'], 'players': names,
         'source': head['source'], 'room_code': head['room_code'],
+        'ai': seat_ai_history(head),
         'started_at': head['session_started'], 'round': head['round'],
         'completed_hands': head['completed_hands'],
         'established': head['completed_hands'] > 0,
@@ -71,7 +73,8 @@ def session_statistics(store: HandStore, player_id: str, table_id: str) -> dict:
     if not hands:
         raise ValueError('找不到你的 Session。')
     seats = [{'wins': 0, 'tsumo': 0, 'ron': 0, 'deal_ins': 0, 'net': 0} for _ in range(4)]
-    points = [{'round': 0, 'totals': hands[0]['totals_before']}]
+    points = [{'round': 0, 'totals': hands[0]['totals_before'],
+               'ai': seat_ai_history(hands[0])}]
     records = []
     draws = 0
     for hand in hands:
@@ -88,12 +91,13 @@ def session_statistics(store: HandStore, player_id: str, table_id: str) -> dict:
                 seats[hand['payer']]['deal_ins'] += 1
         for seat, payment in zip(seats, result['payments']):
             seat['net'] += payment
-        points.append({'round': hand['round'], 'totals': hand['totals_after']})
+        usage = seat_ai_history(hand)
+        points.append({'round': hand['round'], 'totals': hand['totals_after'], 'ai': usage})
         records.append({
             'id': hand['hand_id'], 'round': hand['round'], 'winner': winner,
             'win_source': result['win_source'], 'payments': result['payments'],
             'tai': result['tai'][winner] if winner is not None else None,
-            'players': _player_names(hand['players']),
+            'players': _player_names(hand['players']), 'ai': usage,
             'replayable': hand['participant'] and hand['engine_version'] == engine_version(),
         })
     count = len(records)
@@ -152,12 +156,16 @@ def replay_frames(document: dict, player_id: str, viewer: int | None = None) -> 
     table.totals = list(document['metadata']['totals_before'])
     table.round = document['metadata']['hand_index']
     table.record_players = deepcopy(document['metadata']['players'])
+    table.ai_levels = list(document['metadata'].get('ai_levels', ['standard'] * 4))
     table.hand_manager_state = document['metadata'].get('recovery', {}).get('manager', {})
     table.settlement = None
     frames = []
     event = None
 
     def frame(seq: int) -> dict:
+        for failure in document['metadata'].get('ai_failures', []):
+            if failure['after_seq'] <= seq:
+                table.ai_failures[failure['pid']] = failure['reason']
         if env.done:
             table.settle()
         state = relative_snapshot(table.snapshot(viewer), viewer)

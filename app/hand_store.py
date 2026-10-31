@@ -175,6 +175,9 @@ class HandStore:
             h.reason,
             json_extract(h.document, '$.metadata.players') AS players,
             json_extract(h.document, '$.metadata.source') AS source,
+            json_extract(h.document, '$.metadata.ai_levels') AS ai_levels,
+            json_extract(h.document, '$.metadata.ai_failures') AS ai_failures,
+            json_extract(h.document, '$.metadata.decisions') AS decisions,
             json_extract(h.document, '$.metadata.seat_events') AS seat_events,
             json_array_length(h.document, '$.steps') AS step_count,
             json_extract(h.document, '$.metadata.recovery.players') AS current_players,
@@ -221,7 +224,7 @@ class HandStore:
         items = [dict(zip(keys, row)) for row in rows]
         for item in items:
             for key in ('players', 'totals_before', 'totals_after', 'result', 'seat_winds',
-                        'seat_events', 'current_players'):
+                        'seat_events', 'current_players', 'ai_levels', 'ai_failures', 'decisions'):
                 item[key] = json.loads(item[key]) if item[key] is not None else None
             events = [event for event in item['seat_events'] or []
                       if item['status'] != 'completed' or event['after_seq'] < item['step_count']]

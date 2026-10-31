@@ -15,11 +15,12 @@ from domain.gameplay.recording import private_state
 
 
 @contextmanager
-def server(path):
+def server(path, *, waiting=False):
     store = HandStore(path)
 
     class SeededTable(WebTable):
         def __init__(self, **kwargs):
+            kwargs['waiting'] = waiting
             super().__init__(seed=7, **kwargs)
 
     class Handler(WebHandler):

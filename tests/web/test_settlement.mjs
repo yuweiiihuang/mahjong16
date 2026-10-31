@@ -171,7 +171,7 @@ test('result dialog focuses its named heading while other dialogs keep native in
   const nodes={'room-panel':{},toast:{classList:{remove() {}}},modal:{open:false,
     showModal() {this.open=true;opened++;}},'modal-content':{},
     'modal-title':{focus(options) {assert.equal(options.preventScroll,true);focused++;}}};
-  const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
+  const ctx=appContext({settingsClosePrompt:null,$:id=>nodes[id],escapeHtml:value=>value});
   vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult(')),ctx);
   ctx.modal('贏家 胡牌','<div>結算內容</div>','result-dialog');
   assert.match(nodes['modal-content'].innerHTML,/<h2 id="modal-title" tabindex="-1">贏家 胡牌<\/h2>/);
@@ -213,7 +213,7 @@ test('replacing settings with a confirmation preserves the table action and its 
   Object.defineProperty(nodes['modal-content'],'innerHTML',{set() {
     assert.equal(inDialog,false,'table action must move before settings content is replaced');
   }});
-  const ctx=appContext({$:id=>nodes[id],escapeHtml:value=>value});
+  const ctx=appContext({settingsClosePrompt:null,$:id=>nodes[id],escapeHtml:value=>value});
   vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult(')),ctx);
   ctx.modal('建立新 Session？','確認內容');
   assert.equal(parked[0],action);

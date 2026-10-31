@@ -18,3 +18,9 @@
 **/.DS_Store
 **/.env*
 **/.git/
+
+!scripts/
+!scripts/build_meowcats.py
+!deploy/
+!deploy/meowcats/
+!deploy/meowcats/entrypoint.sh

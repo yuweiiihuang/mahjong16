@@ -13,6 +13,8 @@ export async function checkSortDrag(tab, rounds = 12) {
         label: el.getAttribute('aria-label') };
     })
   }));
+  await tab.playwright.locator('#sort-order button').first().click();
+  await tab.getAXState({emit:false});
   const initial = await read();
   for (let i = 0; i < rounds; i++) {
     const before = await read();
@@ -41,6 +43,9 @@ export async function checkSortDrag(tab, rounds = 12) {
     assert.equal(new Set(after.cards.map(c => c.group)).size, 4, 'no duplicate/lost cards');
   }
   await tab.playwright.getByRole('button', { name: '關閉', exact: true }).click();
+  if (await tab.playwright.locator('.settings-close-prompt').isVisible()) {
+    await tab.playwright.getByRole('button', {name:'捨棄', exact:true}).click();
+  }
   await tab.playwright.getByRole('button', { name: '設定', exact: true }).click();
   assert.deepEqual((await read()).cards.map(c => c.group), initial.cards.map(c => c.group),
     'closing without saving must discard the draft');

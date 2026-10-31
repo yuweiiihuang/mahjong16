@@ -31,6 +31,7 @@ def test_new_session_gate_switching_and_restart(tmp_path):
         with ThreadPoolExecutor(max_workers=2) as pool:
             responses = list(pool.map(lambda _: call(address, '/api/new', cookie, {}), range(2)))
         assert sorted(response[0] for response in responses) == [200, 400]
+        assert call(address, '/api/start', cookie, {})[0] == 200
         second = handler.sessions[sid]
         second_id = second.table_id
         second_private = private_state(second.env)
@@ -157,6 +158,7 @@ def test_legacy_records_do_not_block_entering_or_starting_new_sessions(tmp_path)
         assert call(address, '/api/new', cookie, {})[0] == 400
         finish(handler.sessions[sid])
         assert call(address, '/api/new', cookie, {})[0] == 200
+        assert call(address, '/api/start', cookie, {})[0] == 200
         assert len(stored_hands(store.path)) == 3
 
 

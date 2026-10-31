@@ -7,6 +7,7 @@ import hmac
 from copy import deepcopy
 from dataclasses import asdict
 import json
+import logging
 import secrets
 import sqlite3
 import threading
@@ -17,8 +18,11 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
+from app.web_ai import NativeSearches
+from app.training_export import player_observation
 from app.web_rooms import RoomRegistry, player_name
 from app.hand_store import HandStore, PersistentHandRecorder, RecordingError, _now
+from app.ai_history import public_ai_failure
 
 from domain.gameplay.game_env import Mahjong16Env
 from domain.gameplay.recording import replay_hand
@@ -39,9 +43,17 @@ class WebTable:
 
     def __init__(self, seed: int | None = None, human_pids: set[int] | None = None, *,
                  record_store: HandStore | None = None, defer_recording: bool = False,
-                 player_id: str | None = None):
+                 player_id: str | None = None, waiting: bool = False,
+                 ai_service: NativeSearches | None = None):
         self.human_pids = {0} if human_pids is None else set(human_pids)
         self.auto_ting_discard = [True] * 4
+        self.ai_service = ai_service
+        self.ai_levels = ['standard'] * 4
+        self.next_ai_levels = None
+        self.ai_failures = [None] * 4
+        self.ai_pending = None
+        self.decision_version = 0
+        self.waiting = waiting
         self.record_store = record_store
         self.recording_enabled = record_store is not None and not defer_recording
         self.recording_error = False
@@ -63,13 +75,22 @@ class WebTable:
         self.scoring = load_scoring_assets(
             self.env.rules.scoring_profile, self.env.rules.scoring_overrides_path
         )
-        self.new_table()
+        self.new_table(waiting=waiting)
 
-    def new_table(self, *, activate_recording: bool = False) -> None:
+    def new_table(self, *, activate_recording: bool = False, waiting: bool = False,
+                  reset_ai: bool = True) -> None:
         """Start a fresh practice table with fixed initial seats and 1,000 points each."""
         self.check_recording()
         if self.recording_enabled and getattr(self, 'round', 0) and not self.env.done:
             raise ValueError('本局尚未結束，請先胡牌或流局後再開新 Session。')
+        self.cancel_ai()
+        if reset_ai:
+            self.ai_levels = ['standard'] * 4
+        elif self.next_ai_levels is not None:
+            self.ai_levels = self.next_ai_levels
+        self.next_ai_levels = None
+        self.ai_failures = [None] * 4
+        self.waiting = waiting
         self.table_id = str(uuid4())
         if activate_recording:
             self.recording_enabled = self.record_store is not None
@@ -79,11 +100,25 @@ class WebTable:
         )
         self.totals = [1000] * self.env.rules.n_players
         self.round = 0
-        self.start_hand()
+        if waiting:
+            # The unrecorded placeholder is never exposed or used as the first deal.
+            self.hand_manager_state = asdict(self.manager.state)
+            self.settlement = None
+            self.events = []
+            self.env.recorder = None
+            self.env.reset()
+        else:
+            self.start_hand()
 
     def start_hand(self, playback: list | None = None) -> None:
         """Deal the next hand using the shared dealer and round-wind manager."""
         self.check_recording()
+        self.cancel_ai()
+        self.waiting = False
+        if self.next_ai_levels is not None:
+            self.ai_levels = self.next_ai_levels
+            self.next_ai_levels = None
+        self.ai_failures = [None] * 4
         self.round += 1
         self.events = []
         self.settlement = None
@@ -95,6 +130,7 @@ class WebTable:
                 'started_at': _now(), 'source': self.record_source,
                 'totals_before': list(self.totals),
                 'players': deepcopy(self.record_players), 'seat_events': [], 'decisions': [],
+                'ai_levels': list(self.ai_levels), 'ai_failures': [],
             }
             self.env.recorder = PersistentHandRecorder(
                 self.record_store, metadata, recovery=self.recovery_state)
@@ -112,6 +148,8 @@ class WebTable:
             'manager_rng': self.hand_manager_rng, 'env_rng': self.env.rng.getstate(),
             'human_pids': sorted(self.human_pids),
             'auto_ting_discard': list(self.auto_ting_discard),
+            'ai_levels': list(self.ai_levels), 'ai_failures': list(self.ai_failures),
+            'next_ai_levels': self.next_ai_levels,
             'players': deepcopy(self.record_players),
         }
         if self.room_checkpoint is not None:
@@ -119,7 +157,8 @@ class WebTable:
         return recovery
 
     @classmethod
-    def restore(cls, document: dict, store: HandStore) -> WebTable:
+    def restore(cls, document: dict, store: HandStore, *,
+                ai_service: NativeSearches | None = None) -> WebTable:
         """Verify a durable prefix before restoring it; never reapply settled payments."""
         metadata = deepcopy(document['metadata'])
         recovery = metadata.get('recovery', {})
@@ -129,7 +168,8 @@ class WebTable:
         # Replay uses a fixed-wall subclass; resumed future hands must shuffle normally.
         env.__class__ = Mahjong16Env
         env.reset_rng_seed = document['seed']
-        table = cls(human_pids=set(recovery['human_pids']), defer_recording=True)
+        table = cls(human_pids=set(recovery['human_pids']), defer_recording=True,
+                    ai_service=ai_service)
         table.env = env
         table.scoring = ScoringTable(**document['scoring'])
         table.manager = TableManager(env.rules)
@@ -149,6 +189,9 @@ class WebTable:
         table.table_id = metadata['table_id']
         table.round = metadata['hand_index']
         table.auto_ting_discard = recovery['auto_ting_discard']
+        table.ai_levels = recovery.get('ai_levels', ['standard'] * 4)
+        table.next_ai_levels = recovery.get('next_ai_levels')
+        table.ai_failures = recovery.get('ai_failures', [None] * 4)
         table.totals = list(metadata['totals_before'])
         table.settlement = None
         if env.done:
@@ -180,6 +223,7 @@ class WebTable:
 
     def interrupt_recording(self, reason: str) -> None:
         """Retain a durable prefix when a table is discarded or replaced."""
+        self.cancel_ai()
         recorder = self.env.recorder
         if isinstance(recorder, PersistentHandRecorder) and recorder.records:
             try:
@@ -204,6 +248,83 @@ class WebTable:
             except RecordingError:
                 self.recording_error = True
                 raise
+
+    def cancel_ai(self) -> None:
+        """Invalidate outstanding work before a move, takeover, hand or table change."""
+        self.decision_version += 1
+        if self.ai_pending is not None:
+            self.ai_pending[2].cancel()
+            self.ai_pending = None
+
+    def set_ai_levels(self, levels: list[str]) -> None:
+        """Save preferences now; active searches and the current hand keep their original levels."""
+        self.check_recording()
+        if (not isinstance(levels, list) or len(levels) != 4 or
+                any(level not in ('standard', 'advanced') for level in levels)):
+            raise ValueError('請為四個座位選擇標準或進階 AI。')
+        if not self.waiting and not self.env.done:
+            self.next_ai_levels = list(levels) if levels != self.ai_levels else None
+        else:
+            self.ai_levels = list(levels)
+            self.next_ai_levels = None
+        self.persist_settings()
+
+    def persist_settings(self) -> None:
+        """Commit between-hand preferences to the existing durable table head."""
+        if isinstance(self.env.recorder, PersistentHandRecorder):
+            try:
+                self.env.recorder.persist()
+            except RecordingError:
+                self.recording_error = True
+                raise
+
+    def choose_bot(self, pid: int) -> dict | None:
+        """Poll a versioned search; only this table's caller can commit its result."""
+        if self.ai_levels[pid] == 'standard' or self.ai_failures[pid]:
+            return self.bot.choose(self.env._obs(pid))
+        key = (self.table_id, self.round, self.decision_version, pid)
+        if self.ai_pending is not None:
+            pending_key, _, search = self.ai_pending
+            if pending_key != key:
+                self.cancel_ai()
+                key = (self.table_id, self.round, self.decision_version, pid)
+            elif not search.future.done():
+                return None
+            else:
+                self.ai_pending = None
+                try:
+                    action = search.future.result()
+                    if action not in self.env.legal_actions(pid):
+                        raise ValueError('Illegal native action')
+                    return action
+                except Exception as error:
+                    logging.exception('Native seat decision failed')
+                    self.fail_ai(pid, type(error).__name__)
+                    return self.bot.choose(self.env._obs(pid))
+        if self.ai_service is None:
+            self.fail_ai(pid, 'unavailable')
+        else:
+            observation = player_observation(self.env, pid)
+            observation['melds_all'] = [player['melds'] for player in observation['players']]
+            search = self.ai_service.submit(observation, self.env.rules)
+            if search is not None:
+                self.ai_pending = (key, pid, search)
+                return None
+            self.fail_ai(pid, 'capacity')
+        return self.bot.choose(self.env._obs(pid))
+
+    def fail_ai(self, pid: int, reason: str) -> None:
+        """Keep a seat on Greedy for this hand; retain private diagnostics in records."""
+        self.ai_failures[pid] = reason
+        logging.warning('Advanced AI fallback table=%s hand=%s seat=%s reason=%s',
+                        self.table_id, self.round, pid, reason)
+        recorder = self.env.recorder
+        if isinstance(recorder, PersistentHandRecorder):
+            recorder.metadata.setdefault('ai_failures', []).append({
+                'pid': pid, 'reason': reason, 'after_seq': len(recorder.records[-1]['steps']),
+                'at': _now(),
+            })
+            self.persist_settings()
 
     def next_hand(self) -> dict:
         """Continue a completed hand without clearing accumulated points."""
@@ -256,11 +377,17 @@ class WebTable:
         """Apply and record an already validated action."""
         self.check_recording()
         pid, phase = self.actor() if pid is None else pid, self.env.phase
+        self.cancel_ai()
         if isinstance(self.env.recorder, PersistentHandRecorder):
             self.env.recorder.step_context = {
                 'pid': pid, 'source': source,
                 'player_id': self.record_players[pid]['player_id'],
             }
+            if source == 'bot':
+                self.env.recorder.step_context.update(
+                    strategy=('meowcats_2000' if self.ai_levels[pid] == 'advanced'
+                              and not self.ai_failures[pid] else 'greedy'),
+                    ai_failure=self.ai_failures[pid])
             if self.request_id is not None:
                 self.env.recorder.step_context['request_id'] = self.request_id
         try:
@@ -305,6 +432,8 @@ class WebTable:
         self, playback: list | None = None, *, auto_discard_ting: bool = True
     ) -> None:
         """Play bots until a meaningful human choice or round end."""
+        if self.waiting:
+            return
         while not self.env.done:
             if self.env.phase == 'REACTION':
                 # Bots and forced passes must not wait behind a human's decision.
@@ -313,7 +442,10 @@ class WebTable:
                                   or self.env.legal_actions(pid) == [{'type': 'PASS'}]), None)
                 if automatic is None:
                     return
-                action = self.bot.choose(self.env._obs(automatic))
+                forced = self.env.legal_actions(automatic) == [{'type': 'PASS'}]
+                action = {'type': 'PASS'} if forced else self.choose_bot(automatic)
+                if action is None:
+                    return
                 self.apply(action, playback, pid=automatic,
                            source=('auto_pass' if self.env.legal_actions(automatic)
                                    == [{'type': 'PASS'}] else 'bot'))
@@ -329,7 +461,9 @@ class WebTable:
                     self.apply(actions[0], playback, source='auto_pass')
                     continue
                 return
-            action = self.bot.choose(self.env._obs(pid))
+            action = self.choose_bot(pid)
+            if action is None:
+                return
             if self.env.phase == 'TURN':
                 self.record_frame(playback, pid, 'THINK')
             self.apply(action, playback, source='bot')
@@ -340,7 +474,7 @@ class WebTable:
 
     def act(self, action: dict) -> dict:
         """Reject stale/forged moves before mutating game state."""
-        if (self.env.done or (self.env.phase != 'REACTION' and self.actor() != 0)
+        if (self.waiting or self.env.done or (self.env.phase != 'REACTION' and self.actor() != 0)
                 or action not in self.env.legal_actions(0)):
             raise ValueError('這個操作已失效，請重新選牌。')
         playback = []
@@ -355,6 +489,15 @@ class WebTable:
         result = deepcopy(env._obs(viewer))
         result.update({
             'auto_ting_discard': self.auto_ting_discard[viewer],
+            'waiting': self.waiting,
+            'seat_ids': list(range(4)),
+            'ai_hand_levels': list(getattr(env.recorder, 'metadata', {}).get(
+                'ai_levels', self.ai_levels)),
+            'ai_levels': list(self.next_ai_levels or self.ai_levels),
+            'ai_degraded': [bool(reason) for reason in self.ai_failures],
+            'ai_failure_reasons': [public_ai_failure(reason) for reason in self.ai_failures],
+            'ai_editable': True,
+            'ai_pending': self.ai_pending is not None,
             'player_name': self.record_players[viewer]['name'],
             'legal_actions': (env.legal_actions(viewer)
                               if not env.done and (env.phase == 'REACTION'
@@ -431,6 +574,13 @@ class WebTable:
             else:
                 result['winning_hand'] = sorted(winner.hand) + (
                     [env.win_tile] if env.win_tile is not None else [])
+        if self.waiting:
+            result.update(hand=[], drawn=None, flowers=[], melds=[], remaining=0, actor=None,
+                          legal_actions=[], ting_options=[], ting_waits=[])
+            result['melds_all'] = [[], [], [], []]
+            result['rivers'] = [[], [], [], []]
+            for player in result['players']:
+                player.update(count=0, has_drawn=False, flowers=[], melds=[])
         return result
 
 
@@ -444,6 +594,7 @@ class WebHandler(SimpleHTTPRequestHandler):
     access_authorization = b''
     trusted_identity_issuer = ''
     record_store: HandStore | None = None
+    ai_service: NativeSearches | None = None
 
     def __init__(self, request, client_address, server):
         # Cookies ignore ports: isolate local test servers from the user's live table.
@@ -638,10 +789,12 @@ class WebHandler(SimpleHTTPRequestHandler):
 
                     if not can_resume(documents[0], self.record_store, self.player_id):
                         raise ValueError('原 Session 與目前版本不相容，請先查看牌局紀錄。')
-                    self.sessions[sid] = WebTable.restore(documents[0], self.record_store)
+                    self.sessions[sid] = WebTable.restore(documents[0], self.record_store,
+                                                           ai_service=self.ai_service)
                 else:
                     self.sessions[sid] = WebTable(record_store=self.record_store,
-                                                  player_id=self.player_id)
+                                                  player_id=self.player_id, waiting=True,
+                                                  ai_service=self.ai_service)
                 if self.record_store and self.player_id:
                     self.record_store.select_practice(self.player_id, self.sessions[sid].table_id)
             return sid, self.sessions[sid]
@@ -701,9 +854,12 @@ class WebHandler(SimpleHTTPRequestHandler):
                 try:
                     room = self.rooms.get(sid)
                 except ValueError:
-                    sid, table = self.table()
-                    with table.lock:
-                        data = table.snapshot()
+                    with self.session_lock:
+                        sid, table = self.table()
+                        with table.lock:
+                            playback = []
+                            table.advance(playback)
+                            data = {**table.snapshot(), 'playback': playback}
                 else:
                     with room.changed:
                         room.touch(sid)
@@ -729,7 +885,7 @@ class WebHandler(SimpleHTTPRequestHandler):
         if self.path not in ('/api/action', '/api/new', '/api/next', '/api/rooms',
                              '/api/room/join', '/api/room/start', '/api/room/action',
                              '/api/room/next', '/api/room/leave', '/api/preferences',
-                             '/api/player/name', '/api/resume'):
+                             '/api/player/name', '/api/resume', '/api/start', '/api/ai'):
             self.send_error(404)
             return
         sid = ''
@@ -759,7 +915,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                 document = documents[0]
                 if document['metadata']['source'] == 'multiplayer':
                     room = self.rooms.recover(sid, self.player_id, document,
-                        lambda record: WebTable.restore(record, self.record_store),
+                        lambda record: WebTable.restore(record, self.record_store,
+                                                       ai_service=self.ai_service),
                         store=self.record_store)
                     with room.changed:
                         data = room.snapshot(sid)
@@ -780,7 +937,11 @@ class WebHandler(SimpleHTTPRequestHandler):
                         current = self.sessions.get(sid)
                         if (current is None or current.recording_error or
                                 current.table_id != document['metadata']['table_id']):
-                            restored = WebTable.restore(document, self.record_store)
+                            restored = WebTable.restore(document, self.record_store,
+                                                        ai_service=self.ai_service)
+                            if current is not None:
+                                with current.lock:
+                                    current.cancel_ai()
                             self.sessions[sid] = restored
                         table = self.sessions[sid]
                         self.record_store.select_practice(self.player_id, table.table_id)
@@ -806,6 +967,25 @@ class WebHandler(SimpleHTTPRequestHandler):
                 else:
                     with room.changed:
                         room.rename(sid, name)
+                        data = room.snapshot(sid)
+                self.respond(data, sid)
+                return
+            if self.path == '/api/ai':
+                sid = self.identity()
+                try:
+                    room = self.rooms.get(sid)
+                except ValueError:
+                    with self.session_lock:
+                        sid, table = self.table()
+                        with table.lock:
+                            expected = self.headers.get('X-Qinghe-Session')
+                            if expected and expected != table.table_id:
+                                raise ValueError('牌桌已在其他分頁切換，請重新整理後操作。')
+                            table.set_ai_levels(body.get('levels'))
+                            data = table.snapshot()
+                else:
+                    with room.changed:
+                        room.set_ai_levels(sid, body.get('levels'))
                         data = room.snapshot(sid)
                 self.respond(data, sid)
                 return
@@ -836,7 +1016,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if self.path == '/api/rooms':
                     room = self.rooms.create(
                         sid, lambda **kwargs: WebTable(
-                            **kwargs, record_store=self.record_store, defer_recording=True),
+                            **kwargs, record_store=self.record_store, defer_recording=True,
+                            ai_service=self.ai_service),
                         body.get('name', ''), player_id=self.player_id)
                 elif self.path == '/api/room/join':
                     code = body.get('code')
@@ -877,9 +1058,14 @@ class WebHandler(SimpleHTTPRequestHandler):
                             if any(head['recovery_version'] is not None and
                                    head['status'] != 'completed' for head in heads):
                                 raise ValueError('另有尚未打完的單人牌局，請從紀錄返回完成。')
-                        table.new_table()
+                        table.new_table(waiting=True)
                         if self.record_store and self.player_id:
                             self.record_store.select_practice(self.player_id, table.table_id)
+                        data = table.snapshot()
+                    elif self.path == '/api/start':
+                        if not table.waiting:
+                            raise ValueError('本桌已開局。')
+                        table.start_hand()
                         data = table.snapshot()
                     elif self.path == '/api/next':
                         data = table.next_hand()
@@ -907,7 +1093,13 @@ def main() -> None:
                         help='Protect all requests with a passcode read from this file.')
     parser.add_argument('--trusted-identity-issuer', default='',
                         help='Trust the private gateway subject only with its Basic credential.')
+    parser.add_argument('--meowcats-bridge', type=Path,
+                        help='Explicitly built MeowCaTS bridge for advanced seat AI.')
+    parser.add_argument('--meowcats-runtime', type=Path,
+                        help='Matching native runtime with fixed 2000-sample configuration.')
     args = parser.parse_args()
+    if bool(args.meowcats_bridge) != bool(args.meowcats_runtime):
+        parser.error('Specify both --meowcats-bridge and --meowcats-runtime')
     if args.trusted_identity_issuer and not args.access_password_file:
         parser.error('--trusted-identity-issuer requires --access-password-file')
     WebHandler.trusted_identity_issuer = args.trusted_identity_issuer
@@ -929,6 +1121,8 @@ def main() -> None:
     except OSError:
         WebHandler.record_store.close()
         raise
+    if args.meowcats_bridge:
+        WebHandler.ai_service = NativeSearches(args.meowcats_bridge, args.meowcats_runtime)
     server.daemon_threads = False
     stop = threading.Event()
     scheduler = threading.Thread(target=WebHandler.rooms.run, args=(stop,), daemon=True)
@@ -940,6 +1134,8 @@ def main() -> None:
         stop.set()
         scheduler.join()
         server.server_close()
+        if WebHandler.ai_service is not None:
+            WebHandler.ai_service.close()
         WebHandler.record_store.close()
 
 

@@ -1,7 +1,7 @@
 # MeowCaTS 外部搜尋對手
 
-`bots.meowcats.MeowCaTSStrategy` 是可選的 POSIX 外部程序 adapter，未接入 Web、
-CLI bot 別名或正式服務。Mahjong16 保持合法動作、事件、補花、尾牌與計分權威。
+`bots.meowcats.MeowCaTSStrategy` 是可選的 POSIX 外部程序 adapter，已接入網頁每席進階 AI；
+未接入 CLI bot 別名。Mahjong16 保持合法動作、事件、補花、尾牌與計分權威。
 不需 Torch；需 Python 專案環境、Git、POSIX `patch` 及 C++17 clang++ 或 g++。
 macOS 與 Linux／WSL 可用；Windows 原生 pipes 不支援。
 
@@ -90,3 +90,31 @@ MEOWCATS_RUNTIME="$PWD/logs/execution-reports/meowcats-build/native/runtime" \
 這假定花牌位置均勻，是近似，並非讀取牌牆的精確 oracle。
 原生內部 rollout 仍可能使用 host 限制的動作（例如吃牌後棄牌鎖），因此合法輸出
 不代表內部模擬與所有 Mahjong16 規則完全一致。原方法主要優化胡牌率，不保證淨分。
+
+
+## 網頁牌桌
+
+先依上方步驟在同一主機建置 bridge 與 runtime，明確傳入配對產物：
+
+```bash
+.venv/bin/python -m app.web --port 8016 --record-db data/seat-ai-test.sqlite3 \
+  --meowcats-bridge logs/execution-reports/meowcats-build/native/bridge \
+  --meowcats-runtime logs/execution-reports/meowcats-build/native/runtime
+```
+
+未傳入這兩個參數時標準 AI 仍可使用，選進階會公開提示本手暫用標準。
+網頁 worker 會核對 MCTS／FlatMC 2000、first/per round 100、停用時間搜尋與原生多執行緒。
+不要共用測試與正式資料庫；runtime 必須由管理者持有，不放在網站公開目錄。
+網頁背景服務限制程序與待辦數，故障時由應用層對該席本手降級，
+不改 adapter 或離線評估遇錯即失敗的語意。規則與牌力證據邊界仍如上文。
+
+## Docker 發布
+
+`docker build --target advanced -t mahjong16:VERSION .` 會在 Linux 建置 pinned upstream，
+同映像保留 bridge、原生 lookup tables、LGPL 授權與配對的完整修改來源包
+`/opt/meowcats/source.tar.gz`。一般 `docker build` 仍只包含標準 AI。
+
+沿用原 Compose project、環境與資料卷，再加 `-f deploy/meowcats/compose.yaml`，
+提供 128 MiB `/tmp` tmpfs；進階映像入口把固定 runtime 複製至 tmpfs 並加上
+原生執行參數，保留既有認證參數。不要把 macOS 產物複製進 Linux 映像。
+發布前須在唯讀、UID 10001、512 MiB／2 CPU 條件實測原生搜尋與無降級完整對局。
