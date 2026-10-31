@@ -977,7 +977,7 @@ $('settings').onclick=()=>{
       if (tableView) await tableView.setFaceFont(next.font);
       if (!state || state.auto_ting_discard !== undefined) {
         const result = await request('/api/preferences', {auto_ting_discard:next.autoTingDiscard});
-        if (roomMode) { state = result; render(); }
+        if (roomMode || (state?.done && result.done)) { state = result; render(); }
         else await present(result);
       }
     } catch (error) {

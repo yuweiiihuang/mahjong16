@@ -10,10 +10,10 @@ const handler = source.slice(source.indexOf("  $('save-settings').onclick=async"
   source.indexOf("\n};\n$('new-game').onclick"));
 
 test('settings save syncs preferences, preserves newer dialogs and restores controls after failure', async () => {
-  for (const [replaced, roomMode, failure] of [
-    [false,false], [true,false], [false,true], [false,false,'font'], [false,true,'request'],
+  for (const [replaced, roomMode, failure, done] of [
+    [false,false], [true,false], [false,true], [false,false,'font'], [false,true,'request'], [false,false,null,true],
   ]) {
-    let finish, closed = 0;
+    let finish, closed = 0, presented = 0;
     const stored = new Map(), requests = [], messages = [];
     const nodes = {
       'save-settings': {}, 'tile-font-setting': {value:'mahjong-jp'},
@@ -22,7 +22,7 @@ test('settings save syncs preferences, preserves newer dialogs and restores cont
       'pace-setting': {value:roomMode ? 'shared' : 'natural'}, modal:{close() { closed++; }},
     };
     const context = vm.createContext({
-      $:id => nodes[id], settingsOrder:[0,1,2,3], state:{auto_ting_discard:true}, roomMode, pace:'fast',
+      $:id => nodes[id], settingsOrder:[0,1,2,3], state:{auto_ting_discard:true,done}, roomMode, pace:'fast',
       tableView:{
         setFaceFont:() => new Promise((resolve,reject) => {
           finish = () => failure === 'font' ? reject(new Error('font failed')) : resolve();
@@ -35,8 +35,8 @@ test('settings save syncs preferences, preserves newer dialogs and restores cont
       busy:false, request:async (path,body) => {
         requests.push({path,auto_ting_discard:body.auto_ting_discard});
         if (failure === 'request') throw new Error('request failed');
-        return {auto_ting_discard:false};
-      }, present:async () => {}, render() {},
+        return {auto_ting_discard:false,done};
+      }, present:async () => {presented++;}, render() {},
     });
     vm.runInContext(readLevels + handler, context);
     context.busy = true;
@@ -65,6 +65,8 @@ test('settings save syncs preferences, preserves newer dialogs and restores cont
       continue;
     }
     assert.equal(closed, replaced ? 0 : 1);
+    assert.equal(presented, roomMode || done ? 0 : 1,
+      'saving an already completed hand must keep settings until they close');
     assert.equal(stored.get('qinghe-tile-font'), 'mahjong-jp');
     assert.equal(stored.get('qinghe-pace'), roomMode ? 'fast' : 'natural');
     assert.equal(stored.get('qinghe-auto-ting-discard'), 'false');
