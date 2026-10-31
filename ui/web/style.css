@@ -497,3 +497,19 @@ main{height:100%;padding:0}
 
 /* Keep keyboard cues; suppress inherited focus rings after pointer/touch input. */
 :root:not(.keyboard-navigation) :focus-visible{outline:none!important}
+
+.setting-select{display:inline-grid;max-width:70%;min-width:0}
+.setting-select select[hidden]{display:none}
+.setting-select-size{grid-area:1/1;visibility:hidden;white-space:nowrap;padding:8px 38px 8px 12px;pointer-events:none}
+.setting-select-trigger{grid-area:1/1}
+.setting-select-trigger{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:44px;padding:8px 12px;border:1px solid #ccd2c2;border-radius:8px;background:#faf9f0;text-align:left;font:inherit;color:inherit;white-space:nowrap}
+.setting-select-trigger::after{content:'';width:6px;height:6px;flex:none;border-right:1.4px solid #536957;border-bottom:1.4px solid #536957;transform:translateY(-2px) rotate(45deg)}
+.setting-select-trigger[aria-expanded="true"]{border-color:#7fab8a}
+.setting-select-trigger:disabled{background:#e5e7df;color:#747c70;opacity:1;cursor:not-allowed}
+.ai-seats-grid .setting-select{max-width:none;width:100%;font-size:12px}
+.setting-select-menu{position:fixed;inset:auto;margin:0;padding:4px;border:1px solid #ccd2c2;border-radius:8px;background:#faf9f0;color:var(--ink);box-shadow:0 5px 16px #153e3226;overflow-y:auto;overscroll-behavior:contain}
+.setting-select-menu [role="option"]{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:8px;border-radius:4px;text-align:left;font-size:13px;white-space:nowrap}
+.setting-select-menu [role="option"]::before{content:'';width:12px;flex:none}
+.setting-select-menu [aria-selected="true"]::before{content:'✓'}
+.setting-select-menu [role="option"]:is(:hover,:focus){background:#e3efe6;outline:none}
+.setting-select-menu [role="option"]:disabled{color:#899282;opacity:1}

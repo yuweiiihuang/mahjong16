@@ -62,3 +62,24 @@ def test_session_ai_uses_hand_metadata_and_actual_decisions(tmp_path):
         assert detail['points'][1]['ai'] == detail['hands'][0]['ai']
         assert detail['ai'] == detail['hands'][0]['ai']
         assert 'player_id' not in json.dumps(detail)
+
+
+def test_legacy_web_bot_decisions_use_the_original_fixed_standard_policy():
+    for source in ('practice', 'multiplayer'):
+        hand = {'status': 'completed', 'source': source, 'ai_levels': None,
+                'ai_failures': None, 'step_count': 3,
+                'decisions': [{'pid': 0, 'seq': 1, 'source': 'human'},
+                              {'pid': 1, 'seq': 2, 'source': 'bot'},
+                              {'pid': 2, 'seq': 3, 'source': 'bot', 'strategy': 'future_ai'}]}
+        original = deepcopy(hand)
+        usage = seat_ai_history(hand)
+        assert usage[1]['used'] and usage[1]['level'] == 'standard'
+        assert usage[1]['segments'][0]['level'] == 'standard'
+        assert usage[0]['used'] is False
+        assert usage[2]['level'] == 'unknown' and usage[3]['used'] is None
+        assert hand == original, 'legacy compatibility must not rewrite stored records'
+        # New-format missing strategy and unrelated exports must remain unknown.
+        hand['ai_levels'] = ['standard'] * 4
+        assert seat_ai_history(hand)[1]['level'] == 'unknown'
+        hand.update(ai_levels=None, source='external')
+        assert seat_ai_history(hand)[1]['level'] == 'unknown'

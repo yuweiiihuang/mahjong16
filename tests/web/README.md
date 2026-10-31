@@ -130,3 +130,8 @@ Node 的 refresh/context-menu 回歸不代表實機 WebGL／iOS 行為已驗證�
 焦點框檢查：用鍵盤開啟有台數明細的歷史結算後，執行
 `modal_focus.browser.mjs` 的 `checkResultFocus(testTab)`；標題不畫焦點框，
 滑鼠點擊不殘留框線，而 Tab 導覽仍顯示焦點。另檢查手機觸控及返回紀錄。
+
+設定下拉選單：開啟設定後執行 `settings_select.browser.mjs` 的
+`checkSettingsSelects(testTab)`，檢查七個選單的欄位對齊、寬度、設定值同步、
+方向鍵／Home／End／Enter，以及 Esc 只收合選單。桌機與手機橫向各執行一次；
+配合 `checkSettingsClose` 驗證草稿、`checkSortDrag` 驗證拖拉後自訂排列。

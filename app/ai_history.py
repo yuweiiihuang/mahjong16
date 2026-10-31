@@ -11,6 +11,8 @@ def public_ai_failure(reason: str | None) -> str | None:
 
 def seat_ai_history(hand: dict) -> list[dict]:
     """Summarize actual accepted decisions; never infer old strategies from preferences."""
+    # Before per-seat AI, recorded web bot decisions always used Greedy.
+    legacy_web = hand.get('source') in ('practice', 'multiplayer') and hand['ai_levels'] is None
     summaries = []
     for pid in range(4):
         configured = (hand['ai_levels'] or [None] * 4)[pid]
@@ -21,7 +23,8 @@ def seat_ai_history(hand: dict) -> list[dict]:
             source = decision.get('source', 'unknown')
             controller = source if source in ('human', 'bot') else 'auto'
             level = ({'greedy': 'standard', 'meowcats_2000': 'advanced'}
-                     .get(decision.get('strategy'), 'unknown') if controller == 'bot' else None)
+                     .get(decision.get('strategy', 'greedy' if legacy_web else None), 'unknown')
+                     if controller == 'bot' else None)
             if segments and (segments[-1]['controller'], segments[-1]['level']) == (
                     controller, level):
                 segments[-1]['end'] = decision['seq']

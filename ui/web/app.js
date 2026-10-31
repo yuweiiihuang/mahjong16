@@ -1,3 +1,4 @@
+import { enhanceSettingsSelects } from './settings-select.mjs?v=aligned-2';
 import { botIndicator, botGlyph, seatChoices } from './bot-indicator.mjs?v=seat-next-ai-7';
 import Sortable from './vendor/sortable.core.esm.js';
 import { DEFAULT_ORDER, validOrder, sortHand } from './hand-sort.mjs';
@@ -611,6 +612,8 @@ async function newGame(next = false){
   catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
 }
 function modal(title, content, className = '', show = true){
+  settingsSelectCleanup?.();
+  settingsSelectCleanup = null;
   settingsCloseGuard = null;
   settingsClosePrompt?.remove();
   settingsClosePrompt = null;
@@ -722,7 +725,7 @@ function showResult(snapshot = state, playerNames = names, onBack = null){
   if (snapshot.room && !snapshot.room.host) $('result-new').textContent = '等待房主開啟下一局';
   $('result-new').onclick = () => newGame(true);
 }
-let settingsCloseGuard = null, settingsClosePrompt = null;
+let settingsCloseGuard = null, settingsClosePrompt = null, settingsSelectCleanup = null;
 function requestModalClose(action = null) {
   const proceed = typeof action === 'function' ? action : () => $('modal').close();
   if (settingsCloseGuard) { settingsCloseGuard(proceed); return; }
@@ -758,6 +761,7 @@ function syncSortSettings() {
   const value = settingsOrder.join(',');
   $('sort-preset').value = [...$('sort-preset').options].some(o => o.value === value)
     ? value : 'custom';
+  $('sort-preset').dispatchEvent(new Event('settings-select-sync'));
   [...list.children].forEach((button, position) => {
     button.setAttribute('aria-label', `${sortNames[Number(button.dataset.group)]}，第 ${position + 1} 位`);
   });
@@ -800,6 +804,8 @@ function renderSortSettings() {
   });
 }
 $('modal').addEventListener('close', () => {
+  settingsSelectCleanup?.();
+  settingsSelectCleanup = null;
   settingsCloseGuard = null;
   settingsClosePrompt?.remove();
   settingsClosePrompt = null;
@@ -918,6 +924,7 @@ $('settings').onclick=()=>{
   $('pace-setting').value = roomMode ? 'shared' : pace;
   renderSortSettings();
   $('sort-preset').onchange=e=>setSettingsOrder(e.target.value.split(',').map(Number));
+  settingsSelectCleanup = enhanceSettingsSelects(document.querySelector('.settings-body'));
   const settingsDraft = () => JSON.stringify({
     order:settingsOrder,
     controls:[...document.querySelectorAll('.settings-body input, .settings-body select')]
