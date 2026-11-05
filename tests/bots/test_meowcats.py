@@ -156,7 +156,13 @@ def test_malformed_visible_counts_fail_before_sending(tmp_path):
     with MeowCaTSStrategy(path, tmp_path, rules) as bot:
         with pytest.raises(ValueError):
             bot.choose(obs)
-        assert bot._process.poll() is not None
+        # Nothing was sent, so the bridge stays reusable and the sequence is unchanged.
+        assert bot.alive and bot.sequence == 0
+        _, _, valid = state()
+        assert bot.choose(valid) in valid['legal_actions']
+        with pytest.raises(ValueError):
+            bot.choose(valid, Ruleset(n_players=3))
+        assert bot.alive
 
 
 @pytest.mark.skipif(os.name != 'posix' or not os.environ.get('MEOWCATS_BRIDGE'),

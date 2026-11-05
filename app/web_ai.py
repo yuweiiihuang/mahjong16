@@ -84,10 +84,7 @@ class NativeSearches:
         strategy = getattr(self.local, 'strategy', None)
         if strategy is not None and not strategy.alive:
             # Died while idle (e.g. OOM kill); keep its stderr for diagnosis.
-            self._discard(strategy, keep_log=True)
-            strategy = None
-        if strategy is not None and strategy.rules != rules:
-            self._discard(strategy, keep_log=False)
+            self._discard(strategy)
             strategy = None
         if strategy is None:
             strategy = MeowCaTSStrategy(self.executable, self.runtime, rules,
@@ -98,22 +95,23 @@ class NativeSearches:
         # Outside the try: a search cancelled during cold start keeps the new bridge.
         strategy.timeout = remaining()
         try:
-            return strategy.choose(observation)
+            # Rules travel with each request, so tables with different rules share the bridge.
+            return strategy.choose(observation, rules)
         except BaseException:
-            # choose() already reaped the process; keep its stderr for diagnosis.
-            self._discard(strategy, keep_log=True)
+            # Invalid input leaves the bridge alive; IPC failures already reaped it.
+            if not strategy.alive:
+                self._discard(strategy)
             raise
         finally:
             strategy.latencies.clear()  # The web path never reads it; avoid unbounded growth.
 
-    def _discard(self, strategy: MeowCaTSStrategy, *, keep_log: bool) -> None:
+    def _discard(self, strategy: MeowCaTSStrategy) -> None:
+        """Forget a failed or dead bridge, keeping its stderr log for diagnosis."""
         strategy.close()
         if getattr(self.local, 'strategy', None) is strategy:
             self.local.strategy = None
         with self.lock:
             self.strategies.discard(strategy)
-        if not keep_log:
-            strategy.error_log.unlink(missing_ok=True)
 
     def close(self) -> None:
         """Cancel queued decisions and reap all running bridges before shutdown."""

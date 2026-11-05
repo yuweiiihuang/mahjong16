@@ -67,7 +67,9 @@ with MeowCaTSStrategy("logs/execution-reports/meowcats-build/native/bridge",
 同牌手牌／進牌候選合併後映回原合法 dict；不會讀對手暗手或牌牆順序。
 
 每個 context 擁有一個長駐程序，`choose()` 序列化請求；預設 handshake／決策 timeout
-15 秒。錯誤、錯序、非法索引或逾時會清理程序並拋錯，不會替換成其他 bot。
+15 秒。協定錯誤、錯序、非法索引、程序結束或逾時會清理程序並拋錯，不會替換成其他 bot；
+觀察或規則在送出前驗證失敗時只拋錯，程序保留可繼續使用。`choose(obs, rules)` 可逐次
+傳入規則（只影響 host 端請求），省略時使用建構時的規則。
 `error_log` 指向 runtime 內獨立 stderr 檔；`latencies` 僅量測 IPC＋搜尋，不含
 觀察建構、初始化或 HU／強制動作捷徑。呼叫端須在失敗時結束該對局，使用 context
 或 `close()` 回收程序。不要讓其他使用者修改執行檔、來源或 runtime 設定。
@@ -106,7 +108,8 @@ MEOWCATS_RUNTIME="$PWD/logs/execution-reports/meowcats-build/native/runtime" \
 網頁 worker 會核對 MCTS／FlatMC 2000、first/per round 100、停用時間搜尋與原生多執行緒。
 不要共用測試與正式資料庫；runtime 必須由管理者持有，不放在網站公開目錄。
 網頁背景服務限制程序與待辦數；兩個 worker 各自重用一個長駐 bridge，避免每次決策重載
-lookup tables，代價是閒置時每個約 160 MiB RSS。出錯或逾時的程序會被回收並在下次重建，
+lookup tables，代價是閒置時每個約 160 MiB RSS。不同規則的牌桌共用同一 bridge；
+取消或逾期的待辦不影響已啟動的 bridge。出錯、逾時或閒置中結束的程序會被回收並在下次重建，
 stderr log 保留供診斷。故障時由應用層對該席本手降級，
 不改 adapter 或離線評估遇錯即失敗的語意。規則與牌力證據邊界仍如上文。
 

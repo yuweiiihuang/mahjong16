@@ -276,6 +276,7 @@ def test_worker_reuses_bridge_replaces_failed_one_and_reaps_on_close(tmp_path, m
                       'first=not os.path.exists("started")\nopen("started","a").close()\n'
                       'print("READY 1",flush=True)\n'
                       'for n,line in enumerate(sys.stdin):\n'
+                      ' open("requests","a").write(line)\n'
                       ' if first and n==1: sys.exit(4)\n'
                       ' print("OK",line.split()[1],0,flush=True)\n')
     bridge.chmod(0o755)
@@ -320,12 +321,66 @@ def test_worker_reuses_bridge_replaces_failed_one_and_reaps_on_close(tmp_path, m
         assert len(processes) == 3
         assert processes[2].poll() is None
         assert all(not strategy.latencies for strategy in service.strategies)
+        # Different table rules reuse the bridge; each request is shaped by its own rules.
+        other = deepcopy(rules)
+        other.dead_wall_base += 8
+        assert service.submit(observation, other).future.result(timeout=5) == first
+        draws = [line.split()[3] for line in
+                 (tmp_path / 'requests').read_text().splitlines()[-2:]]
+        assert draws[0] != draws[1]
+        # Invalid input fails before sending and leaves the bridge reusable.
+        broken = deepcopy(observation)
+        broken['hand'] = [0] * 16
+        with pytest.raises(ValueError):
+            service.submit(broken, rules).future.result(timeout=5)
+        assert decide() == first
+        assert len(processes) == 3
+        assert processes[2].poll() is None
     finally:
         service.close()
     assert all(process.poll() is not None for process in processes)
     assert not service.strategies
     # Only the crashed and killed bridges' stderr logs are kept for diagnosis.
     assert len(list(tmp_path.glob('meowcats-*.log'))) == 2
+
+
+def test_two_workers_each_own_one_bridge_and_close_reaps_both(tmp_path, monkeypatch):
+    import subprocess
+    processes = []
+    popen = subprocess.Popen
+
+    def track(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr('bots.meowcats.subprocess.Popen', track)
+    runtime_config(tmp_path)
+    bridge = tmp_path / 'bridge'
+    # Slow answers keep both workers busy at once.
+    bridge.write_text(f'#!{sys.executable}\nimport sys,time\nprint("READY 1",flush=True)\n'
+                      'for line in sys.stdin:\n time.sleep(.4)\n'
+                      ' print("OK",line.split()[1],0,flush=True)\n')
+    bridge.chmod(0o755)
+    service = NativeSearches(bridge, tmp_path, timeout=3)
+    table = WebTable(7, human_pids=set(range(4)))
+    from app.training_export import player_observation
+    observation = player_observation(table.env, 0)
+    observation['melds_all'] = [p['melds'] for p in observation['players']]
+    rules = table.env.rules
+    try:
+        for _ in range(2):
+            pair = [service.submit(observation, rules) for _ in range(2)]
+            assert all(s.future.result(timeout=5) in observation['legal_actions'] for s in pair)
+            # One distinct bridge per worker, reused by the second concurrent pair.
+            assert len(processes) == 2
+            assert len({id(strategy) for strategy in service.strategies}) == 2
+        assert all(process.poll() is None for process in processes)
+    finally:
+        service.close()
+    assert all(process.poll() is not None for process in processes)
+    assert not service.strategies
+    assert not list(tmp_path.glob('meowcats-*.log'))
 
 
 def test_cancel_during_cold_start_keeps_bridge_and_close_keeps_dead_bridge_log(

@@ -113,6 +113,15 @@ def _request(obs: dict, rules: Ruleset, sequence: int) -> tuple[bytes, list[dict
     return line, actions
 
 
+def _supported(rules: Ruleset) -> Ruleset:
+    """Return a private copy of rules the bridge protocol can represent."""
+    if (rules.n_players != 4 or rules.initial_hand != 16
+            or rules.dead_wall_mode not in ("fixed", "gang_plus_one")
+            or type(rules.dead_wall_base) is not int or rules.dead_wall_base < 0):
+        raise ValueError("Unsupported rules")
+    return deepcopy(rules)
+
+
 class MeowCaTSStrategy:
     """Own one POSIX bridge; use enriched player_observation, never an environment object."""
 
@@ -120,11 +129,7 @@ class MeowCaTSStrategy:
                  *, timeout: float = 15.0) -> None:
         if os.name != "posix" or not isfinite(timeout) or timeout <= 0:
             raise ValueError("MeowCaTS requires POSIX pipes and a positive finite timeout")
-        if (rules.n_players != 4 or rules.initial_hand != 16
-                or rules.dead_wall_mode not in ("fixed", "gang_plus_one")
-                or type(rules.dead_wall_base) is not int or rules.dead_wall_base < 0):
-            raise ValueError("Unsupported rules")
-        self.rules = deepcopy(rules)
+        self.rules = _supported(rules)
         self.timeout = timeout
         self.sequence = 0
         self.latencies: list[float] = []
@@ -165,22 +170,28 @@ class MeowCaTSStrategy:
                 raise RuntimeError("Bridge response exceeds protocol bound")
             return bytes(line)
 
-    def choose(self, obs: dict) -> dict:
-        """Choose a host-legal action using only enriched, masked public-player observations."""
+    def choose(self, obs: dict, rules: Ruleset | None = None) -> dict:
+        """Choose a host-legal action using only enriched, masked public-player observations.
+
+        Rules only shape the host-side request, so one bridge can serve tables with different
+        rules. Invalid input raises before anything is sent and leaves the bridge reusable;
+        any protocol, process or deadline failure reaps the bridge.
+        """
         with self._lock:
-            try:
-                actions = obs["legal_actions"]
-                if not actions:
-                    raise ValueError("No legal action")
-                for action in actions:
-                    if action["type"] == "HU":
-                        self.forced += 1
-                        return deepcopy(action)
-                if len(actions) == 1:
+            actions = obs["legal_actions"]
+            if not actions:
+                raise ValueError("No legal action")
+            for action in actions:
+                if action["type"] == "HU":
                     self.forced += 1
-                    return deepcopy(actions[0])
-                self.sequence += 1
-                data, candidates = _request(obs, self.rules, self.sequence)
+                    return deepcopy(action)
+            if len(actions) == 1:
+                self.forced += 1
+                return deepcopy(actions[0])
+            rules = self.rules if rules is None else _supported(rules)
+            data, candidates = _request(obs, rules, self.sequence + 1)
+            self.sequence += 1
+            try:
                 started = monotonic()
                 deadline = started + self.timeout
                 with selectors.DefaultSelector() as selector:
