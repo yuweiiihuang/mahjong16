@@ -205,6 +205,11 @@ class MeowCaTSStrategy:
                 self.close()
                 raise
 
+    @property
+    def alive(self) -> bool:
+        """Whether the owned bridge process is still running and reusable."""
+        return self._process is not None and self._process.poll() is None
+
     def close(self) -> None:
         """Reap the owned process, including failed initialization and timed-out searches."""
         process = self._process

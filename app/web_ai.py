@@ -26,7 +26,7 @@ class Search:
 
 
 class NativeSearches:
-    """At most two native processes and two queued decisions per web server."""
+    """At most two long-lived native processes and two queued decisions per web server."""
 
     def __init__(self, executable: Path, runtime: Path, *, timeout: float = 15.0) -> None:
         self.executable = executable.resolve()
@@ -36,6 +36,8 @@ class NativeSearches:
         self.slots = threading.BoundedSemaphore(4)
         self.lock = threading.Lock()
         self.searches: dict[int, Search] = {}
+        self.local = threading.local()
+        self.strategies: set[MeowCaTSStrategy] = set()
         self.closed = False
 
     def submit(self, observation: dict, rules: Ruleset) -> Search | None:
@@ -76,13 +78,42 @@ class NativeSearches:
         if any(config.get(section, key, fallback=None) != value
                for section, values in required.items() for key, value in values.items()):
             raise ValueError('Advanced AI requires the fixed 2000-sample single-thread runtime')
-        # A decision owns its process. No idle seat/table processes accumulate.
-        with MeowCaTSStrategy(self.executable, self.runtime, rules,
-                             timeout=remaining()) as strategy:
-            strategy.timeout = remaining()
-            action = strategy.choose(observation)
-        strategy.error_log.unlink(missing_ok=True)
-        return action
+        # Cancellation or an expired deadline must not cost the warm bridge.
+        remaining()
+        # Each worker thread keeps one bridge; reloading native tables dominated latency.
+        strategy = getattr(self.local, 'strategy', None)
+        if strategy is not None and not strategy.alive:
+            # Died while idle (e.g. OOM kill); keep its stderr for diagnosis.
+            self._discard(strategy, keep_log=True)
+            strategy = None
+        if strategy is not None and strategy.rules != rules:
+            self._discard(strategy, keep_log=False)
+            strategy = None
+        if strategy is None:
+            strategy = MeowCaTSStrategy(self.executable, self.runtime, rules,
+                                        timeout=remaining())
+            self.local.strategy = strategy
+            with self.lock:
+                self.strategies.add(strategy)
+        # Outside the try: a search cancelled during cold start keeps the new bridge.
+        strategy.timeout = remaining()
+        try:
+            return strategy.choose(observation)
+        except BaseException:
+            # choose() already reaped the process; keep its stderr for diagnosis.
+            self._discard(strategy, keep_log=True)
+            raise
+        finally:
+            strategy.latencies.clear()  # The web path never reads it; avoid unbounded growth.
+
+    def _discard(self, strategy: MeowCaTSStrategy, *, keep_log: bool) -> None:
+        strategy.close()
+        if getattr(self.local, 'strategy', None) is strategy:
+            self.local.strategy = None
+        with self.lock:
+            self.strategies.discard(strategy)
+        if not keep_log:
+            strategy.error_log.unlink(missing_ok=True)
 
     def close(self) -> None:
         """Cancel queued decisions and reap all running bridges before shutdown."""
@@ -92,3 +123,10 @@ class NativeSearches:
         for search in searches:
             search.cancel()
         self.executor.shutdown(wait=True, cancel_futures=True)
+        with self.lock:
+            strategies, self.strategies = list(self.strategies), set()
+        for strategy in strategies:
+            died = not strategy.alive  # Keep stderr of a bridge that died while idle.
+            strategy.close()
+            if not died:
+                strategy.error_log.unlink(missing_ok=True)

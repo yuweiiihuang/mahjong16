@@ -1,10 +1,11 @@
 """Seat policy, takeover, durable recovery and bounded native worker contracts."""
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
 import os
 from pathlib import Path
 import sys
 import threading
+import time
 
 import pytest
 
@@ -255,6 +256,122 @@ def test_real_adapter_timeout_or_crash_reaps_process_and_falls_back(tmp_path, mo
         service.close()
     assert processes
     assert all(process.poll() is not None for process in processes)
+
+
+def test_worker_reuses_bridge_replaces_failed_one_and_reaps_on_close(tmp_path, monkeypatch):
+    import subprocess
+    processes = []
+    popen = subprocess.Popen
+
+    def track(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr('bots.meowcats.subprocess.Popen', track)
+    runtime_config(tmp_path)
+    bridge = tmp_path / 'bridge'
+    # The first process crashes on its second request; replacements answer normally.
+    bridge.write_text(f'#!{sys.executable}\nimport os,sys\n'
+                      'first=not os.path.exists("started")\nopen("started","a").close()\n'
+                      'print("READY 1",flush=True)\n'
+                      'for n,line in enumerate(sys.stdin):\n'
+                      ' if first and n==1: sys.exit(4)\n'
+                      ' print("OK",line.split()[1],0,flush=True)\n')
+    bridge.chmod(0o755)
+    service = NativeSearches(bridge, tmp_path, timeout=3)
+    # One worker makes thread-local reuse deterministic; idle-thread pickup is racy.
+    service.executor.shutdown()
+    service.executor = ThreadPoolExecutor(max_workers=1)
+    table = WebTable(7, human_pids=set(range(4)))
+    from app.training_export import player_observation
+    observation = player_observation(table.env, 0)
+    observation['melds_all'] = [p['melds'] for p in observation['players']]
+    assert len(observation['legal_actions']) > 1
+    rules = table.env.rules
+
+    def decide():
+        return service.submit(observation, rules).future.result(timeout=5)
+
+    try:
+        first = decide()
+        assert first in observation['legal_actions']
+        with pytest.raises(RuntimeError):
+            decide()
+        assert processes[0].poll() is not None
+        for _ in range(4):
+            assert decide() == first
+        assert len(processes) == 2
+        # A cancelled or expired search fails without costing the warm bridge.
+        cancelled = threading.Event()
+        cancelled.set()
+        for event, deadline in ((cancelled, time.monotonic() + 3),
+                                (threading.Event(), time.monotonic() - 1)):
+            stale = service.executor.submit(service._choose, observation, rules, event,
+                                            deadline)
+            with pytest.raises(TimeoutError):
+                stale.result(timeout=5)
+            assert decide() == first
+            assert len(processes) == 2
+        # A bridge that dies while idle is replaced before the next request.
+        processes[1].kill()
+        processes[1].wait()
+        assert decide() == first
+        assert len(processes) == 3
+        assert processes[2].poll() is None
+        assert all(not strategy.latencies for strategy in service.strategies)
+    finally:
+        service.close()
+    assert all(process.poll() is not None for process in processes)
+    assert not service.strategies
+    # Only the crashed and killed bridges' stderr logs are kept for diagnosis.
+    assert len(list(tmp_path.glob('meowcats-*.log'))) == 2
+
+
+def test_cancel_during_cold_start_keeps_bridge_and_close_keeps_dead_bridge_log(
+        tmp_path, monkeypatch):
+    import subprocess
+    processes = []
+    popen = subprocess.Popen
+
+    def track(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr('bots.meowcats.subprocess.Popen', track)
+    runtime_config(tmp_path)
+    bridge = tmp_path / 'bridge'
+    # Slow handshake leaves time to cancel while the bridge is still starting.
+    bridge.write_text(f'#!{sys.executable}\nimport sys,time\ntime.sleep(.3)\n'
+                      'print("READY 1",flush=True)\n'
+                      'for line in sys.stdin: print("OK",line.split()[1],0,flush=True)\n')
+    bridge.chmod(0o755)
+    service = NativeSearches(bridge, tmp_path, timeout=3)
+    service.executor.shutdown()
+    service.executor = ThreadPoolExecutor(max_workers=1)
+    table = WebTable(7, human_pids=set(range(4)))
+    from app.training_export import player_observation
+    observation = player_observation(table.env, 0)
+    observation['melds_all'] = [p['melds'] for p in observation['players']]
+    rules = table.env.rules
+    try:
+        cancelled = threading.Event()
+        search = service.executor.submit(service._choose, observation, rules, cancelled,
+                                         time.monotonic() + 3)
+        threading.Timer(.1, cancelled.set).start()
+        with pytest.raises(TimeoutError):
+            search.result(timeout=5)
+        assert len(processes) == 1 and processes[0].poll() is None
+        assert service.submit(observation, rules).future.result(timeout=5)
+        assert len(processes) == 1
+        # Dies while idle, then the server shuts down before any reuse check.
+        processes[0].kill()
+        processes[0].wait()
+    finally:
+        service.close()
+    assert not service.strategies
+    assert len(list(tmp_path.glob('meowcats-*.log'))) == 1
 
 
 def test_worker_capacity_queue_cancellation_and_shutdown(tmp_path):

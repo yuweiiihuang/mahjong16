@@ -105,7 +105,9 @@ MEOWCATS_RUNTIME="$PWD/logs/execution-reports/meowcats-build/native/runtime" \
 未傳入這兩個參數時標準 AI 仍可使用，選進階會公開提示本手暫用標準。
 網頁 worker 會核對 MCTS／FlatMC 2000、first/per round 100、停用時間搜尋與原生多執行緒。
 不要共用測試與正式資料庫；runtime 必須由管理者持有，不放在網站公開目錄。
-網頁背景服務限制程序與待辦數，故障時由應用層對該席本手降級，
+網頁背景服務限制程序與待辦數；兩個 worker 各自重用一個長駐 bridge，避免每次決策重載
+lookup tables，代價是閒置時每個約 160 MiB RSS。出錯或逾時的程序會被回收並在下次重建，
+stderr log 保留供診斷。故障時由應用層對該席本手降級，
 不改 adapter 或離線評估遇錯即失敗的語意。規則與牌力證據邊界仍如上文。
 
 ## Docker 發布
