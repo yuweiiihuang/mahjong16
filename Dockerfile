@@ -43,5 +43,7 @@ COPY --from=native-build /build/native/source.tar.gz /opt/meowcats/source.tar.gz
 COPY bots/native/meowcats/LICENSE /opt/meowcats/LICENSE
 COPY --chmod=755 deploy/meowcats/entrypoint.sh /opt/meowcats/entrypoint.sh
 ENTRYPOINT ["/opt/meowcats/entrypoint.sh"]
+# Setting ENTRYPOINT clears the inherited CMD, so restate the standard server command.
+CMD ["python", "-m", "app.web", "--host", "0.0.0.0", "--port", "8000", "--access-password-file", "/run/secrets/access_password", "--record-db", "/var/lib/mahjong16/hands.sqlite3"]
 
 FROM standard AS runtime
