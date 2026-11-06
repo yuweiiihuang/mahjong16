@@ -3,7 +3,8 @@
 本文的主機、映像、排程與 Funnel 實測紀錄是 2026-10-07／08 當時的狀態，
 不是即時部署清單。操作前核對目前 Compose project、容器映像、牌譜資料卷、
 備份排程的容器名稱與 Funnel 目標；不能只照舊標籤切換。
-執行正式換版前，先確認備份與回復入口，說明記憶體牌局會清除並取得切換同意。
+執行正式換版前，先確認備份與回復入口，說明換版影響並取得切換同意：同引擎版本的牌局
+重啟後可從牌譜續局，跨引擎換版不保證續接。
 
 2026-10-23 正式部署已改為 [Pocket ID／Passkey](pocket-id.md#windows-正式-https-部署)，
 沿用原牌譜資料卷。新正式 project 為 `mahjong16-pocket`；以下通行碼與 Authelia
@@ -86,7 +87,8 @@ $config = @{auths=@{'ghcr.io'=@{}; 'https://index.docker.io/v1/'=@{}}; cliPlugin
 不要覆寫已有認證的配置。`C:\ProgramData\Qinghe` 必須維持服務帳號與 SYSTEM 的存取限制。
 
 確認測試容器可用並同意切換至新牌桌後，將 Funnel 改指向 Docker 的 8002 埠。
-若舊服務仍運行，可保留其 8000 入口供切回；停止後不保留記憶體牌局：
+若舊服務仍運行，可保留其 8000 入口供切回；停止後其記憶體牌局即結束，
+能否續接依[網頁續局與重播](hand-recording.md#網頁續局與重播)的條件：
 
 ```powershell
 & 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg http://127.0.0.1:8002
