@@ -44,6 +44,7 @@ class WebRoom:
         self.event = None
         self.ready_at = 0.0
         self.thinking = False
+        self.primed: tuple = (None, None)  # (decision key, action ready before the delay ended)
         self.last_active = time.monotonic()
         self.requests: dict[tuple[str, str], int] = {}
         self.changed = threading.Condition()
@@ -294,13 +295,19 @@ class WebRoom:
         sid = self.seats[pid]
         if sid and now - self.seen.get(sid, now) < self.RECONNECT_SECONDS:
             return
+        key = (self.table.round, self.table.decision_version, pid)
         if not self.thinking and self.table.env.phase == 'TURN':
             self.event = {'pid': pid, 'type': 'THINK'}
             self.thinking = True
             self.ready_at = now + .7
+            # Search during the delay: the thinking time is max(delay, search), not their sum.
+            self.primed = (key, self.table.choose_bot(pid))
             self.publish()
             return
-        action = self.table.choose_bot(pid)
+        primed_key, action = self.primed
+        self.primed = (None, None)
+        if primed_key != key or action not in self.table.env.legal_actions(pid):
+            action = self.table.choose_bot(pid)
         if action is not None:
             self.apply(action, pid=pid, source='bot')
 

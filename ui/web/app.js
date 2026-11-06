@@ -43,6 +43,7 @@ let autoTingDiscard = localStorage.getItem('qinghe-auto-ting-discard') !== 'fals
 let chiMode = localStorage.getItem('qinghe-chi-mode') === 'tiles' ? 'tiles' : 'groups';
 let chiSelection = null;
 let pendingReaction = null;
+let aiWaitSince = null;  // When the player started waiting on a pending native search.
 let sound = localStorage.getItem('qinghe-sound') === 'true';
 let pace = ['fast','natural','relaxed'].includes(localStorage.getItem('qinghe-pace'))
   ? localStorage.getItem('qinghe-pace') : 'natural';
@@ -529,8 +530,10 @@ async function request(path,body){
 async function present(result, previewedAction = null) {
   const {playback = [], ...finalState} = result;
   selected = null;
+  // Time already spent waiting for a native search counts toward its thinking pause.
+  let waited = aiWaitSince === null || !playback.length ? 0 : performance.now() - aiWaitSince;
   try {
-    for (const frame of playback) {
+    for (const [index, frame] of playback.entries()) {
       const alreadyShown = previewedAction && frame.pid===0 &&
         frame.type===previewedAction.type && frame.state.last_discard?.tile===previewedAction.tile;
       previewedAction = null;
@@ -549,13 +552,18 @@ async function present(result, previewedAction = null) {
         : (frame.type === 'THINK' ? 500 + Math.random()*250
           : frame.state.done ? 1200 : ['DISCARD','TING'].includes(frame.type) ? 450 : 700)
           * {fast:.35,natural:1,relaxed:1.6}[pace];
+      const pause = index === 0 && frame.type === 'THINK' ? Math.max(0, delay - waited) : delay;
+      waited = 0;
       if (!alreadyShown) {
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, pause));
       }
     }
   } finally {
     playbackFrame = null;
     state = finalState;
+    // Empty polls keep the original start; new frames restart it for the next search.
+    if (!finalState.ai_pending) aiWaitSince = null;
+    else if (playback.length || aiWaitSince === null) aiWaitSince = performance.now();
     render();
   }
   if (state.done) showResult();

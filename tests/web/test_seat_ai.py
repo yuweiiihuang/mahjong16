@@ -135,6 +135,33 @@ def test_durable_levels_fallback_actual_strategy_and_next_hand_recovery(tmp_path
         store.close()
 
 
+def test_room_search_runs_during_thinking_delay_not_after(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr('app.web_rooms.time.monotonic', lambda: clock[0])
+    service = Decisions()
+    room = WebRoom('1234ABCD', 'host', WebTable(7, human_pids={0, 1, 2, 3}, ai_service=service))
+    with room.changed:
+        room.set_ai_levels('host', ['advanced'] * 4)
+        room.start('host')
+        clock[0] += 91  # The host is away, so its seat is played by the advanced AI.
+        room.tick(clock[0])
+        # The thinking pause has only just begun, yet the search is already running.
+        assert room.thinking and room.ready_at > clock[0]
+        assert len(service.jobs) == 1
+        observation, search = service.jobs[0]
+        search.future.set_result(observation['legal_actions'][-1])
+        events = len(room.table.events)
+        clock[0] += .3
+        room.tick(clock[0])
+        assert len(room.table.events) == events, 'the pause is still a minimum'
+        clock[0] = room.ready_at
+        room.tick(clock[0])
+        # The finished search is applied on the first tick after the pause, not searched anew.
+        assert len(room.table.events) > events
+        assert len(service.jobs) == 1
+        room.table.interrupt_recording('test_cleanup')
+
+
 @pytest.mark.parametrize('change', ['reconnect', 'join', 'reaction', 'next', 'close'])
 def test_stale_result_never_executes_after_control_or_decision_changes(monkeypatch, change):
     room, service, clock = room_with_search(monkeypatch)

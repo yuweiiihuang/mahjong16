@@ -72,7 +72,7 @@ test('practice playback skips only the confirmed preview and keeps other players
   const action={type:'DISCARD',tile:4,from:'hand'};
   const final={done:false};
   const animations=[],delays=[];
-  const ctx=appContext({state:{},selected:action,playbackFrame:null,pace:'natural',
+  const ctx=appContext({state:{},selected:action,playbackFrame:null,aiWaitSince:null,pace:'natural',
     render() {},beep() {},showResult() {},
     tableView:{animateDiscard:async pid=>animations.push(pid)},
     setTimeout(resolve,delay) {delays.push(delay);resolve();}});
@@ -306,7 +306,7 @@ test('submitting a chi choice never restores unchosen reactions before acknowled
 
 test('practice playback announces resolved opponent melds, never a pending claim', async () => {
   const messages=[];
-  const context=appContext({state:{},selected:null,playbackFrame:null,pace:'fast',
+  const context=appContext({state:{},selected:null,playbackFrame:null,aiWaitSince:null,pace:'fast',
     names:['你','對手','玩家3','玩家4'],labels:{CHI:'吃',PONG:'碰',GANG:'槓'},
     showMeldCue:event=>messages.push(`${event.pid}:${event.type}`),render() {},beep() {},showResult() {},
     tableView:{animateDiscard:async()=>{}},setTimeout:resolve=>resolve()});
@@ -348,7 +348,7 @@ test('opponent wins remain visible before settlement at fast pace and in multipl
   const final = {done:true,winner:1,win_source:'TSUMO',version:2,room:{host:true}};
   const events = [];
   const ctx = appContext({
-    state:{done:false,version:1,room:{host:true}},selected:null,playbackFrame:null,pace:'fast',
+    state:{done:false,version:1,room:{host:true}},selected:null,playbackFrame:null,aiWaitSince:null,pace:'fast',
     render() {},beep() {},tableView:{},
     showMeldCue() {events.push('cue');}, showResult() {events.push('result');},
     setTimeout(callback,delay) {events.push(delay);callback();},
