@@ -19,6 +19,8 @@ export class MahjongTableView {
   constructor(container, onPick, faceFont = DEFAULT_TILE_FONT) {
     this.container = container;
     this.onPick = onPick;
+    // canvas text can't use var(): resolve the shared UI font stack once
+    this.uiFont = globalThis.getComputedStyle?.(container).getPropertyValue('--font-ui').trim() || 'sans-serif';
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, 1, .1, 180);
     this.camera.position.set(0, 24, 42);
@@ -130,7 +132,7 @@ export class MahjongTableView {
       ctx.arc(256,256,132,end,start,true);
       ctx.closePath(); ctx.fill();
       ctx.shadowBlur=0; ctx.strokeStyle='#d1c8b5'; ctx.lineWidth=2; ctx.stroke();
-      ctx.font=`${active?'700':'500'} 64px "PingFang TC",sans-serif`;
+      ctx.font=`${active?'700':'500'} 64px ${this.uiFont||'sans-serif'}`;
       ctx.fillStyle=active?'#102d29':'#8a978b';
       ctx.fillText(labels[wind],256+Math.cos(angle)*184,256+Math.sin(angle)*184);
     });
