@@ -108,7 +108,7 @@ export class MahjongTableView {
 
   updateIndicator(state) {
     const ctx = this.indicatorContext;
-    const colors = {E:'#efbd62', S:'#ed8690', W:'#76cbd8', N:'#b9a0e6'};
+    const colors = {E:'#efbd62', S:'#ed8690', W:'#76cbd8', N:'#b9a0e6'}; // canvas can't read CSS vars: keep in sync with --wind-* in style.css
     const labels = {E:'東', S:'南', W:'西', N:'北'};
     ctx.clearRect(0,0,512,512);
     ctx.textAlign='center'; ctx.textBaseline='middle';

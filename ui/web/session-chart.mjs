@@ -5,7 +5,7 @@ export function renderScoreChart(points, names, seatWinds, onSelect = () => {}, 
   chart.className = 'session-chart'; chart.tabIndex = 0;
   chart.setAttribute('role', 'group');
   chart.setAttribute('aria-label', '四家累計分數走勢；左右方向鍵查看各局分數。');
-  const colors = {E:'#efbd62', S:'#ed8690', W:'#76cbd8', N:'#b9a0e6'};
+  const colors = {E:'#efbd62', S:'#ed8690', W:'#76cbd8', N:'#b9a0e6'}; // keep in sync with --wind-* in style.css
   const values = points.flatMap(point => point.totals);
   const low = Math.min(...values), high = Math.max(...values);
   const span = Math.max(high - low, 100);
