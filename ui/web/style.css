@@ -513,3 +513,11 @@ main{height:100%;padding:0}
 .setting-select-menu [aria-selected="true"]::before{content:'✓'}
 .setting-select-menu [role="option"]:is(:hover,:focus){background:#e3efe6;outline:none}
 .setting-select-menu [role="option"]:disabled{color:#899282;opacity:1}
+/* pregame: the layout code pins the action bar with inline top/transform, so override them */
+.table.pregame .action-bar{top:62%!important;bottom:auto;left:0;right:0;transform:translateY(-50%)!important;justify-content:center}
+
+
+.seat-person .ai-level-toggle{justify-self:start;margin-top:3px;padding:0;border:0;background:none;pointer-events:auto;cursor:pointer;color:#e3d399;font-size:9px;line-height:1.2;white-space:nowrap}
+.ai-level-toggle:hover{text-decoration:underline}
+.ai-level-toggle:focus-visible{outline:2px solid #e3d399;outline-offset:2px}
+@media(max-width:950px) and (orientation:landscape), (pointer:coarse) and (max-height:600px) and (orientation:landscape){.seat-person .ai-level-toggle{display:block;margin-top:1px;font-size:8px}}
