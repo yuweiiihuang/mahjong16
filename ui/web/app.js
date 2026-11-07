@@ -152,7 +152,17 @@ function person(pid) {
       degraded,fallback_reason:state.ai_failure_reasons?.[pid]}, true);
     indicator.classList.add(`a${pid}`);
     wrap.querySelector('.avatar').replaceWith(indicator);
+    if (state.waiting && !state.room && !replay && state.ai_editable) {
+      const label = state.ai_levels?.[pid] === 'advanced' ? '進階' : '標準';
+      const toggle = document.createElement('button');
+      toggle.type = 'button'; toggle.className = 'ai-level-toggle'; toggle.disabled = busy;
+      toggle.textContent = `${label} ⇄`;
+      toggle.setAttribute('aria-label', `${names[pid]} AI 強度：${label}，點擊切換`);
+      toggle.onclick = () => toggleAiLevel(pid);
+      wrap.querySelector('.player-info small').replaceWith(toggle);
+    }
   }
+  if (state.waiting && !state.room && !replay && !bot) wrap.querySelector('.player-info small').remove();
   if (pid === 0 && !replay && !bot) {
     const avatar = wrap.querySelector('.avatar');
     const button = document.createElement('button');
@@ -163,6 +173,15 @@ function person(pid) {
     avatar.replaceWith(button);
   }
   return wrap;
+}
+async function toggleAiLevel(pid) {
+  if (busy) return;
+  const levels = [...state.ai_levels];
+  levels[pid] = levels[pid] === 'advanced' ? 'standard' : 'advanced';
+  busy = true;
+  try { state = await request('/api/ai', {levels}); }
+  catch (error) { toast(error.message); }
+  finally { busy = false; render(); }
 }
 function melds(pid, target, small = true) {
   for(const meld of state.players[pid].melds){
@@ -461,7 +480,8 @@ function render(){
   if (state.done || playbackFrame || !state.legal_actions.some(a => a.type === 'TING')) tingMode = false;
   const waiting = state.waiting || (state.room && !state.room.started);
   const humans = state.room ? state.room.members.filter(member => member.human).length : 1;
-  setTableStatus(waiting && !state.room ? '開局前可在「牌桌設定」調整四席 AI 強度。\n準備好後，按「開始對局」。' : waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
+  $('hand').closest('.table').classList.toggle('pregame', Boolean(state.waiting && !state.room));
+  setTableStatus(waiting && !state.room ? '' : waiting ? `等待開局 · 已有 ${humans} 位玩家\n${state.room.host
     ? '邀請朋友加入後，按「開始對局」。空位由電腦補上。' : '等待房主開始對局。'}` : '');
   names = replay ? state.replay_names : state.room ? state.room.members.map(member => member.name)
     : [state.player_name || playerName || '玩家', '陳予安', '林小滿', '周子墨'];
