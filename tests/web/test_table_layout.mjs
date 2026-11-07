@@ -568,6 +568,8 @@ test('table indicator separates round-wind sectors from turn lamps after seat ch
     const lit = lamps.filter(t => t.color === '#102d29');
     assert.equal(lit.length, 1);
     assert.equal(lit[0].value, ['西','北','東','南'][actor]);
+    assert.equal(fills.slice(1,5).filter(color => color.endsWith('26')).length, 3,
+      'only the actor\'s turn lamp is fully coloured');
     assert.deepEqual(lamps.map(t => t.value), ['西','北','東','南']);
   }
   for (const [wind, sector] of [['W',0],['N',1],['E',2],['S',3]]) {
