@@ -27,10 +27,10 @@ test('table zoom uniformly enlarges projection and hit targets without accumulat
   const tile = new THREE.Mesh(new THREE.BoxGeometry(1,1.4,.42));
   tile.position.set(2,.77,10.9);
   view.scene.add(tile); view.handObjects.push(tile);
-  for (const [width,height] of [[1384,774],[1024,768],[828,378],[651,363],[1384,774]]) {
+  for (const [width,height] of [[1384,774],[1440,900],[1280,853],[1024,768],[828,378],[651,363],[1384,774]]) {
     Object.assign(view.container,{clientWidth:width,clientHeight:height});
     view.resize();
-    const expectedZoom=width>950&&width/height>1.6?1.30:1.19;
+    const expectedZoom=width>950&&width/height>=1.5?1.30:1.19;
     assert.equal(view.zoom,expectedZoom);
     assert.equal(view.container.style['--table-zoom'],view.zoom,
       'DOM overlays must use the same zoom as the camera after every resize');

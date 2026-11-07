@@ -485,7 +485,7 @@ export class MahjongTableView {
   resize() {
     this.width=this.container.clientWidth;this.height=this.container.clientHeight;
     if(!this.width||!this.height)return;
-    const wideDesktop=this.width>950&&this.width/this.height>1.6;
+    const wideDesktop=this.width>950&&this.width/this.height>=1.5;
     this.zoom=wideDesktop?1.30:1.19;
     this.container.style.setProperty('--table-zoom',this.zoom);
     this.renderer.setSize(this.width,this.height);
