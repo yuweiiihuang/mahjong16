@@ -124,14 +124,14 @@ export class MahjongTableView {
       const active = state && !state.done && state.phase !== 'REACTION' && state.actor === pid;
       const start = angle-Math.PI/4+.045, end = angle+Math.PI/4-.045;
       ctx.shadowColor=color; ctx.shadowBlur=active?18:0;
-      ctx.fillStyle=active?color:`${color}88`;
+      ctx.fillStyle=active?color:`${color}26`; // idle lamps keep a faint seat tint
       ctx.beginPath();
       ctx.arc(256,256,238,start,end);
       ctx.arc(256,256,132,end,start,true);
       ctx.closePath(); ctx.fill();
       ctx.shadowBlur=0; ctx.strokeStyle='#d1c8b5'; ctx.lineWidth=2; ctx.stroke();
       ctx.font=`${active?'700':'500'} 64px "PingFang TC",sans-serif`;
-      ctx.fillStyle=active?'#102d29':'#536960';
+      ctx.fillStyle=active?'#102d29':'#8a978b';
       ctx.fillText(labels[wind],256+Math.cos(angle)*184,256+Math.sin(angle)*184);
     });
     ctx.fillStyle='#faf6e8';
