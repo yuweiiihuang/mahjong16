@@ -9,9 +9,14 @@ const toggleSource = source.slice(source.indexOf('async function toggleAiLevel('
 const plain = value => JSON.parse(JSON.stringify(value));
 function context(levels, response) {
   const calls = [];
+  const toggle = id => ({id, classList:{contains:name => name === 'ai-level-toggle'},
+    focus() { ctx.focused = id; }});
   const ctx = vm.createContext({busy:false, state:{ai_levels:levels}, renders:0, toasts:[],
+    focused:null, document:{activeElement:null},
+    $: id => ({querySelector:() => toggle(`${id}@${ctx.renders}`)}),
     request: async (path, body) => { calls.push([path, body]); return response(body); },
     render() { ctx.renders += 1; }, toast(message) { ctx.toasts.push(message); }});
+  ctx.focusToggle = seat => { ctx.document.activeElement = toggle(`seat-${seat}@${ctx.renders}`); };
   vm.runInContext(`${toggleSource};globalThis.run=toggleAiLevel;globalThis.read=()=>({busy,state});`, ctx);
   return {ctx, calls};
 }
@@ -26,6 +31,15 @@ test('pregame nameplate toggle flips only that seat and adopts the server state'
   assert.deepEqual(plain(ctx.read().state.ai_levels), ['standard','advanced','standard','standard']);
   assert.equal(ctx.read().busy, false);
   assert.equal(ctx.renders, 2);
+  assert.equal(ctx.focused, null, 'mouse clicks leave focus alone');
+});
+
+test('pregame nameplate toggle hands keyboard focus to the re-rendered toggle', async () => {
+  const {ctx} = context(['standard','standard','standard','standard'],
+    body => ({ai_levels:body.levels}));
+  ctx.focusToggle(2);
+  await ctx.run(2);
+  assert.equal(ctx.focused, 'seat-2@1');
 });
 
 test('pregame nameplate toggle keeps the old levels when the server refuses', async () => {

@@ -181,7 +181,12 @@ async function toggleAiLevel(pid) {
   busy = true;
   try { state = await request('/api/ai', {levels}); }
   catch (error) { toast(error.message); }
-  finally { busy = false; render(); }
+  finally {
+    // render() rebuilds the nameplates, so hand keyboard focus to the new toggle.
+    const refocus = document.activeElement?.classList.contains('ai-level-toggle');
+    busy = false; render();
+    if (refocus) $(`seat-${pid}`)?.querySelector('.ai-level-toggle')?.focus();
+  }
 }
 function melds(pid, target, small = true) {
   for(const meld of state.players[pid].melds){
