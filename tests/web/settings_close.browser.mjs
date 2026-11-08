@@ -10,7 +10,8 @@ export async function checkSettingsClose(tab) {
   const visible = () => tab.playwright.locator('.settings-close-prompt').isVisible();
   const select = () => tab.playwright.locator('select[data-ai-seat="0"]');
   const choose = async value => {
-    await tab.playwright.getByRole('combobox', {name:'席位 A AI 強度', exact:true}).click();
+    await tab.playwright.getByRole('combobox', {
+      name:await select().getAttribute('aria-label'), exact:true}).click();
     await tab.getAXState({emit:false});
     await tab.playwright.getByRole('option', {name:value === 'advanced' ? '進階' : '標準', exact:true}).click();
     await tab.getAXState({emit:false});

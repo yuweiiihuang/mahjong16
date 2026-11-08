@@ -239,8 +239,7 @@ main{height:100%;padding:0}
 .table-toolbar .icon{display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid color-mix(in srgb,var(--felt-line) 33.33%,transparent);border-radius:7px;background:color-mix(in srgb,var(--felt-deep) 70.2%,transparent)}
 .table-toolbar .icon svg{width:19px;height:19px}
 /* Table actions live in settings; header icons stay directly accessible. */
-.settings-table-actions{display:flex;justify-content:flex-end;margin:0}
-.settings-table-actions .outline{width:auto;padding:8px 12px}
+.settings-footer .outline{width:auto;padding:8px 12px;margin-right:auto}
 .table-progress .connection[hidden]{display:none}
 .table-progress{position:absolute;left:22px;bottom:10px;z-index:3;padding:5px 9px;border-radius:6px;background:color-mix(in srgb,var(--felt-deep) 50.2%,transparent);display:flex;gap:12px;align-items:baseline;pointer-events:none;color:var(--felt-text-strong);font-size:var(--fs-sm)}
 .table-progress strong{font-weight:500}

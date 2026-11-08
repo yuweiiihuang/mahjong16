@@ -215,7 +215,7 @@ test('replacing settings with a confirmation preserves the table action and its 
   }});
   const ctx=appContext({settingsSelectCleanup:null,settingsClosePrompt:null,$:id=>nodes[id],escapeHtml:value=>value});
   vm.runInContext(source.slice(source.indexOf('function modal('),source.indexOf('function showResult(')),ctx);
-  ctx.modal('建立新 Session？','確認內容');
+  ctx.modal('建立新對局？','確認內容');
   assert.equal(parked[0],action);
   assert.equal(action.disabled,true);
   assert.equal(typeof action.onclick,'function');

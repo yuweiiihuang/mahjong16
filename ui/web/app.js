@@ -490,7 +490,7 @@ function render(){
   $('connection-status').parentElement.hidden = !replay && !state.room;
   $('new-game').textContent = state.room ? '離開房間' : '↻　重新開桌';
   $('new-game').disabled = Boolean(replay) || busy || (!state.room && !state.done);
-  $('new-game').title = state.room || state.done ? '' : '胡牌或流局後才能開新 Session';
+  $('new-game').title = state.room || state.done ? '' : '胡牌或流局後才能開新對局';
   $('remaining').textContent=state.remaining;
   $('round').textContent=state.waiting ? '等待開局' : `第 ${state.round} 局`;
   $('round-wind').textContent=`${winds[['E','S','W','N'].indexOf(state.quan_feng)]}風圈`;
@@ -846,13 +846,13 @@ $('modal').addEventListener('close', () => {
 $('settings').onclick=()=>{
   settingsOrder = [...sortOrder];
   modal('牌桌設定',`
-    <div id="settings-header" class="settings-header"><div id="settings-table-actions" class="settings-table-actions"></div></div>
+    <div id="settings-header" class="settings-header"></div>
     <div class="settings-body">
     <section class="settings-section" aria-labelledby="ai-settings-heading">
       <h3 id="ai-settings-heading">AI強度<small id="ai-next-note" hidden>下一局開始套用</small></h3>
       ${state.ai_editable ? '' : '<p>僅房主可調整</p>'}
       <div class="ai-seats-grid">
-      ${seatChoices(state).map(({level,pid,id,wind}) => `<label class="setting-row ai-setting-row"><span class="ai-seat-label"><span class="ai-setting-icon" aria-hidden="true">${botGlyph(level)}</span><span>席位 ${'ABCD'[id]}<small>${winds[['E','S','W','N'].indexOf(wind)]}家${(state.room ? state.room.members[pid].human : pid === 0) ? ' · 真人' : ''}</small></span></span><select data-ai-seat="${pid}" aria-label="席位 ${'ABCD'[id]} AI 強度" ${state.ai_editable ? '' : 'disabled'}><option value="standard" ${level === 'standard' ? 'selected' : ''}>標準</option><option value="advanced" ${level === 'advanced' ? 'selected' : ''}>進階</option></select></label>`).join('')}
+      ${seatChoices(state).map(({level,pid,id,wind}) => `<label class="setting-row ai-setting-row"><span class="ai-seat-label"><span class="ai-setting-icon" aria-hidden="true">${botGlyph(level)}</span><span>${escapeHtml(names[pid] || `席位 ${'ABCD'[id]}`)}<small>席位 ${'ABCD'[id]} · ${winds[['E','S','W','N'].indexOf(wind)]}家${(state.room ? state.room.members[pid].human : pid === 0) ? ' · 真人' : ''}</small></span></span><select data-ai-seat="${pid}" aria-label="${escapeHtml(names[pid] || `席位 ${'ABCD'[id]}`)} AI 強度" ${state.ai_editable ? '' : 'disabled'}><option value="standard" ${level === 'standard' ? 'selected' : ''}>標準</option><option value="advanced" ${level === 'advanced' ? 'selected' : ''}>進階</option></select></label>`).join('')}
       </div>
     </section>
     <section class="settings-section" aria-labelledby="play-settings-heading">
@@ -886,7 +886,7 @@ $('settings').onclick=()=>{
   `,'settings-dialog');
   $('settings-header').prepend($('modal-title'));
   document.querySelector('.settings-footer').prepend($('modal-status'));
-  $('settings-table-actions').append($('new-game'));
+  document.querySelector('.settings-footer').prepend($('new-game'));
   for (const [id, combinations] of [['chi-groups-icon', [[0,1,2],[1,2,3]]],
     ['chi-tiles-icon', [[0,1,2]]]]) {
     for (const combination of combinations) {
@@ -1050,7 +1050,7 @@ $('settings').onclick=()=>{
     return true;
   };
 };
-$('new-game').onclick=()=>requestModalClose(()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新 Session？','<p>原 Session 的分數、紀錄與接續入口都會保留。新 Session 每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新 Session</button>');$('confirm-new').onclick=()=>newGame();});
+$('new-game').onclick=()=>requestModalClose(()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新對局？','<p>原對局的分數、紀錄與接續入口都會保留。新對局每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新對局</button>');$('confirm-new').onclick=()=>newGame();});
 function refreshSessionHeaders() {
   const list = $('session-list');
   if (!list) return;
@@ -1108,10 +1108,10 @@ async function showHistory(openSessionId = null) {
       try { await request(state?.room ? '/api/room/state' : '/api/state'); currentReady = true; } catch {}
     }
     openSessionId ??= sessions[0]?.id;
-    modal('Session 紀錄', '<details class="session-help"><summary aria-label="Session 與統計說明" title="Session 與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>單人與多人牌桌各自記錄 Session；能否接續依目前座位與牌桌狀態決定。</li><li>首局未完也會保存原牌；完成第一局後正式成立。多人桌須開始對局後才會出現在紀錄。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計，包含中途接替該座位的玩家；配色依最新保存門風。</li><li>僅自己參與過且引擎相容的已完成局可查看暗牌結算與重播。</li></ul></div></details><div id="session-list" role="region" aria-label="Session 清單" tabindex="0"></div>', 'session-dialog', false);
+    modal('對局紀錄', '<details class="session-help"><summary aria-label="對局與統計說明" title="對局與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>單人與多人牌桌各自記錄對局；能否接續依目前座位與牌桌狀態決定。</li><li>首局未完也會保存原牌；完成第一局後正式成立。多人桌須開始對局後才會出現在紀錄。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計，包含中途接替該座位的玩家；配色依最新保存門風。</li><li>僅自己參與過且引擎相容的已完成局可查看暗牌結算與重播。</li></ul></div></details><div id="session-list" role="region" aria-label="對局清單" tabindex="0"></div>', 'session-dialog', false);
     const sessionList = $('session-list');
     sessionList.onscroll = refreshSessionHeaders;
-    if (!sessions.length) sessionList.textContent = '尚無 Session，開始對局後會自動保存。';
+    if (!sessions.length) sessionList.textContent = '尚無對局紀錄，開始對局後會自動保存。';
     for (const session of sessions) {
       const card = document.createElement('details'); card.className = 'session-card';
       const summary = document.createElement('summary');
@@ -1132,12 +1132,12 @@ async function showHistory(openSessionId = null) {
       const body = document.createElement('div'); body.className = 'session-body';
       if (session.resumable) {
         const resume = document.createElement('button'); resume.className = 'session-resume';
-        resume.textContent = session.source === 'multiplayer' ? '返回牌桌' : '繼續此 Session';
+        resume.textContent = session.source === 'multiplayer' ? '返回牌桌' : '繼續此對局';
         resume.disabled = session.id === state?.session_id && currentReady;
         if (session.id === state?.session_id && !currentReady) {
-          resume.textContent = '恢復此 Session'; resume.title = '從最後保存的進度恢復';
+          resume.textContent = '恢復此對局'; resume.title = '從最後保存的進度恢復';
         }
-        if (resume.disabled) resume.title = '目前正在此 Session';
+        if (resume.disabled) resume.title = '目前正在此對局';
         resume.onclick = event => { event.stopPropagation(); resumeHand(session.hand_id); };
         summary.append(resume);
       } else {
