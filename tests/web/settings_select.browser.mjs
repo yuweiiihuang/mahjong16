@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 // Exercise real menus, backing form values and handlers; leave all preferences unsaved.
 export async function checkSettingsSelects(tab) {
   const initialAI = await tab.playwright.locator('select[data-ai-seat="0"]').evaluate(el=>el.value);
-  for (const name of ['席位 A AI 強度','席位 B AI 強度','席位 C AI 強度','席位 D AI 強度',
-    '對局節奏','樣式','排列']) {
+  // AI rows are labelled with the players' names, in seat order
+  const aiNames = await tab.playwright.locator('select[data-ai-seat]')
+    .evaluateAll(els => els.map(el => el.getAttribute('aria-label')));
+  for (const name of [...aiNames, '對局節奏','樣式','排列']) {
     const trigger = tab.playwright.getByRole('combobox', {name,exact:true});
     const before = await trigger.evaluate(el => {
       const select = el.closest('.setting-select').querySelector('select');
@@ -47,7 +49,7 @@ export async function checkSettingsSelects(tab) {
     assert.equal(await trigger.evaluate(el=>el.closest('.setting-select').querySelector('select').value),
       before.value);
   }
-  const ai = tab.playwright.getByRole('combobox', {name:'席位 A AI 強度',exact:true});
+  const ai = tab.playwright.getByRole('combobox', {name:aiNames[0],exact:true});
   await ai.press('ArrowDown');
   await tab.getAXState({emit:false});
   await tab.pressKey(null,'End');

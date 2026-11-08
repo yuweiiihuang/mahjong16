@@ -82,7 +82,7 @@ class WebTable:
         """Start a fresh practice table with fixed initial seats and 1,000 points each."""
         self.check_recording()
         if self.recording_enabled and getattr(self, 'round', 0) and not self.env.done:
-            raise ValueError('本局尚未結束，請先胡牌或流局後再開新 Session。')
+            raise ValueError('本局尚未結束，請先胡牌或流局後再開新對局。')
         self.cancel_ai()
         if reset_ai:
             self.ai_levels = ['standard'] * 4
@@ -788,7 +788,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                     from app.web_records import can_resume
 
                     if not can_resume(documents[0], self.record_store, self.player_id):
-                        raise ValueError('原 Session 與目前版本不相容，請先查看牌局紀錄。')
+                        raise ValueError('原對局與目前版本不相容，請先查看牌局紀錄。')
                     self.sessions[sid] = WebTable.restore(documents[0], self.record_store,
                                                            ai_service=self.ai_service)
                 else:
@@ -933,7 +933,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                         document = self.record_store.player_records(
                             self.player_id, hand_id=hand_id)[0]
                         if not can_resume(document, self.record_store, self.player_id):
-                            raise ValueError('此 Session 已有更新進度，請重新開啟紀錄。')
+                            raise ValueError('此對局已有更新進度，請重新開啟紀錄。')
                         current = self.sessions.get(sid)
                         if (current is None or current.recording_error or
                                 current.table_id != document['metadata']['table_id']):
@@ -1051,7 +1051,7 @@ class WebHandler(SimpleHTTPRequestHandler):
                         raise ValueError('牌桌已在其他分頁切換，請重新整理後操作。')
                     if self.path == '/api/new':
                         if not table.env.done:
-                            raise ValueError('本局尚未結束，請先打完再開新 Session。')
+                            raise ValueError('本局尚未結束，請先打完再開新對局。')
                         if self.record_store and self.player_id:
                             heads = self.record_store.session_hands(
                                 self.player_id, heads=True, practice_only=True)

@@ -71,7 +71,7 @@ def session_statistics(store: HandStore, player_id: str, table_id: str) -> dict:
     """Aggregate every settled hand, including zero-payment draws, in one owned session."""
     hands = store.session_hands(player_id, table_id=table_id)
     if not hands:
-        raise ValueError('找不到你的 Session。')
+        raise ValueError('找不到你的對局。')
     seats = [{'wins': 0, 'tsumo': 0, 'ron': 0, 'deal_ins': 0, 'net': 0} for _ in range(4)]
     points = [{'round': 0, 'totals': hands[0]['totals_before'],
                'ai': seat_ai_history(hands[0])}]

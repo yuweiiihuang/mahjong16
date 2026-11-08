@@ -60,7 +60,7 @@ test('session header contains the ID and disables resuming the current table onl
   await ctx.showHistory();
   const recovery = list.children[0].children[0].children.find(el=>el.tag==='button');
   assert.equal(recovery.disabled,false,'a frozen current table must remain recoverable');
-  assert.equal(recovery.textContent,'恢復此 Session');
+  assert.equal(recovery.textContent,'恢復此對局');
   recovery.onclick({stopPropagation(){}});
   assert.deepEqual(resumed,['hand-other','hand-current']);
   healthy = true;
