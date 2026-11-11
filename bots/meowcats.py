@@ -190,6 +190,10 @@ class MeowCaTSStrategy:
                 return deepcopy(actions[0])
             rules = self.rules if rules is None else _supported(rules)
             data, candidates = _request(obs, rules, self.sequence + 1)
+            # The native search segfaults on a single candidate (e.g. DISCARD + TING, same tile).
+            if len(candidates) == 1:
+                self.forced += 1
+                return deepcopy(candidates[0])
             self.sequence += 1
             try:
                 started = monotonic()

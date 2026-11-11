@@ -232,3 +232,36 @@ def test_real_cpp_melds_and_kong_candidates(case):
                          os.environ['MEOWCATS_RUNTIME'], rules) as bot:
         assert bot.choose(obs) in obs['legal_actions']
         assert bot.choose(obs) in obs['legal_actions']
+
+
+def test_single_searchable_candidate_skips_bridge(tmp_path):
+    """Five melds with DISCARD + TING on one tile crashed the native search; never send it."""
+    rules = Ruleset()
+    melds = [{"type": "CHI", "tiles": [19, 20, 18], "from_pid": 3},
+             {"type": "PONG", "tiles": [0, 0, 0], "from_pid": 0},
+             {"type": "PONG", "tiles": [13, 13, 13], "from_pid": 0},
+             {"type": "CHI", "tiles": [23, 25, 24], "from_pid": 3},
+             {"type": "CHI", "tiles": [20, 21, 22], "from_pid": 3}]
+    others = [[{"type": "CHI", "tiles": [23, 24, 25], "from_pid": 2}],
+              [{"type": "CHI", "tiles": [4, 6, 5], "from_pid": 1},
+               {"type": "CHI", "tiles": [14, 16, 15], "from_pid": 1},
+               {"type": "CHI", "tiles": [1, 3, 2], "from_pid": 1}],
+              [{"type": "CHI", "tiles": [6, 7, 8], "from_pid": 0}]]
+    melds_all = [others[0], melds, others[1], others[2]]
+    flowers = [[36, 41, 39], [40, 38], [35, 34], [37]]
+    obs = {
+        "player": 1, "phase": "TURN", "hand": [24, 22], "drawn": None, "melds": melds,
+        "rivers": [[32, 29, 31, 23, 30, 24, 15, 19, 32, 19],
+                   [11, 27, 9, 17, 18, 13, 14, 33, 18],
+                   [32, 33, 31, 7, 29, 0, 28, 33, 32, 22, 28],
+                   [15, 27, 26, 14, 17, 7, 29, 27]],
+        "n_remaining": 33, "last_discard": None, "melds_all": melds_all,
+        "players": [{"flowers": f, "melds": m} for f, m in zip(flowers, melds_all)],
+        "legal_actions": [{"type": "DISCARD", "tile": 24, "from": "hand"},
+                          {"type": "TING", "tile": 24, "from": "hand", "waits": [22]}],
+    }
+    # Any request reaching this bridge kills it, so a live bridge proves nothing was sent.
+    path = fake_bridge(tmp_path, 'for line in sys.stdin:\n sys.exit(11)\n')
+    with MeowCaTSStrategy(path, tmp_path, rules) as bot:
+        assert bot.choose(obs) == obs["legal_actions"][0]
+        assert bot.alive and bot.sequence == 0 and bot.forced == 1
