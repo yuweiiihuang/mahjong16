@@ -128,6 +128,48 @@ def max_concealed_triplets(state: Tuple[int, ...], need: int, eye_used: bool) ->
     return best
 
 
+# (start, end, chows allowed): 萬 0-8, 筒 9-17, 條 18-26, 字 27-33.
+_GROUPS = ((0, 9, True), (9, 18, True), (18, 27, True), (27, 34, False))
+
+
+@lru_cache(maxsize=None)
+def _group_decomposes(counts: Tuple[int, ...], chows: bool) -> bool:
+    """Return True if one suit/honor group splits fully into melds plus at most one pair.
+
+    The pair is required exactly when the group's tile count is 2 mod 3 (count 1 mod 3 can
+    never split). Like the original whole-hand search, the leftmost tile is consumed first as
+    a pong, a chow start (suits only) or the pair; copies per tile are not capped, so five
+    identical tiles still split as pong + pair.
+    """
+    total = sum(counts)
+    if total == 0:
+        return True
+    rest = total % 3
+    if rest == 1:
+        return False
+    i = next(idx for idx, c in enumerate(counts) if c > 0)
+    state = list(counts)
+    if counts[i] >= 3:
+        state[i] -= 3
+        if _group_decomposes(tuple(state), chows):
+            return True
+        state[i] += 3
+    if chows and i + 2 < len(counts) and counts[i + 1] > 0 and counts[i + 2] > 0:
+        state[i] -= 1
+        state[i + 1] -= 1
+        state[i + 2] -= 1
+        if _group_decomposes(tuple(state), chows):
+            return True
+        state[i] += 1
+        state[i + 1] += 1
+        state[i + 2] += 1
+    if rest == 2 and counts[i] >= 2:
+        state[i] -= 2
+        if _group_decomposes(tuple(state), chows):
+            return True
+    return False
+
+
 def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
     """Check whether a 16+1 hand is a legal win (5 melds + 1 pair).
 
@@ -162,48 +204,15 @@ def is_win_16(tiles: List[int], melds: List[Dict[str, Any]], rules) -> bool:
         else:
             return False
 
-    @lru_cache(maxsize=None)
-    def dfs(state: tuple, need: int, eye_used: bool) -> bool:
-        if need == 0:
-            total = sum(state)
-            if eye_used:
-                return total == 0
-            if total != 2:
-                return False
-            for c in state:
-                if c == 2:
-                    return True
+    # Chows never cross suits and honors only form pongs/pairs, so each group decomposes
+    # independently; the length check above makes exactly one pair group mean 5 melds total.
+    pair_groups = 0
+    for lo, hi, chows in _GROUPS:
+        group = tuple(counts[lo:hi])
+        if not _group_decomposes(group, chows):
             return False
-
-        i = next((idx for idx, c in enumerate(state) if c > 0), -1)
-        if i == -1:
-            return False
-
-        if state[i] >= 3:
-            lst = list(state)
-            lst[i] -= 3
-            if dfs(tuple(lst), need - 1, eye_used):
-                return True
-
-        if is_valid_chow_start(i):
-            i1, i2 = i + 1, i + 2
-            if state[i1] > 0 and state[i2] > 0:
-                lst = list(state)
-                lst[i] -= 1
-                lst[i1] -= 1
-                lst[i2] -= 1
-                if dfs(tuple(lst), need - 1, eye_used):
-                    return True
-
-        if not eye_used and state[i] >= 2:
-            lst = list(state)
-            lst[i] -= 2
-            if dfs(tuple(lst), need, True):
-                return True
-
-        return False
-
-    return dfs(tuple(counts), need_melds, False)
+        pair_groups += sum(group) % 3 == 2
+    return pair_groups == 1
 
 
 def waits_for_hand_16(
@@ -234,11 +243,23 @@ def waits_for_hand_16(
             if 0 <= t < 34:
                 used_counts[t] += 1
 
+    if any(not 0 <= t < 34 for t in hand16):
+        return waits  # is_win_16 rejects every hand containing an invalid id
+    concealed = _counts34(hand16)
     for t in range(34):
         if is_flower(t):
             continue
         if exclude_exhausted and used_counts[t] >= 4:
             continue
+        # Exact prune: a winning tile must share a pong/pair/chow with a concealed tile, so a
+        # tile with no concealed copy or same-suit neighbour within two can never win.
+        if t >= 27:
+            if not concealed[t]:
+                continue
+        else:
+            base = t - t % 9
+            if not any(concealed[max(base, t - 2):min(base + 9, t + 3)]):
+                continue
         if is_win_16(hand16 + [t], melds, rules):
             waits.append(t)
     return waits
