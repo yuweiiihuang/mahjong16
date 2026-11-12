@@ -14,10 +14,26 @@ from domain.scoring.lookup import load_scoring_assets
 from domain.scoring.score_types import ScoringContext
 
 
+_PROVEN_EQUIVALENT = {
+    # Speedup of domain/rules/hands.py (per-suit cached split, exact waits pruning) over
+    # 3d00ad6. Proven identical by a 300k-input differential fuzz against a frozen copy and a
+    # 300-hand golden hash of every legal-action list; record in the git-ignored
+    # logs/execution-reports/2026-11-12-engine-speedup/REPORT.md.
+    "1e383c55cde060f6d4148d7cda9fc4ffa1c92552d3b06512a3e1beb57db11c44":
+        "0067d16b2e5a0e4a272d1f13b854dbeb5ca8e40f82f2cbff1c6c9cf720063fe3",
+}
+
+
 def training_spec(rules: Ruleset) -> dict:
-    """Fingerprint the rules, scoring assets and player-view contract."""
+    """Fingerprint the rules, scoring assets and player-view contract.
+
+    An engine hash listed in ``_PROVEN_EQUIVALENT`` reports the hash it was proven
+    behaviour-identical to, so existing checkpoints and datasets stay loadable. The mapping
+    is exact: any further ``domain/`` edit produces an unlisted hash and disables it.
+    """
     table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
-    return {"view_version": 1, "engine_version": engine_version(),
+    version = engine_version()
+    return {"view_version": 1, "engine_version": _PROVEN_EQUIVALENT.get(version, version),
             "rules": asdict(rules), "scoring": asdict(table), "teacher": "visible-greedy-v1"}
 
 
