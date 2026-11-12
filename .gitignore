@@ -82,3 +82,6 @@ datasets/
 .worktrees/
 .archive/
 .superpowers/
+
+# ARIS meta-optimize event logs
+.aris/
