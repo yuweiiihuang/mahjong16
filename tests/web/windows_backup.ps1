@@ -1,10 +1,11 @@
 param(
     [string]$SourceDirectory = (Join-Path $PSScriptRoot '../../deploy/windows'),
-    [string]$Image = 'mahjong16:7c16004'
+    [string]$Image = 'mahjong16:7c16004',
+    [string]$DeployRoot = $(if ($env:MAHJONG_DEPLOY_ROOT) { $env:MAHJONG_DEPLOY_ROOT } else { 'C:\ProgramData\mahjong16' })
 )
 
 $ErrorActionPreference = 'Stop'
-$env:DOCKER_CONFIG = 'C:\ProgramData\Qinghe\docker-cli'
+if (-not $env:DOCKER_CONFIG) { $env:DOCKER_CONFIG = Join-Path $DeployRoot 'docker-cli' }
 $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
 $docker = "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin\docker.exe"
 # Load only the actual functions, without running the installer or backing up production.
@@ -22,7 +23,7 @@ foreach ($file in @('install-backup.ps1', 'backup-hands.ps1')) {
     }
 }
 
-$directory = Join-Path 'C:\ProgramData\Qinghe' ('backup-review-' + [guid]::NewGuid().ToString('N'))
+$directory = Join-Path $DeployRoot ('backup-review-' + [guid]::NewGuid().ToString('N'))
 try {
     New-Item -ItemType Directory $directory | Out-Null
     $child = Join-Path $directory 'existing.sqlite3'

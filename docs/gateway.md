@@ -1,12 +1,11 @@
 # 前置驗證部署
 
-2026-10-23 正式入口已切換到 [Pocket ID／Passkey](pocket-id.md)。
-以下保留 Authelia 的測試、歷史部署與回復說明，不能當成目前正式配置直接重套。
+建議的正式入口是 [Pocket ID／Passkey](pocket-id.md)。
+以下說明以 Authelia 共用帳密作為前置驗證的測試、部署與回復流程，可作為替代或回復入口。
 
 `deploy/gateway/` 提供獨立測試部署與正式切換 overlay。
-下列實測與「尚未切換」紀錄截至 2026-10-08；本文件不代表今天的遠端狀態。
 操作前核對目前映像、Compose project、私有設定、資料卷、備份來源與 Funnel 目標。
-本次支援範圍為 Mac／Windows Docker Desktop，正式目標是 Windows。
+支援範圍為 Mac／Windows Docker Desktop，正式目標是 Windows。
 原生 Linux Docker 尚未驗證；主機產生的 0600 設定通常不能由容器 UID 10001
 直接讀取，須另外設計檔案擁有者／掛載權限，不能直接沿用此流程。
 不要以此 Compose project 取代正式 project，也不要將正式牌譜資料卷掛進測試。
@@ -34,7 +33,8 @@ Caddy 管理 API 關閉；服務以 UID 10001 運行，唯讀程式目錄並限�
 
 Windows 使用該主機的 Python 路徑執行相同檔案，Docker CLI 必須在 PATH，
 並沿用 `docs/docker.md` 的專用 DOCKER_CONFIG 與 Docker Desktop engine。
-Windows 測試目錄位於已限制為本人與 SYSTEM 的 `C:\ProgramData\Qinghe` 下，
+Windows 測試目錄位於已限制為本人與 SYSTEM 的 `<deploy-root>`（`MAHJONG_DEPLOY_ROOT`，
+預設 `C:\ProgramData\mahjong16`）下，
 繼承該目錄 ACL，讓 Docker Desktop 的主機服務可讀取測試憑證。
 
 測試生成隨機帳密、Argon2id 密碼雜湊與獨立私有設定，使用唯一 project 名稱，
@@ -45,7 +45,6 @@ Windows 測試目錄位於已限制為本人與 SYSTEM 的 `C:\ProgramData\Qingh
 登入及記住裝置的 cookie、靜態資源、建立／開始／離開房間。
 以後端日誌確認被拒絕的特定探針沒有抵達牌桌，並核對後端及驗證服務沒有主機映射埠。
 TLS 憑證僅用於測試；探針只對這個短期 listener 略過憑證驗證，正式 HTTPS 不應略過。
-2026-10-08 已在 Mac Docker Desktop 與 `DESKTOP-388MJBR` Docker Desktop 跑過上述測試。
 
 ## Funnel 入口與私有帳號
 
@@ -60,7 +59,7 @@ TLS 憑證僅用於測試；探針只對這個短期 listener 略過憑證驗證
 使用 Windows 既有的私有 DOCKER_CONFIG 與 Docker engine，建立新設定：
 
 ```powershell
-python deploy/gateway/configure.py --output C:\ProgramData\Qinghe\gateway-private --url https://desktop-388mjbr.tail62f6aa.ts.net --user friend
+python deploy/gateway/configure.py --output <deploy-root>\gateway-private --url https://<host>.<tailnet>.ts.net --user friend
 ```
 
 產生器拒絕 repository 內的目錄及既有輸出目錄，避免覆寫帳號、session secret
@@ -71,16 +70,16 @@ Authelia 自行產生隨機密碼與 Argon2id hash，不將密碼放進指令參
 users.yml 使用佔位 email，目前停用密碼重設、沒有寄信功能。
 
 ```powershell
-$env:MAHJONG_GATEWAY_HOST = 'desktop-388mjbr.tail62f6aa.ts.net'
-$env:MAHJONG_GATEWAY_CONFIG = 'C:\ProgramData\Qinghe\gateway-private'
+$env:MAHJONG_GATEWAY_HOST = '<host>.<tailnet>.ts.net'
+$env:MAHJONG_GATEWAY_CONFIG = '<deploy-root>\gateway-private'
 $env:MAHJONG_GATEWAY_PORT = '8003'
 docker compose -p mahjong16-gateway-ready -f deploy/gateway/compose.yaml -f deploy/gateway/funnel.yaml up -d
 ```
 
 以上仍使用獨立牌譜卷，不更改正式服務。Caddy/Authelia/牌桌會自動重啟，
 Docker 日誌每服務保留最多 3 個 10MB 檔案。
-2026-10-08 已在 Mac 測試 TLS 與 Funnel HTTP 兩種入口，在 Windows 測試 Funnel HTTP 入口。
-兩者均驗證未授權帳號不能接觸牌桌，以及被封鎖帳號即使用正確密碼仍被拒絕。
+`tests/web/gateway_smoke.py` 涵蓋 TLS 與 Funnel HTTP 兩種入口，並驗證未授權帳號
+不能接觸牌桌、被封鎖帳號即使用正確密碼仍被拒絕。
 
 ## 正式切換前還需要完成
 
@@ -90,12 +89,12 @@ Docker 日誌每服務保留最多 3 個 10MB 檔案。
 - 說明重啟影響：同引擎版本牌局可從牌譜續局，跨引擎換版不保證續接；再取得正式切換同意。
 
 取得切換同意並完成備份後，先停止舊 web 容器，才可加入 `production.yaml`：
-將 MAHJONG_RECORDS_VOLUME 設為既有 `mahjong16-docker-617094b_hand-records`，
+將 `MAHJONG_RECORDS_VOLUME` 設為既有牌譜資料卷 `<records-volume>`，
 用相同 project 加上三個檔案 `compose.yaml`、`funnel.yaml`、`production.yaml` 重建。
 此 overlay 只換成既有 external 牌譜卷，不刪除它；不可同時運行兩個寫入該卷的牌桌。
 既有備份工作仍讀相同卷，不須換資料來源。不要對這個正式 project 使用 `down -v`。
 確認本機入口後，才把 Funnel 的 443 入口切至 `http://127.0.0.1:8003`。
-回復時先停止新 web，恢復舊容器並將 Funnel 指回 8002，保留原映像與資料卷。
+回復時先停止新 web，恢復舊容器並將 Funnel 指回原入口埠，保留原映像與資料卷。
 正式換回舊入口會恢復共用通行碼流程；不要在失敗時自動略過登入檢查。
 
 目前登入有效期為 12 小時，勾選記住裝置為 7 天；這些僅是測試設定。

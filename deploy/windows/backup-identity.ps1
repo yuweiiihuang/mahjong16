@@ -1,11 +1,13 @@
 param(
+    [string]$DeployRoot = $(if ($env:MAHJONG_DEPLOY_ROOT) { $env:MAHJONG_DEPLOY_ROOT } else { 'C:\ProgramData\mahjong16' }),
     [string]$Container = 'mahjong16-pocket-identity-1',
-    [string]$ConfigDirectory = 'C:\ProgramData\Qinghe\pocket-private',
-    [string]$BackupDirectory = 'C:\ProgramData\Qinghe\backups',
-    [string]$ScriptPath = 'C:\ProgramData\Qinghe\backup-source\pocket-backup.py'
+    [string]$WebContainer = 'mahjong16-pocket-web-1',
+    [string]$ConfigDirectory = $(if ($env:MAHJONG_POCKET_CONFIG) { $env:MAHJONG_POCKET_CONFIG } else { Join-Path $DeployRoot 'pocket-private' }),
+    [string]$BackupDirectory = (Join-Path $DeployRoot 'backups'),
+    [string]$ScriptPath = (Join-Path $DeployRoot 'backup-source\pocket-backup.py')
 )
 $ErrorActionPreference = 'Stop'
-$env:DOCKER_CONFIG = 'C:\ProgramData\Qinghe\docker-cli'
+if (-not $env:DOCKER_CONFIG) { $env:DOCKER_CONFIG = Join-Path $DeployRoot 'docker-cli' }
 $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
 $docker = "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin\docker.exe"
 function Invoke-Docker {
@@ -22,7 +24,7 @@ $volumes = @($info.Mounts | Where-Object {
     $_.Type -eq 'volume' -and $_.Destination -eq '/app/data'
 })
 if ($volumes.Count -ne 1) { throw 'Expected one Pocket ID data volume' }
-$image = (Invoke-Docker inspect mahjong16-pocket-web-1 | ConvertFrom-Json)[0].Image
+$image = (Invoke-Docker inspect $WebContainer | ConvertFrom-Json)[0].Image
 $name = 'identity-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' +
     [guid]::NewGuid().ToString('N') + '.zip'
 $helper = 'mahjong16-identity-backup-' + [guid]::NewGuid().ToString('N')

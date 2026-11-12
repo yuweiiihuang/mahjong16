@@ -1,10 +1,11 @@
 param(
-    [string]$Container = 'mahjong16-docker-617094b-web-1',
-    [string]$BackupDirectory = 'C:\ProgramData\Qinghe\backups'
+    [string]$DeployRoot = $(if ($env:MAHJONG_DEPLOY_ROOT) { $env:MAHJONG_DEPLOY_ROOT } else { 'C:\ProgramData\mahjong16' }),
+    [string]$Container = 'mahjong16-pocket-web-1',
+    [string]$BackupDirectory = (Join-Path $DeployRoot 'backups')
 )
 
 $ErrorActionPreference = 'Stop'
-$env:DOCKER_CONFIG = 'C:\ProgramData\Qinghe\docker-cli'
+if (-not $env:DOCKER_CONFIG) { $env:DOCKER_CONFIG = Join-Path $DeployRoot 'docker-cli' }
 $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
 $docker = "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin\docker.exe"
 

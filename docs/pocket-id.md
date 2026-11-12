@@ -1,12 +1,12 @@
 # 朋友邀請、Passkey 與正式部署
 
-Pocket ID 管理每位朋友的帳號；正式入口已於 2026-10-23 從 Authelia 切換。
+Pocket ID 管理每位朋友的帳號，取代 [Authelia 共用帳密](gateway.md)作為建議的正式入口。
 本文件同時保留獨立 localhost 驗證流程，兩者使用不同設定與資料卷，不能互換。
 macOS 與 Windows Docker Desktop 已完成容器測試；Windows 設定在寫入憑證前
 限制 ACL 為服務使用者與 SYSTEM。原生 Linux 的 bind mount 權限仍須另外驗證，
 不能以改成公開可讀解決 UID 不同的問題。
 
-正式牌桌為 `https://desktop-388mjbr.tail62f6aa.ts.net/`，帳號服務在相同網域的
+正式牌桌為 `https://<host>.<tailnet>.ts.net/`，帳號服務在相同網域的
 `:8443`。只有收到有效註冊邀請的人能建立帳號；舊共用帳密不再用於此入口。
 
 ## 架構與責任
@@ -192,10 +192,10 @@ Funnel 終止 TLS：443 轉至 18084，8443 轉至 18085。固定 HTTPS issuer �
 
 ```powershell
 $env:MAHJONG_IMAGE = 'mahjong16:<reviewed-release>'
-$env:MAHJONG_POCKET_CONFIG = 'C:\ProgramData\Qinghe\pocket-private'
-uv run --locked python deploy/pocket-id/configure.py --output $env:MAHJONG_POCKET_CONFIG --url https://desktop-388mjbr.tail62f6aa.ts.net --table-port 18084 --identity-port 18085
+$env:MAHJONG_POCKET_CONFIG = '<deploy-root>\pocket-private'
+uv run --locked python deploy/pocket-id/configure.py --output $env:MAHJONG_POCKET_CONFIG --url https://<host>.<tailnet>.ts.net --table-port 18084 --identity-port 18085
 docker compose --env-file "$env:MAHJONG_POCKET_CONFIG\stage.env" -p mahjong16-pocket -f deploy/pocket-id/compose.yaml -f deploy/pocket-id/funnel.yaml up -d --no-build --pull never
-uv run --locked python deploy/pocket-id/configure.py --output $env:MAHJONG_POCKET_CONFIG --url https://desktop-388mjbr.tail62f6aa.ts.net --bootstrap-port 18085 --bootstrap
+uv run --locked python deploy/pocket-id/configure.py --output $env:MAHJONG_POCKET_CONFIG --url https://<host>.<tailnet>.ts.net --bootstrap-port 18085 --bootstrap
 & 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg --https=8443 http://127.0.0.1:18085
 ```
 
@@ -204,7 +204,7 @@ uv run --locked python deploy/pocket-id/configure.py --output $env:MAHJONG_POCKE
 bootstrap 先確認本機 client 設定可讀，部分失敗時保留既有管理員，查明後完成設定。
 
 切換前備份舊牌譜、停止舊 web writer，再加入 `production.yaml`，設定
-`MAHJONG_RECORDS_VOLUME=mahjong16-docker-617094b_hand-records`，用原 project
+`MAHJONG_RECORDS_VOLUME=<records-volume>`（既有牌譜資料卷），用原 project
 加上三個 Compose 檔重建 web。核對新 web 的實際 mount 後，才將 Funnel443 切至
 `http://127.0.0.1:18084`。不能同時啟動新舊 web 寫入同一資料卷。
 重啟會清除記憶體實例，不清除已保存牌譜；`account_players` 隨牌譜 SQLite 保存。
@@ -224,16 +224,18 @@ backup API 取得一致快照，再連同 uploads 與八份私有設定封裝 ZI
 不包含一次性 owner 登入連結。先寫 `.partial`，驗證完整性與 ZIP CRC 後才改名。
 uploads 不和 SQLite 共用交易，備份時修改頭像可能造成頭像版本不一致。
 
-將兩個檔案分別安裝在 `C:\ProgramData\Qinghe\backup-identity.ps1` 與
-`C:\ProgramData\Qinghe\backup-source\pocket-backup.py`，檔案及備份目錄維持
-服務使用者與 SYSTEM 的專用 ACL。在既有隱藏的每小時備份腳本末尾呼叫：
+將兩個檔案分別安裝在 `<deploy-root>\backup-identity.ps1` 與
+`<deploy-root>\backup-source\pocket-backup.py`，檔案及備份目錄維持
+服務使用者與 SYSTEM 的專用 ACL。在排程執行的 `<deploy-root>\backup-hands.ps1` 末尾呼叫
+（重新執行 `install-backup.ps1` 會覆寫這份副本，須再加回）：
 
 ```powershell
-& ([scriptblock]::Create([IO.File]::ReadAllText('C:\ProgramData\Qinghe\backup-identity.ps1')))
+& ([scriptblock]::Create([IO.File]::ReadAllText('<deploy-root>\backup-identity.ps1'))) `
+    -DeployRoot '<deploy-root>'
 ```
 
-不重新安裝／改動現有 wscript 隱藏 launcher；牌譜備份的 Container 改為
-`mahjong16-pocket-web-1`。驗證排程 `LastTaskResult=0`，日誌須同時出現兩種
+牌譜備份的 Container 預設為 `mahjong16-pocket-web-1`；Compose project 名稱不同時，
+以 `install-backup.ps1 -Container` 指定。驗證排程 `LastTaskResult=0`，日誌須同時出現兩種
 Verified backup 訊息。帳號 ZIP 保留 30 天，硬上限 744 份；牌譜保留原有的
 48 小時逐時與 30 天每日策略。只清理精確命名的備份，不處理連結或 junction。
 

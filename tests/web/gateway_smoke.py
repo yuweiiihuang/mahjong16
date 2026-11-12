@@ -33,11 +33,12 @@ def main() -> None:
     backend_password = secrets.token_urlsafe(32)
     authorization = 'Basic ' + base64.b64encode(
         f'friend:{backend_password}'.encode()).decode()
-    fixture_root = 'C:/ProgramData/Qinghe' if os.name == 'nt' else None
+    fixture_root = (os.environ.get('MAHJONG_DEPLOY_ROOT', r'C:\ProgramData\mahjong16')
+                    if os.name == 'nt' else None)
     with tempfile.TemporaryDirectory(prefix='mahjong-gateway-qa-', dir=fixture_root) as directory:
         private = Path(directory)
         if os.name == 'nt':
-            # Inherit the already restricted Qinghe ACL, including Docker's SYSTEM service.
+            # Inherit the already restricted deploy-root ACL, including Docker's SYSTEM service.
             subprocess.run(['icacls.exe', str(private), '/reset'], check=True,
                            stdout=subprocess.DEVNULL)
         digest = subprocess.check_output([

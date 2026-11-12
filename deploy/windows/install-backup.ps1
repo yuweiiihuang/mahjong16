@@ -1,4 +1,8 @@
-param([string]$SourceDirectory = $PSScriptRoot)
+param(
+    [string]$SourceDirectory = $PSScriptRoot,
+    [string]$DeployRoot = $(if ($env:MAHJONG_DEPLOY_ROOT) { $env:MAHJONG_DEPLOY_ROOT } else { 'C:\ProgramData\mahjong16' }),
+    [string]$Container = 'mahjong16-pocket-web-1'
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -30,7 +34,7 @@ function Set-PrivateBackupPermissions([string]$Directory) {
     }
 }
 
-$root = 'C:\ProgramData\Qinghe'
+$root = $DeployRoot
 $backups = Join-Path $root 'backups'
 $account = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 New-Item -ItemType Directory -Force $backups | Out-Null
@@ -38,17 +42,21 @@ Set-PrivateBackupPermissions $backups
 Copy-Item -LiteralPath (Join-Path $SourceDirectory 'backup-hands.ps1') `
     -Destination (Join-Path $root 'backup-hands.ps1') -Force
 
+# The task runs without this session's variables, so bake in the installed paths.
 $body = @'
 $ErrorActionPreference = 'Stop'
 try {
-    & ([scriptblock]::Create([IO.File]::ReadAllText('C:\ProgramData\Qinghe\backup-hands.ps1'))) *>&1 |
-        Out-File -Encoding utf8 'C:\ProgramData\Qinghe\backup-last-run.log'
+    & ([scriptblock]::Create([IO.File]::ReadAllText('__ROOT__\backup-hands.ps1'))) `
+        -DeployRoot '__ROOT__' -Container '__CONTAINER__' *>&1 |
+        Out-File -Encoding utf8 '__ROOT__\backup-last-run.log'
     exit 0
 } catch {
-    $_ | Out-File -Append -Encoding utf8 'C:\ProgramData\Qinghe\backup-last-run.log'
+    $_ | Out-File -Append -Encoding utf8 '__ROOT__\backup-last-run.log'
     exit 1
 }
 '@
+$body = $body.Replace('__ROOT__', $root.Replace("'", "''")).Replace(
+    '__CONTAINER__', $Container.Replace("'", "''"))
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body))
 $action = New-ScheduledTaskAction `
     -Execute "$env:windir\System32\WindowsPowerShell\v1.0\powershell.exe" `

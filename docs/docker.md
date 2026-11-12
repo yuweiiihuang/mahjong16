@@ -1,23 +1,15 @@
 # Docker 牌桌
 
-本文的主機、映像、排程與 Funnel 實測紀錄是 2026-10-07／08 當時的狀態，
-不是即時部署清單。操作前核對目前 Compose project、容器映像、牌譜資料卷、
-備份排程的容器名稱與 Funnel 目標；不能只照舊標籤切換。
-執行正式換版前，先確認備份與回復入口，說明換版影響並取得切換同意：同引擎版本的牌局
+本文說明以 Docker Desktop（Linux containers）自架牌桌的通用流程：先在 Mac 本地驗證，
+再於 Windows 主機部署指定版本。主機名稱、私有目錄、Compose project 與資料卷名稱
+由各自的部署者決定；下文以 `<deploy-root>`（預設 `C:\ProgramData\mahjong16`，
+可用 `MAHJONG_DEPLOY_ROOT` 覆寫）、`<host>.<tailnet>.ts.net` 等佔位符表示。
+執行換版前，先確認備份與回復入口，說明換版影響並取得切換同意：同引擎版本的牌局
 重啟後可從牌譜續局，跨引擎換版不保證續接。
 
-2026-10-23 正式部署已改為 [Pocket ID／Passkey](pocket-id.md#windows-正式-https-部署)，
-沿用原牌譜資料卷。新正式 project 為 `mahjong16-pocket`；以下通行碼與 Authelia
-指令屬歷史基準，操作時應核對現況。
-
-## 歷史部署基準
-
-以通行碼版本 `617094b` 為第一個容器基準；使用 Docker Desktop 的 Linux containers。
-Mac 本地驗證後，Windows 再部署指定版本。此階段手動建置與部署，尚未接 GitHub
-Actions、GHCR、自動更新或獨立入口驗證。登入仍由牌桌程式處理。
-
-2026-10-07 Windows 首次置中更新映像為 `mahjong16:617094b-centered`，在 `617094b`
-基準上移除鏡頭的水平偏移。Funnel 指向 8002；舊 Python 服務已停止且排程已停用。
+本文的通行碼部署是最簡入口；對外開放給多位朋友時，建議改用
+[Pocket ID／Passkey](pocket-id.md#windows-正式-https-部署)，並沿用同一份牌譜資料卷。
+建置與部署皆為手動，沒有 GitHub Actions、GHCR 或自動更新。
 
 ## Mac 驗證
 
@@ -52,13 +44,13 @@ uv run --locked python tests/web/container_smoke.py --password-file "$MAHJONG_PA
 ## Windows 部署與回復
 
 先安裝 Docker Desktop、完成 WSL 2／Linux containers 設定並啟動 Docker 引擎。
-在正式切換前，以不同連接埠測試，保留 `Mahjong16-Web` 舊服務。
-既有正式通行碼仍放在 `C:\ProgramData\Qinghe\access-password.txt`，不複製到 Git。
+正式切換前，以不同連接埠測試，保留既有入口供切回。
+通行碼檔案放在 `<deploy-root>\access-password.txt` 之類的私有位置，不複製到 Git。
 
 在所需 Git 版本的專案目錄，用 PowerShell 執行：
 
 ```powershell
-$env:MAHJONG_PASSWORD_FILE = 'C:\ProgramData\Qinghe\access-password.txt'
+$env:MAHJONG_PASSWORD_FILE = '<deploy-root>\access-password.txt'
 $env:MAHJONG_PORT = '8002'
 $env:MAHJONG_IMAGE = 'mahjong16:' + (git rev-parse --short HEAD)
 docker compose build
@@ -74,7 +66,7 @@ uv run --locked python tests/web/container_smoke.py --password-file $env:MAHJONG
 
 ```powershell
 $dockerRoot = "$env:LOCALAPPDATA\Programs\DockerDesktop"
-$env:DOCKER_CONFIG = 'C:\ProgramData\Qinghe\docker-cli'
+$env:DOCKER_CONFIG = '<deploy-root>\docker-cli'
 $env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
 New-Item -ItemType Directory -Force $env:DOCKER_CONFIG | Out-Null
 $config = @{auths=@{'ghcr.io'=@{}; 'https://index.docker.io/v1/'=@{}}; cliPluginsExtraDirs=@("$dockerRoot\resources\cli-plugins")}
@@ -84,24 +76,17 @@ $config = @{auths=@{'ghcr.io'=@{}; 'https://index.docker.io/v1/'=@{}}; cliPlugin
 
 公開 registry 的空白項目可避免 Docker 自動選用 Windows 憑證庫。
 這份匿名配置只適用公開映像。需要私人 registry 時另行設置認證，
-不要覆寫已有認證的配置。`C:\ProgramData\Qinghe` 必須維持服務帳號與 SYSTEM 的存取限制。
+不要覆寫已有認證的配置。`<deploy-root>` 必須維持服務帳號與 SYSTEM 的存取限制。
 
-確認測試容器可用並同意切換至新牌桌後，將 Funnel 改指向 Docker 的 8002 埠。
-若舊服務仍運行，可保留其 8000 入口供切回；停止後其記憶體牌局即結束，
+確認測試容器可用並同意切換後，將 Funnel 改指向 Docker 的 8002 埠；
+公開網址保持不變，也不公開主機的 8002 埠。原入口停止後其記憶體牌局即結束，
 能否續接依[網頁續局與重播](hand-recording.md#網頁續局與重播)的條件：
 
 ```powershell
 & 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg http://127.0.0.1:8002
 ```
 
-公開網址保持不變，也不公開主機的 8002 埠。舊服務已停止時，須先啟用並啟動排程、
-確認 `http://127.0.0.1:8000/` 可用，再切回；重新啟動不會恢復先前牌局：
-
-```powershell
-Enable-ScheduledTask -TaskName Mahjong16-Web
-Start-ScheduledTask -TaskName Mahjong16-Web
-& 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg http://127.0.0.1:8000
-```
+需切回時，先確認原入口已啟動並可從 loopback 存取，再把 Funnel 指回該埠。
 
 後續更新先記下目前 `MAHJONG_IMAGE`，再建置新版本。需回復時將該變數設成上一個
 仍保留的映像標籤，再執行 `docker compose up -d --no-build --pull never --wait`。
@@ -113,7 +98,7 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 
 `deploy/windows/backup-hands.ps1` 使用目前正式容器的確切映像與資料卷，
 啟動無網路、非管理員身分的短期備份容器。原資料卷以唯讀掛載；
-輸出至主機的 `C:\ProgramData\Qinghe\backups`，並執行 SQLite 完整性檢查。
+輸出至主機的 `<deploy-root>\backups`，並執行 SQLite 完整性檢查。
 備份與檢查各有容器內的 240 秒期限；即使排程程序被強制結束，
 容器內的期限仍有效。正常錯誤另外會清理有識別名稱的備份容器。
 只有完整性檢查通過後才改為正式 `.sqlite3` 檔名；被中斷的 `.partial`
@@ -122,7 +107,9 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 不需要重啟牌桌；不是直接複製可能正在寫入的 SQLite 檔案。
 
 在使用 Docker Desktop 的 Windows 帳號下執行
-`deploy/windows/install-backup.ps1`，建立 `Mahjong16-HandBackup` 每小時排程，
+`deploy/windows/install-backup.ps1 -DeployRoot <deploy-root> -Container <web-container>`
+（預設 `C:\ProgramData\mahjong16` 與 `mahjong16-pocket-web-1`），
+建立 `Mahjong16-HandBackup` 每小時排程，
 並立即執行一次。保留系統原有的 PowerShell 執行原則，不修改為全域放行。
 部署目錄須維持本人與 SYSTEM 的限制；安裝程式會重建備份目錄與既有檔案的
 存取權限，只保留本人與 SYSTEM，遇到連結或 junction 則拒絕安裝。
@@ -131,7 +118,7 @@ Start-ScheduledTask -TaskName Mahjong16-Web
 
 ```powershell
 Get-ScheduledTaskInfo -TaskName Mahjong16-HandBackup
-Get-Content C:\ProgramData\Qinghe\backup-last-run.log
+Get-Content <deploy-root>\backup-last-run.log
 ```
 
 成功的 `LastTaskResult` 為 `0`，日誌包含 `Verified backup`。
@@ -139,22 +126,17 @@ Get-Content C:\ProgramData\Qinghe\backup-last-run.log
 目前 repository 的備份腳本會在新備份通過檢查後自動清理：最近 48 小時全部保留，
 較舊每日保留最新一份，最長 30 天。完整政策見 [牌譜文件](hand-recording.md#網路牌桌自動保存)。
 需保留更久的回復點時另行複製至另一台裝置；仍需檢查磁碟容量。
-這不表示遠端排程已更新到此版腳本，部署時須核對實際執行的檔案。
+安裝程式會複製一份腳本到 `<deploy-root>`；更新 repository 後須重新執行安裝。
 同一台 Windows 上的備份能抵禦牌桌容器直接刪除，但不能抵禦整台主機失守或磁碟故障。
 修正回歸可執行 `tests/web/windows_backup.ps1`，使用隔離的目錄與短期容器，
 確認寬鬆權限會移除、超時會回報失敗且不留下容器；保留清理測試為
 `tests/web/windows_backup_retention.ps1`。兩者不操作正式牌局。
 
-2026-10-08 已在 `DESKTOP-388MJBR` 實測備份、完整性檢查與排程成功。
-正式容器隔離設定與 loopback 埠已核對；SSH 防火牆限制至管理 Mac 的 Tailscale IP。
-獨立測試已驗證雙網路入口可連到內部服務，而內部服務無法連到外部 IP。
-正式網路尚未切換，前置驗證服務尚未安裝。不能直接將現有網路改成
-`internal: true`：實測該內部網路沒有提供原本的主機映射埠，需連同閘道部署。
-
 ### 容器設定
 
 - 容器使用 UID 10001、唯讀檔案系統，移除 Linux capabilities，限制 CPU、記憶體與程序數。
 - 對外埠只綁主機 `127.0.0.1`；透過 Funnel 提供 HTTPS，SSH 仍經 Tailscale 管理。
+- 不能直接將牌桌網路改成 `internal: true`：內部網路不提供主機映射埠，需連同閘道部署。
 - Compose 掛載通行碼檔案及私有牌譜 volume；不掛載整個專案、SSH 金鑰或 Docker socket。
 - Mac Docker Desktop 已實測 `0600` 通行碼檔案可由容器 UID 10001 讀取；Windows
   已實測受限制 ACL 的通行碼檔案可正常登入。原生 Linux 的 bind mount 會保留主機 UID，須另行對齊檔案擁有者，
