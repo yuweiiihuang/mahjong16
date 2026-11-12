@@ -129,8 +129,14 @@ def train_bc(train: Path, validation: Path, output: Path, *, epochs: int = 10,
 
 @torch.no_grad()
 def collect_rollout(model: PolicyValueNet, *, seed: int, start: int, hands: int,
-                    rules: Ruleset) -> tuple[list[dict], dict]:
-    """Collect complete learner trajectories; each transition keeps the same player."""
+                    rules: Ruleset, temperature: float = 1.0, merge_duplicates: bool = False,
+                    opponent=None, teacher=None) -> tuple[list[dict], dict]:
+    """Collect complete learner trajectories; each transition keeps the same player.
+
+    With a teacher, each learner state that has a real choice and no HU candidate also records
+    the teacher's action on that exact visible observation (``teacher_label``); HU is excluded
+    because the teacher always takes it, so it teaches nothing about the choice.
+    """
     rows = []
     began = perf_counter()
     payments = []
@@ -140,15 +146,26 @@ def collect_rollout(model: PolicyValueNet, *, seed: int, start: int, hands: int,
     for index in range(start, start + hands):
         # Reserve one million hands per run, above the demonstration namespace.
         stream_index = 500_000_000 + seed * 1_000_000 + index
-        episode = LearnerEpisode(hand_seed("train", stream_index), index % 4, rules)
+        episode = LearnerEpisode(hand_seed("train", stream_index), index % 4, rules,
+                                 opponent=opponent)
         memory = DecisionHistory() if model.architecture == "temporal" else None
         hand_rows = []
         while (obs := episode.current()) is not None:
+            raw = obs
             if memory is not None:
                 obs = memory.observe(obs)
             logits, value = model(*model.prepare([obs]))
+            logits = policy_logits(logits, [obs], temperature=temperature,
+                                   merge_duplicates=merge_duplicates)
             distribution = Categorical(logits=logits[0])
             action = distribution.sample()
+            teacher_label = None
+            legal = obs["legal_actions"]
+            if (teacher is not None and len(set(representatives(legal))) > 1
+                    and not any(a["type"] == "HU" for a in legal)):
+                key = distinct_action_key(teacher.choose(raw))
+                teacher_label = next(i for i, a in enumerate(legal)
+                                     if distinct_action_key(a) == key)
             if memory is not None:
                 memory.append(obs, obs["legal_actions"][int(action)])
             next_obs, reward, done = episode.step(obs["legal_actions"][int(action)])
@@ -157,6 +174,7 @@ def collect_rollout(model: PolicyValueNet, *, seed: int, start: int, hands: int,
             hand_rows.append({"observation": obs, "label": int(action),
                               "old_log_prob": float(distribution.log_prob(action)),
                               "old_value": float(value[0]), "reward": reward,
+                              "teacher_label": teacher_label,
                               "terminated": done, "next_observation": next_obs})
         net = episode.payments()[episode.learner]
         for row in hand_rows:
@@ -166,6 +184,7 @@ def collect_rollout(model: PolicyValueNet, *, seed: int, start: int, hands: int,
         engine_steps += episode.steps
     metrics = {"hands": hands, "engine_steps": engine_steps, "decisions": len(rows),
                "choices": sum(len(r["observation"]["legal_actions"]) > 1 for r in rows),
+               "teacher_labels": sum(r["teacher_label"] is not None for r in rows),
                "mean_payment": sum(payments) / hands,
                "rollout_seconds": perf_counter() - began}
     return rows, metrics
@@ -181,15 +200,57 @@ def _policy_kl(logits: torch.Tensor, reference_logits: torch.Tensor) -> torch.Te
     return (log_probs.exp() * difference).sum(-1)
 
 
+def distinct_action_key(action: dict) -> str:
+    """Identify actions that lead to the same play; a discard's source copy is not a choice.
+
+    The domain lists e.g. two identical DISCARD candidates (one from hand, one just drawn);
+    MeowCaTS also collapses DISCARD/TING by (type, tile), so the student uses the same key.
+    """
+    if action.get("type") in ("DISCARD", "TING"):
+        return f'{action["type"]}:{action["tile"]}'
+    return json.dumps(action, sort_keys=True)
+
+
+def representatives(legal_actions: list[dict]) -> list[int]:
+    """Map each candidate to the first candidate with the same distinct key."""
+    first: dict[str, int] = {}
+    return [first.setdefault(distinct_action_key(a), i) for i, a in enumerate(legal_actions)]
+
+
+def policy_logits(logits: torch.Tensor, observations: list[dict], *,
+                  temperature: float = 1.0, merge_duplicates: bool = False) -> torch.Tensor:
+    """Return the sampled policy's logits: duplicate mass merged onto the first copy, then /tau.
+
+    Merging with logsumexp keeps each distinct action's tau=1 probability unchanged.
+    """
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("Temperature must be finite and positive")
+    if merge_duplicates:
+        merged = logits.clone()
+        for row, obs in enumerate(observations):
+            reps = representatives(obs["legal_actions"])
+            for rep in sorted(set(reps)):
+                members = [i for i, r in enumerate(reps) if r == rep]
+                if len(members) > 1:
+                    merged[row, rep] = logits[row, members].logsumexp(0)
+                    merged[row, members[1:]] = -torch.inf
+        logits = merged
+    return logits / temperature if temperature != 1.0 else logits
+
+
 @torch.no_grad()
 def ppo_diagnostics(model: PolicyValueNet, rows: list[dict],
-                    reference: PolicyValueNet | None = None) -> dict:
+                    reference: PolicyValueNet | None = None, *, temperature: float = 1.0,
+                    merge_duplicates: bool = False) -> dict:
     """Measure the final policy on all rollout states; value metrics include forced moves."""
     values, policy_kl, bc_kl, entropy = [], [], [], []
     for offset in range(0, len(rows), 256):
         group = rows[offset:offset + 256]
-        inputs = model.prepare([r["observation"] for r in group])
+        observations = [r["observation"] for r in group]
+        inputs = model.prepare(observations)
         logits, predicted = model(*inputs)
+        logits = policy_logits(logits, observations, temperature=temperature,
+                               merge_duplicates=merge_duplicates)
         distribution = Categorical(logits=logits)
         labels = torch.tensor([r["label"] for r in group], device=logits.device)
         log_ratio = distribution.log_prob(labels) - torch.tensor(
@@ -200,7 +261,9 @@ def ppo_diagnostics(model: PolicyValueNet, rows: list[dict],
         policy_kl.extend(((log_ratio.exp() - 1) - log_ratio)[active].cpu().tolist())
         entropy.extend(distribution.entropy()[active].cpu().tolist())
         if reference is not None:
-            reference_logits, _ = reference(*inputs)
+            reference_logits = policy_logits(reference(*inputs)[0], observations,
+                                             temperature=temperature,
+                                             merge_duplicates=merge_duplicates)
             bc_kl.extend(_policy_kl(logits, reference_logits)[active].cpu().tolist())
     returns = torch.tensor([r["return"] for r in rows], dtype=torch.float64)
     before = torch.tensor([r["old_value"] for r in rows], dtype=torch.float64)
@@ -222,8 +285,17 @@ def ppo_diagnostics(model: PolicyValueNet, rows: list[dict],
 
 def update_ppo(model: PolicyValueNet, optimizer: torch.optim.Optimizer,
                rows: list[dict], epochs: int = 4, *,
-               reference: PolicyValueNet | None = None, bc_kl_coef: float = 0.0) -> dict:
-    """PPO-Clip with full-hand Monte Carlo returns and forced-action loss exclusion."""
+               reference: PolicyValueNet | None = None, bc_kl_coef: float = 0.0,
+               temperature: float = 1.0, merge_duplicates: bool = False,
+               teacher_coef: float = 0.0, surrogate: bool = True) -> dict:
+    """PPO-Clip with full-hand Monte Carlo returns and forced-action loss exclusion.
+
+    ``teacher_coef`` adds cross-entropy to rows' ``teacher_label`` (kickstarting); with
+    ``surrogate=False`` the policy term is dropped, leaving an imitation-only control that keeps
+    the same value loss, entropy bonus and KL early-stop rule.
+    """
+    if not math.isfinite(teacher_coef) or teacher_coef < 0:
+        raise ValueError("Teacher coefficient must be finite and nonnegative")
     if not rows:
         raise ValueError("No learner decisions in rollout")
     if not math.isfinite(bc_kl_coef) or bc_kl_coef < 0:
@@ -232,8 +304,9 @@ def update_ppo(model: PolicyValueNet, optimizer: torch.optim.Optimizer,
         raise ValueError("BC KL requires a separate fixed reference policy")
     device = str(next(model.parameters()).device)
     advantages = torch.tensor([r["return"] - r["old_value"] for r in rows], device=device)
-    choices = torch.tensor([len(r["observation"]["legal_actions"]) > 1 for r in rows],
-                           device=device)
+    choices = torch.tensor([(len(set(representatives(r["observation"]["legal_actions"])))
+                             if merge_duplicates else len(r["observation"]["legal_actions"])) > 1
+                            for r in rows], device=device)
     if choices.sum() > 1:
         sample = advantages[choices]
         advantages = (advantages - sample.mean()) / sample.std(unbiased=False).clamp_min(1e-8)
@@ -245,8 +318,11 @@ def update_ppo(model: PolicyValueNet, optimizer: torch.optim.Optimizer,
         for offset in range(0, len(order), 256):
             indices = order[offset:offset + 256]
             group = [rows[i] for i in indices]
-            inputs = model.prepare([r["observation"] for r in group])
+            observations = [r["observation"] for r in group]
+            inputs = model.prepare(observations)
             logits, values = model(*inputs)
+            logits = policy_logits(logits, observations, temperature=temperature,
+                                   merge_duplicates=merge_duplicates)
             distribution = Categorical(logits=logits)
             labels = torch.tensor([r["label"] for r in group], device=device)
             log_ratio = distribution.log_prob(labels) - torch.tensor(
@@ -254,22 +330,32 @@ def update_ppo(model: PolicyValueNet, optimizer: torch.optim.Optimizer,
             ratio = log_ratio.exp()
             active = choices[indices]
             adv = advantages[indices]
-            surrogate = torch.minimum(ratio * adv, ratio.clamp(0.8, 1.2) * adv)
-            policy = -surrogate[active].mean() if active.any() else values.sum() * 0
+            clipped = torch.minimum(ratio * adv, ratio.clamp(0.8, 1.2) * adv)
+            policy = (-clipped[active].mean() if surrogate and active.any()
+                      else values.sum() * 0)
             entropy = distribution.entropy()[active].mean() if active.any() else values.sum() * 0
             returns = torch.tensor([r["return"] for r in group], device=device)
             value_loss = F.mse_loss(values, returns)
             bc_kl = values.sum() * 0
             if reference is not None:
                 with torch.no_grad():
-                    reference_logits, _ = reference(*inputs)
+                    reference_logits = policy_logits(reference(*inputs)[0], observations,
+                                                     temperature=temperature,
+                                                     merge_duplicates=merge_duplicates)
                 divergence = _policy_kl(logits, reference_logits)
                 bc_kl = divergence[active].mean() if active.any() else values.sum() * 0
-            loss = policy + 0.5 * value_loss - 0.01 * entropy + bc_kl_coef * bc_kl
+            taught = [i for i, r in enumerate(group) if r.get("teacher_label") is not None]
+            teacher_ce = values.sum() * 0
+            if taught:
+                targets = torch.tensor([group[i]["teacher_label"] for i in taught], device=device)
+                teacher_ce = F.cross_entropy(logits[taught], targets)
+            loss = (policy + 0.5 * value_loss - 0.01 * entropy + bc_kl_coef * bc_kl
+                    + teacher_coef * teacher_ce)
             kl = ((ratio - 1) - log_ratio)[active].mean() if active.any() else loss * 0
             metrics = {"loss": float(loss.detach()), "value_loss": float(value_loss.detach()),
                        "entropy": float(entropy.detach()), "kl": float(kl.detach()),
-                       "bc_kl": float(bc_kl.detach()), "optimizer_steps": steps,
+                       "bc_kl": float(bc_kl.detach()), "teacher_ce": float(teacher_ce.detach()),
+                       "optimizer_steps": steps,
                        "early_stopped": False}
             if metrics["kl"] > 0.03:
                 metrics["early_stopped"] = True
