@@ -1,11 +1,11 @@
 # Domain docs
 
 ## Layout
-Use CONTEXT.md at the repository root for domain vocabulary.
+Use GLOSSARY.md at the repository root for domain vocabulary.
 Store architecture decisions in docs/adr/.
 
 ## Consumer rules
-Before domain exploration, read CONTEXT.md and ADRs relevant to the task.
+Before domain exploration, read GLOSSARY.md and ADRs relevant to the task.
 If they do not exist, proceed silently; create them when domain discussions
 resolve terminology or architectural decisions.
 
