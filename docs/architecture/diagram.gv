@@ -31,7 +31,6 @@ digraph Mahjong16 {
         recording [label="domain/gameplay/recording.py\nHandRecorder / replay_hand"];
         configs [label="configs/rules/profiles/\nconfigs/scoring/\nRule toggles and scoring assets"];
     }
-    rl [label="rl/\nSelf-play / buffer / optional PyTorch net\ntrain_loop remains a stub"];
     sqlite [label="Private SQLite hand records\nCLI default: data/hands.sqlite3", shape=cylinder];
 
     cli -> runtime;
@@ -50,5 +49,4 @@ digraph Mahjong16 {
     rules -> configs;
     bots -> rules;
     scripts -> {table bots env scoring};
-    rl -> env [label="injected env_ctor", style=dashed];
 }

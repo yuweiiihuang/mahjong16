@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Scope & File Placement
-- Keep rules, scoring, and deterministic utilities in `domain/`, CLI flows in `app/`, bots in `bots/`, and RL tooling in `rl/`. Reuse `ui/console.py` for CLI rendering.
+- Keep rules, scoring, and deterministic utilities in `domain/`, CLI flows in `app/`, and bots in `bots/`; RL training lives in the sibling `../mahjong16-research` repo. Reuse `ui/console.py` for CLI rendering.
 - Scripts in `scripts/` may be maintained when required by the task. Preserve historical `configs/` assets and keys consumed by `domain/scoring/lookup.py`; put new table options in `domain/rules/ruleset.py`.
 - Store execution reports, test audits, and temporary validation records in Git-ignored `logs/execution-reports/`; exclude them from commits and pushes. Reserve `docs/` for maintained documentation and keep generated files inside the workspace.
 

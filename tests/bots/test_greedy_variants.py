@@ -6,7 +6,7 @@ import pytest
 from bots.greedy import GreedyBotStrategy
 from bots.greedy_variants import GreedyDefenseStrategy, GreedyLookaheadStrategy
 from domain.rules.ruleset import Ruleset
-from rl.env import HandEpisode
+from app.episode import HandEpisode
 
 
 def reaction_fixture() -> dict:
