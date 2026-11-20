@@ -20,3 +20,52 @@ jobs:
           node-version: 22
       - name: Web tests
         run: node --test tests/web/*.mjs
+
+  meowcats-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build the MeowCaTS image
+        run: docker build --target advanced --tag mahjong16-native-test .
+      - name: Run all eight native MeowCaTS cases
+        run: |
+          docker run --rm -i --workdir /checkout \
+            --mount "type=bind,source=$PWD,target=/checkout,readonly" \
+            --entrypoint sh mahjong16-native-test -eu <<'SH'
+          MEOWCATS_BRIDGE=/opt/meowcats/bridge
+          MEOWCATS_RUNTIME=$(mktemp -d /tmp/meowcats.XXXXXX)
+          export MEOWCATS_BRIDGE MEOWCATS_RUNTIME
+          # The bridge writes subprocess logs alongside its runtime files.
+          cp -R /opt/meowcats/runtime/. "$MEOWCATS_RUNTIME/"
+          if ! test -x "$MEOWCATS_BRIDGE" || ! test -s "$MEOWCATS_RUNTIME/config.ini" ||
+             ! test -s "$MEOWCATS_RUNTIME/ExplorationTermTable.txt" ||
+             ! test -s "$MEOWCATS_RUNTIME/MinLackTable_old(Sampling)"; then
+            echo 'Missing or invalid MeowCaTS build artifacts' >&2
+            exit 1
+          fi
+
+          report="$MEOWCATS_RUNTIME/results.xml"
+          python -m pytest -q -p no:cacheprovider --junitxml "$report" \
+            tests/bots/test_meowcats.py::test_real_cpp_turn_reaction_and_multiple_requests \
+            tests/bots/test_meowcats.py::test_real_cpp_no_honor_hand_and_restricted_discard_sources \
+            tests/bots/test_meowcats.py::test_real_cpp_melds_and_kong_candidates \
+            tests/web/test_seat_ai.py::test_native_mixed_and_three_advanced_seats_complete_recorded_hand
+          python - "$report" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          report = ET.parse(sys.argv[1])
+          cases = report.findall('.//testcase')
+          failures = [case.get('name') for case in cases
+                      if any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped'))]
+          if len(cases) != 8 or failures:
+              sys.exit(f'Expected eight passing native tests, found {len(cases)} cases with '
+                       f'unsuccessful tests {failures}')
+          print('Verified eight native tests passed with zero skips.')
+          PY
+          SH
