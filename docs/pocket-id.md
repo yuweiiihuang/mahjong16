@@ -34,7 +34,7 @@ Caddy 先移除外部 `X-Qinghe-Subject`，再將驗證成功的 subject 傳給�
 
 ## 啟動
 
-先依 [Docker 文件](docker.md) 啟動 Docker 引擎、同步鎖定環境。
+先啟動 Docker 引擎，並在專案目錄執行 `uv sync --locked`。
 使用新的專用目錄；初始化拒絕覆寫，也拒絕將憑證存入 repository。
 
 ```bash
@@ -218,7 +218,9 @@ bootstrap 先確認本機 client 設定可讀，部分失敗時保留既有管�
 
 ## 正式帳號備份與還原
 
-牌譜沿用 [Windows SQLite 備份](docker.md#windows-主機端備份)。帳號另由
+牌譜可用 [Compose 的 SQLite 備份流程](docker.md#備份與還原)。Windows 若要安排定期備份，
+可執行 `deploy/windows/install-backup.ps1 -DeployRoot <deploy-root> -Container <web-container>`，
+由 `backup-hands.ps1` 備份牌譜。帳號另由
 `deploy/windows/backup-identity.ps1` 呼叫 `deploy/pocket-id/backup.py`，使用 SQLite
 backup API 取得一致快照，再連同 uploads 與八份私有設定封裝 ZIP；包括 encryption key，
 不包含一次性 owner 登入連結。先寫 `.partial`，驗證完整性與 ZIP CRC 後才改名。

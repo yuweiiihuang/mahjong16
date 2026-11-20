@@ -21,8 +21,8 @@ uv run --locked python -m app.web --port 8000
 
 ## 自行部署
 
-從 [Docker 牌桌指南](docs/docker.md) 開始。指南包含 Docker Desktop 的 Mac 本機驗證、
-Windows 部署、牌譜備份與版本回復。部署時設定全站通行碼，並將私有牌譜資料庫存放在
+從 [Docker 牌桌指南](docs/docker.md) 開始。指南說明如何用 Compose 建置與啟動牌桌、
+備份與還原牌譜，以及更新與回復版本。部署時設定全站通行碼，並將私有牌譜資料庫存放在
 持久化資料卷。通行碼檔案放在專案與網頁目錄之外，只授權服務帳號讀取。
 
 對外分享請使用 HTTPS 並啟用存取驗證。需要讓朋友以各自的帳號登入時，

@@ -32,7 +32,7 @@ Caddy 管理 API 關閉；服務以 UID 10001 運行，唯讀程式目錄並限�
 ```
 
 Windows 使用該主機的 Python 路徑執行相同檔案，Docker CLI 必須在 PATH，
-並沿用 `docs/docker.md` 的專用 DOCKER_CONFIG 與 Docker Desktop engine。
+並確認 `docker info` 能連到運行 Linux 容器的 Docker 引擎。
 Windows 測試目錄位於已限制為本人與 SYSTEM 的 `<deploy-root>`（`MAHJONG_DEPLOY_ROOT`，
 預設 `C:\ProgramData\mahjong16`）下，
 繼承該目錄 ACL，讓 Docker Desktop 的主機服務可讀取測試憑證。
