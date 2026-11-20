@@ -42,15 +42,19 @@ def test_whole_round_terminates_with_only_legal_moves():
 
 def test_playback_is_ordered_immutable_and_does_not_change_gameplay():
     table, control = WebTable(42), WebTable(42)
+    action = next(a for a in table.snapshot()['legal_actions'] if a['type'] == 'DISCARD')
     for _ in range(12):
         if table.env.done:
             break
-        action = table.bot.choose(table.env._obs(0))
         result = table.act(action)
         control.apply(action)
         control.advance()
         assert {k: v for k, v in result.items() if k != 'playback'} == control.snapshot()
         frames = result['playback']
+        if action['type'] == 'DISCARD':
+            assert frames, 'A human discard must produce a playback frame'
+            assert (frames[0]['type'], frames[0]['pid']) == ('DISCARD', 0)
+            assert frames[0]['state']['events'][-1] == {'pid': 0, **action}
         assert all(frame['type'] != 'PASS' for frame in frames)
         assert all(frame['state']['legal_actions'] == [] for frame in frames)
         assert [len(f['state']['events']) for f in frames] == sorted(
@@ -67,6 +71,8 @@ def test_playback_is_ordered_immutable_and_does_not_change_gameplay():
             result['players'][0]['melds'].append({'type': 'PONG', 'tiles': [0, 0, 0]})
             assert json.dumps(frames) == saved
             assert table.env.players[0].melds == control.env.players[0].melds
+        if not table.env.done:
+            action = table.bot.choose(table.env._obs(0))
 
 
 def test_playback_redacts_concealed_kongs_and_bot_waits_without_mutating_engine():
