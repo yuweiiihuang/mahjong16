@@ -1,7 +1,8 @@
 # Repository Guidelines
 
 ## Scope & File Placement
-- Keep rules, scoring, and deterministic utilities in `domain/`, CLI flows in `app/`, and bots in `bots/`; RL training lives in the sibling `../mahjong16-research` repo. Reuse `ui/console.py` for CLI rendering.
+- Keep rules, scoring, and deterministic utilities in `domain/`, application entry points in `app/`, and bots in `bots/`.
+- Maintain Python entry points for headless play from a source checkout. Use `app.episode.HandEpisode` for a single hand and `app.session.SessionService` for multi-hand sessions.
 - Scripts in `scripts/` may be maintained when required by the task. Preserve historical `configs/` assets and keys consumed by `domain/scoring/lookup.py`; put new table options in `domain/rules/ruleset.py`.
 - Store execution reports, test audits, and temporary validation records in Git-ignored `logs/execution-reports/`; exclude them from commits and pushes. Reserve `docs/` for maintained documentation and keep generated files inside the workspace.
 
@@ -12,8 +13,8 @@
 - For UI changes, let the user test locally and obtain explicit approval before pushing; reuse approval already given for the same changes.
 
 ## Environment & Validation
-- Use the locked `.venv` for project tools; run `uv sync --locked` when creating it or when dependency inputs change. `pip install -r requirements.txt` installs only the minimal CLI/Web and pytest dependencies.
-- For a human CLI smoke check, run `python main.py --human 0 --hands 1`. Read `scripts/README.md` for simulation and analysis tool purposes; use each command's `--help` for current options.
+- Use the locked `.venv` for project tools. Run `uv sync --locked` when creating it or when dependency inputs change.
+- For headless engine and Web smoke checks, run `.venv/bin/python -m pytest -q tests/bots/test_greedy_variants.py tests/app/session/test_service.py tests/web/test_web_table.py`. Read `scripts/README.md` when working on simulation or analysis tools.
 - During development, run tests for the changed behavior and shared callers. Before publishing code, test, or runtime-configuration changes, run `pytest -q`; for frontend changes, also run `node --test tests/web/*.mjs`. Reuse passing results while the tested files, dependencies, and scope remain unchanged.
 - For UI layout or interaction changes, check the affected desktop and mobile layouts in a browser. Read `tests/web/README.md` for browser checks; the Node suite does not execute the drag helper or prove WebGL/touch behavior.
 - For new, modified, or audited tests, use `.agents/skills/mahjong-test-audit/SKILL.md`.

@@ -2,26 +2,25 @@
 // Regenerate from the repository root: dot -Tpng docs/architecture/diagram.gv -o docs/architecture/diagram.png
 digraph Mahjong16 {
     graph [rankdir=LR, fontname="Helvetica", fontsize=14, labelloc="t",
-           label="Mahjong16: CLI, Web, and Private Records (2026-10-14)\nSelected calls / dependencies; not a complete import graph"];
+           label="Mahjong16: Qinghe Web, Headless Engine, and Private Records\nSelected calls and dependencies"];
     node [shape=box, fontname="Helvetica", fontsize=11, style="rounded,filled",
           fillcolor="#f0f5f1", color="#557563"];
     edge [color="#65736b", arrowsize=0.7];
 
-    cli [label="main.py\nCLI entrypoint", shape=tab];
     browser [label="ui/web/\nQinghe browser UI", shape=tab];
     replay [label="app/replay.py\nRecord / verify / export / backup / dataset", shape=tab];
     scripts [label="scripts/\nLeague / benchmark / tuning / CSV analysis", shape=tab];
 
     subgraph cluster_app {
         label="Application"; color="#b3c7ba";
-        runtime [label="app/runtime.py\nCLI sessions and CSV summaries"];
-        console [label="ui/console.py\nRich rendering"];
+        episode [label="app.episode.HandEpisode\nHeadless single hand"];
+        runtime [label="app.session.SessionService\nHeadless multi-hand session"];
         web [label="app/web.py\nHTTP handler and WebTable"];
         rooms [label="app/web_rooms.py\nRoomRegistry / seats / scheduling"];
         store [label="app/hand_store.py\nPersistentHandRecorder / SQLite"];
         dataset [label="app/training_export.py\nVisible observations and decision facts"];
         table [label="app/table.py\nDealer / round / cumulative points"];
-        bots [label="bots/\nHuman / Auto / Greedy / Random / RuleBot"];
+        bots [label="bots/\nPlayer strategies"];
     }
     subgraph cluster_domain {
         label="Deterministic domain"; color="#b3c7ba";
@@ -31,10 +30,10 @@ digraph Mahjong16 {
         recording [label="domain/gameplay/recording.py\nHandRecorder / replay_hand"];
         configs [label="configs/rules/profiles/\nconfigs/scoring/\nRule toggles and scoring assets"];
     }
-    sqlite [label="Private SQLite hand records\nCLI default: data/hands.sqlite3", shape=cylinder];
+    sqlite [label="Private SQLite hand records\nWeb server default: data/hands.sqlite3", shape=cylinder];
 
-    cli -> runtime;
-    runtime -> {console table bots env scoring};
+    episode -> {dataset env scoring};
+    runtime -> {table bots env scoring};
     browser -> web [label="HTTP / JSON", style=dashed];
     web -> {rooms store table bots env scoring};
     rooms -> web [label="WebTable methods"];
