@@ -220,13 +220,40 @@ def test_replay_events_follow_adjudication_and_hide_private_reactions(tmp_path, 
         assert frames[-1]['state']['settlement']['payments'] == table.settlement['payments']
         for viewer in range(4):
             for frame in replay_frames(document, 'participant', viewer)[:-1]:
-                for pid, melds in enumerate(frame['state']['melds_all']):
-                    if pid != 0:
-                        assert all(meld['tiles'] == [None]*4 for meld in melds
-                                   if meld['type'] == 'ANGANG')
                 assert frame['state']['reaction_choice'] is None
         with pytest.raises(ValueError):
             replay_frames(document, 'stranger', 1)
+    finally:
+        store.close()
+
+
+def test_replay_only_reveals_concealed_kong_tile_to_its_owner(tmp_path):
+    from app.web_records import replay_frames
+
+    store = HandStore(tmp_path / 'replay.sqlite3')
+    try:
+        # Seed 620 gives seat 0 four copies of tile 3 at the opening decision.
+        table = WebTable(620, record_store=store, player_id='participant')
+        table.act({'type': 'ANGANG', 'tile': 3})
+        for _ in range(144):
+            if table.env.done:
+                break
+            table.act(table.bot.choose(table.env._obs(0)))
+        assert table.env.done
+        document = store.player_records('participant')[0]
+
+        for viewer in range(4):
+            frame = replay_frames(document, 'participant', viewer)[1]
+            assert not frame['state']['done']
+            relative_owner = -viewer % 4
+            expected_event = {'type': 'ANGANG', 'pid': relative_owner}
+            if viewer == 0:
+                expected_event['tile'] = 3
+            assert frame['event'] == expected_event
+            assert frame['state']['melds_all'][relative_owner] == [{
+                'type': 'ANGANG', 'tiles': [3 if viewer == 0 else None] * 4,
+                'from_pid': None,
+            }]
     finally:
         store.close()
 
