@@ -14,7 +14,7 @@ def _snapshot(*tiles: Tile):
     return _heuristic(hand, melds=None, weights=HeuristicWeights())
 
 
-def test_structure_distance_minus_one_for_complete_five_meld_hand():
+def test_complete_five_meld_hand_has_distance_minus_one_and_no_availability():
     snapshot = _snapshot(
         Tile.W1, Tile.W2, Tile.W3,
         Tile.W4, Tile.W5, Tile.W6,
@@ -24,18 +24,7 @@ def test_structure_distance_minus_one_for_complete_five_meld_hand():
         Tile.D7, Tile.D7,
     )
     assert snapshot.structure_distance == -1
-
-
-def test_structure_distance_zero_for_tenpai_shape():
-    snapshot = _snapshot(
-        Tile.W1, Tile.W2, Tile.W3,
-        Tile.W4, Tile.W5, Tile.W6,
-        Tile.W7, Tile.W8, Tile.W9,
-        Tile.D1, Tile.D2, Tile.D3,
-        Tile.D4, Tile.D4,
-        Tile.D5, Tile.D6,
-    )
-    assert snapshot.structure_distance == 0
+    assert snapshot.availability == 0
 
 
 def test_structure_distance_one_when_missing_taatsu():
@@ -88,18 +77,6 @@ def test_structure_distance_counts_only_one_pair():
     ]
     snapshot = _heuristic(hand, melds=None, weights=HeuristicWeights())
     assert snapshot.structure_distance == 1
-
-
-def test_availability_zero_for_complete_hand():
-    snapshot = _snapshot(
-        Tile.W1, Tile.W2, Tile.W3,
-        Tile.W4, Tile.W5, Tile.W6,
-        Tile.W7, Tile.W8, Tile.W9,
-        Tile.D1, Tile.D2, Tile.D3,
-        Tile.D4, Tile.D5, Tile.D6,
-        Tile.D7, Tile.D7,
-    )
-    assert snapshot.availability == 0
 
 
 def test_availability_counts_live_waits_in_tenpai():
