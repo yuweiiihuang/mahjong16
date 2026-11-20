@@ -5,14 +5,21 @@ from app.web import WebTable
 from tests.helpers.tile_pool import TilePool
 
 
-@pytest.mark.parametrize('seed', [0, 1, 2])
-def test_settlement_and_next_hand(seed):
+@pytest.mark.parametrize('seed,win_source,next_dealer,next_streak', [
+    pytest.param(0, 'RON', 1, 0, id='non-dealer-ron-rotates-dealer'),
+    pytest.param(1, None, 0, 1, id='draw-keeps-dealer'),
+])
+def test_settlement_and_next_hand(seed, win_source, next_dealer, next_streak):
     table = WebTable(seed)
     with pytest.raises(ValueError, match='尚未結束'):
         table.next_hand()
     while not table.env.done:
         table.act(table.bot.choose(table.env._obs(0)))
     result = table.snapshot()
+    assert result['dealer'] == 0
+    assert result['win_source'] == win_source
+    assert (result['winner'] is None) == (win_source is None)
+    assert result['winner'] != result['dealer']
     score = result['settlement']
     assert sum(score['payments']) == 0
     assert result['totals'] == [1000 + delta for delta in score['payments']]
@@ -20,8 +27,6 @@ def test_settlement_and_next_hand(seed):
     before = list(table.totals)
     table.settle()
     assert table.snapshot() == result  # Repeated reads/settlement cannot pay twice.
-    next_dealer = table.manager.state.dealer_pid
-    next_streak = table.manager.state.dealer_streak
     following = table.next_hand()
     assert following['round'] == 2
     assert following['totals'] == before

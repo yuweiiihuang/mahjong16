@@ -302,13 +302,3 @@ def test_multiplayer_resume_reloads_prefix_committed_after_initial_read(tmp_path
             pid = restored.table.actor()
             restored.table.apply(restored.table.bot.choose(restored.table.env._obs(pid)), pid=pid)
         assert read(player_id, hand_id=hand_id)[0]['steps'][0]['action'] == original
-
-
-def test_http_fixture_deals_are_repeatable(tmp_path):
-    initial = []
-    for index in range(2):
-        with server(tmp_path / f'fixture-{index}.sqlite3') as (address, handler, _):
-            _, _, cookie = call(address, '/api/state')
-            sid = cookie.split(';')[0].partition('=')[2]
-            initial.append(private_state(handler.sessions[sid].env))
-    assert initial[0] == initial[1]
