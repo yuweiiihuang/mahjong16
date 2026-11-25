@@ -30,7 +30,10 @@
 - For iPhone safe-area or landscape layout changes, read `docs/iphone-table-safe-area.md`.
 
 ## Commits & Pull Requests
-- Use narrowly scoped Conventional Commits. Describe the resulting behavior, validation, and any required commands or migrations in PRs; include screenshots for UI changes and test results for scoring changes.
+- Use narrowly scoped Conventional Commits. Describe the resulting behavior, validation, and any
+  required commands or migrations in PRs. Include test results for scoring changes.
+- When a visual or interaction change benefits from a demonstration, include a screenshot, a short
+  recording, or a preview that reviewers can open.
 
 ## Agent skills
 
