@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="176" height="48" viewBox="0 0 176 48">
+  <title>mahjong16</title>
+  <rect width="176" height="48" rx="8" fill="#153e32"/>
+  <!-- Tile artwork from ui/web/assets/brand-icon.svg, embedded for standalone SVG rendering. -->
+  <svg x="10" y="8" width="32" height="32" viewBox="0 0 100 100">
+    <rect x="3" y="3" width="94" height="94" rx="18" fill="#f8f1dd"/>
+    <g fill="none" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19.5 29H50M19.5 64H50M50 64V85.5" stroke="#8f241c"/>
+      <path d="M19.5 29V64" stroke="#c8372d"/>
+      <path d="M50 14.5V64H80.5V29H50" stroke="#c8372d"/>
+    </g>
+  </svg>
+  <text x="51" y="31" fill="#f1f3df" font-family="Avenir Next, system-ui, sans-serif"
+        font-size="20" font-weight="650">mahjong<tspan fill="#f59a8c">16</tspan></text>
+</svg>
