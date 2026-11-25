@@ -1127,7 +1127,7 @@ def main() -> None:
     stop = threading.Event()
     scheduler = threading.Thread(target=WebHandler.rooms.run, args=(stop,), daemon=True)
     scheduler.start()
-    print(f'青禾麻將：http://{args.host}:{args.port}', flush=True)
+    print(f'mahjong16：http://{args.host}:{args.port}', flush=True)
     try:
         server.serve_forever()
     finally:
