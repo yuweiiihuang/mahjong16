@@ -47,6 +47,8 @@ docker compose pull web
 docker compose up -d --no-build --pull never --wait web
 ```
 
+需要進階電腦對手時，見 [MeowCaTS 的 Docker 建置](meowcats.md#docker-發布)。
+
 ## 分享牌桌
 
 Compose 預設只把牌桌開在 Docker 主機的 `127.0.0.1`。要讓朋友從其他裝置連線，在主機上用 HTTPS
@@ -67,6 +69,10 @@ Compose 預設只把牌桌開在 Docker 主機的 `127.0.0.1`。要讓朋友從�
 
 容器把牌譜寫到 `/var/lib/mahjong16/hands.sqlite3`，牌桌開著也能做一致性備份。
 備份前，先確認容器內和主機上的備份檔名都還沒用過。
+
+下列命令以基本 Compose 部署為例。若使用 Pocket ID 或 Authelia，先確認現行 `web` 容器
+掛載的是要備份的牌譜卷，再讓兩條命令沿用該部署的 Compose project、設定檔和環境設定
+（依實際部署帶上 `-p`、所有 `-f` 及 `--env-file` 或環境變數）。
 
 ```sh
 docker compose exec web python -m app.replay backup /var/lib/mahjong16/hands-backup.sqlite3 --db /var/lib/mahjong16/hands.sqlite3

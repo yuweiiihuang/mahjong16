@@ -9,7 +9,6 @@
 ## Web UI Baseline
 - Use the Qinghe desktop table in `ui/web/` as the canonical Web UI design.
 - Run through `python -m app.web --port 8000` (`app/web.py`); extend this UI without introducing another UI or an `app/web/` package that shadows the entry point.
-- For legacy UI recovery, read `docs/webui-archive.md`.
 - For UI changes, let the user test locally and obtain explicit approval before pushing; reuse approval already given for the same changes.
 
 ## Environment & Validation
@@ -25,9 +24,12 @@
 - Use deterministic fixtures and seeds passed to `Mahjong16Env`, table managers, or bots; cover success, failure, and dead-wall cases where relevant.
 
 ## Task-Specific References
-- For Docker deployment, backup, or rollback, read `docs/docker.md`; for gateway/authentication changes or cutover, also read `docs/gateway.md`.
+- For Docker deployment, backup, or rollback, read `docs/docker.md`.
+- For authentication changes or cutover, read `docs/pocket-id.md` for individual accounts or
+  `docs/gateway.md` for shared credentials and fallback.
 - For room lifecycle or multiplayer changes, read `docs/multiplayer.md`; for recording, replay, or training exports, read `docs/hand-recording.md`.
-- For iPhone safe-area or landscape layout changes, read `docs/iphone-table-safe-area.md`.
+- For iPhone safe-area or landscape layout changes, see the
+  [iPhone landscape checks](tests/web/README.md#iphone-橫向牌桌驗收).
 
 ## Commits & Pull Requests
 - Use narrowly scoped Conventional Commits. Describe the resulting behavior, validation, and any

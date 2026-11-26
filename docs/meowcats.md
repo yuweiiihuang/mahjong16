@@ -1,7 +1,7 @@
 # MeowCaTS 外部搜尋對手
 
-`bots.meowcats.MeowCaTSStrategy` 是可選的 POSIX 外部程序 adapter，已接入網頁每席進階 AI；
-未接入 CLI bot 別名。Mahjong16 保持合法動作、事件、補花、尾牌與計分權威。
+`bots.meowcats.MeowCaTSStrategy` 是可選的 POSIX 外部程序 adapter，供網頁每席進階 AI 使用。
+規則、合法動作與計分仍由 mahjong16 引擎裁決。
 不需 Torch；需 Python 專案環境、Git、POSIX `patch` 及 C++17 clang++ 或 g++。
 macOS 與 Linux／WSL 可用；Windows 原生 pipes 不支援。
 
@@ -78,11 +78,10 @@ with MeowCaTSStrategy("logs/execution-reports/meowcats-build/native/bridge",
 MEOWCATS_BRIDGE="$PWD/logs/execution-reports/meowcats-build/native/bridge" \
 MEOWCATS_RUNTIME="$PWD/logs/execution-reports/meowcats-build/native/runtime" \
   .venv/bin/pytest -q tests/bots/test_meowcats.py
-.venv/bin/pytest -q
 ```
 
-未設定環境變數時跳過原生 bridge fixtures；其餘隱私、協定與程序失敗測試仍執行。
-測試不重跑牌力實驗。零星 fixtures 通過不等於所有 C++ 路徑無錯。
+未設定環境變數時，本機略過需要原生 bridge 的案例。GitHub CI 的
+[`meowcats-native`](../.github/workflows/tests.yml) 會建置進階映像，並要求 8 項原生整合測試全部通過。
 
 ## 模型邊界
 
