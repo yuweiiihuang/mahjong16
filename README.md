@@ -1,224 +1,93 @@
-# mahjong16 — 台灣 16 張麻將環境
+# mahjong16 — 台灣 16 張麻將
 
-`mahjong16` 面向 AI 對局與策略研究打造，提供台灣 16 張麻將規則的可重現模擬環境。
-核心遊戲元件集中在 `domain/` 套件，以語意子模組拆分摸打流程、桌面狀態、牌面資料與
-規則判定；周邊程式提供終端 CLI 體驗、bot 策略與 reinforcement learning 腳手架，
-協助快速驗證各種對局想法。
+![雙紅紅中與 mahjong16 字標](docs/brand-lockup.svg)
 
-## 主要特色
+mahjong16 是可以自己架設的台灣 16 張麻將網頁牌桌。單人練習時有三位電腦玩家陪打。
+跟朋友玩就開房分享網址，每桌最多四位真人，空位由電腦補上。牌桌會保存對局，
+下次可以回到瀏覽器繼續打，也能重播已完成的牌局。
 
-- `domain/gameplay/game_env.py` 的 `MahjongEnvironment`/`Mahjong16Env` 處理發牌、摸打、反應
-  優先權（胡 > 槓 > 碰 > 吃）與流局。
-- `domain.rules.Ruleset` 支援花牌開關、尾牌留置模式（固定或「一槓一」）、隨機座次與圈
-  風花牌計分。
-- 台數計算採分層管線：`domain/scoring/state.py` 整理衍生狀態，`domain/scoring/rules/*`
-  套用番種，`domain/scoring/breakdown.py` 搭配 `configs/` 下的番種與標籤輸出明細。
-- `app/runtime.py` 搭配 Rich 提供互動桌面 UI，可切換 headless 進度列並輸出 CSV 手局摘要。
-- `app/strategies.py` 與 `bots/` 提供人類互動、啟發式與隨機策略骨架，方便替換自訂 AI。
-- 青禾網頁牌桌支援單人練習與最多四位真人的朋友房間，空位由電腦補上。
-- 網頁自動保存私有 SQLite 牌譜，提供離線重播驗證與玩家視角 JSONL 決策匯出。
-- `tests/` 內含環境、計分與手牌演算法的 pytest 覆蓋，支援快速迭代回歸。
+- [快速開始](#快速開始)
+- [自行部署](docs/docker.md)
+- [文件索引](docs/README.md)
 
 ## 快速開始
 
-需求：Python 3.13+。建議使用 `uv` 建立與部署相同的鎖版環境：
+安裝 Python 3.13+ 和 `uv` 後，到專案根目錄執行下面兩行。
 
 ```bash
 uv sync --locked
-source .venv/bin/activate  # Windows PowerShell 使用 .venv\Scripts\Activate.ps1
+uv run --locked python -m app.web --port 8000
 ```
 
-只需 CLI／Web 與 pytest 時，也可使用最小依賴：
+在這台電腦開啟 [http://127.0.0.1:8000](http://127.0.0.1:8000) 就能直接進桌。
+這樣啟動的牌桌只接受本機連線。
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows 使用 .venv\Scripts\activate
-pip install -r requirements.txt
-```
+## 自行部署
 
-啟用環境後，在專案根目錄執行：
+部署時先準備全站通行碼，把私有牌譜資料庫放在持久化資料卷。通行碼檔案放在專案與網頁目錄之外，
+只讓服務帳號讀取。用 Compose 建置和啟動牌桌、更新或回復版本、備份和還原牌譜的步驟都在
+[Docker 牌桌指南](docs/docker.md)。
 
-```bash
-python main.py --help
-python main.py --seed 42 --human 0 --bot greedy --hands 8
-python main.py --no-ui --hands 50 --log-dir logs/demo   # headless + CSV 摘要
-pytest -q
-```
+分享牌桌給外部使用者時，請用 HTTPS 並啟用存取驗證。如果想讓朋友用各自的帳號登入，
+可以設定可信閘道。步驟見 [Pocket ID／Passkey 部署指南](docs/pocket-id.md)。
 
-鎖版環境另含 pandas 與 ipykernel。RL 訓練（BC／PPO）已移到同層的 `mahjong16-research` repo。
+伺服器預設把私有牌譜存到 `data/hands.sqlite3`，也可以用 `--record-db` 指定位置。
+每個服務實例各用一份資料庫。伺服器重啟後，同一引擎版本的牌局可從網頁的牌局紀錄續局。
+引擎換版後，舊牌譜可能無法續局。
 
-亦可使用 `python -m domain.gameplay.game_env` 進行匯入檢查或撰寫最小化實驗。
+完整牌譜有暗牌和牌牆，只供管理者離線存取。執行 `python -m app.replay --help` 可查看如何查詢、
+備份、離線驗證和匯出。詳見 [牌譜保存、續局與重播](docs/hand-recording.md)。
 
-對外分享前須啟用全站通行碼：
+## 玩法與場規
 
-```bash
-uv run --locked python -m app.web --port 8000 --access-password-file /path/to/password.txt
-```
+進桌後可選單人練習。要跟朋友玩，就從「多人連線」開房，再把邀請網址傳給朋友。
+選好手牌後按「出牌」或 Enter，也可以雙擊牌面。畫面會依牌局顯示可以選的吃、碰、槓、胡或過。
 
-通行碼檔案須放在專案與網頁目錄之外，限制只有服務帳號可讀，至少 16 字元；
-建議使用隨機長密碼。網頁內輸入通行碼後，登入保留一天；網頁及所有 API
-皆需驗證。自動化工具仍可用帳號 `friend` 的 HTTP Basic 驗證。
-僅透過 HTTPS 隧道對外提供服務；未指定檔案時維持本機免登入模式。
+牌桌會自動補花，也會顯示聽牌提示、台數明細和四家點數結算。按「下一局」會沿用累計點數，
+並依牌局進度更新莊家和圈風。電腦上可直接玩，手機請橫放。瀏覽器須支援 WebGL。
+開房及連線方式見 [多人連線](docs/multiplayer.md)。
 
-Docker 建置、本地驗證與 Windows 部署／回復方式見 [Docker 牌桌](docs/docker.md)。
+共用引擎負責規則、反應判定和計分。花牌、尾牌留置（固定或一槓一）、座次和計分都可透過場規設定。
+結算以引擎和現行設定檔為準。台數說明見 [台灣麻將台數參考](docs/台灣麻將台數計算表.md)。
 
-### Codex 本機環境與工作樹
+## 開發與無介面引擎
 
-先在本機安裝 `uv`；需要分享牌桌時另安裝 `cloudflared`。
-`.codex/environments/environment.toml` 的設定指令碼會在建立新工作樹時執行
-`uv sync --locked`，依 `.python-version` 與 `uv.lock` 建立獨立 `.venv` 並安裝依賴。
-既有工作樹也可在專案根目錄手動執行同一指令。
-本機牌桌與遠端連線由動作按鈕手動啟動；多個工作樹不能同時占用 8000 埠。
-「啟動本機牌桌」按鈕的預設命令未設定通行碼，僅供本機使用。
-分享前，先停止該本機測試服務，以前述 `--access-password-file` 命令啟動同一埠，
-在未登入的瀏覽器確認顯示通行碼頁，再開「遠端連線」。HTTPS 隧道本身不提供登入驗證。
-停止前仍建議先結束對局；啟用保存的新牌譜可從「牌局紀錄／續局」恢復最後提交的狀態。
-舊版或不同引擎版本的牌譜不能保證續接；新增測試服務須指定不同埠與資料庫。
+本專案持續維護以下兩個無介面入口。在原始碼目錄執行 `uv sync --locked` 後，
+就能直接從 Python 跑牌局，無需啟動網頁服務或等待真人輸入。
 
-## 電腦網頁牌桌
+- 跑單局用 `app.episode.HandEpisode`。用 `current()` 取得目前行動座位看得到的資訊和合法動作，
+  再用 `act()` 驗證並執行動作。打完後用 `payments()` 取得四席收付。
+- 跑多局或整將用 `app.session.SessionService`。傳入引擎、桌次管理、各座位策略和計分設定後，
+  `run()` 會跑完對局並回傳逐局摘要。無介面呼叫可省略桌面、摘要和進度 adapter。
 
-本專案的主要 Web UI 為「青禾」桌面：簡約青綠風格的繁體中文牌桌，
-單人練習搭配三位 Greedy 電腦玩家；「朋友連線」可建立房間並分享邀請網址。
-朋友房間最多四位真人，空位由電腦補上，詳見 [朋友連線](docs/multiplayer.md)。
-
-```bash
-source .venv/bin/activate
-python -m app.web --port 8000
-```
-
-瀏覽器開啟 `http://127.0.0.1:8000`。點選手牌後按「出牌」、雙擊牌面或按 Enter 出牌。
-吃／碰／槓／胡／過依合法操作顯示，支援自動補花、聽牌、對局紀錄、聽牌候選與未見張數、台數明細及四家點數結算。
-「下一局」保留累積點數，依結果連莊、輪莊與推進圈風；「重新開桌」重設為每人 1,000 點。
-主要布局以電腦為主；手機也採橫向牌桌、單排手牌。直向持機時顯示旋轉提示，
-橫向時隱藏房間側欄並縮減控制列。
-
-伺服器預設綁定 `127.0.0.1`，以瀏覽器 Cookie 隔離匿名身分，或透過可信閘道使用固定帳號。
-牌桌由單一程序服務；啟用保存後，新牌譜會保存恢復所需的座位、累計分數與亂數狀態，
-重啟後可從「右上角牌局紀錄圖示」繼續同版本牌局。
-CLI 啟動網頁時預設將私有牌譜保存至 `data/hands.sqlite3`，可用 `--record-db` 指定位置；
-完整牌譜含暗牌與牌牆，只供管理者離線存取；網頁僅提供本人紀錄摘要與完成局的玩家視角重播。
-每個測試服務使用不同資料庫，
-同一資料庫只允許一個服務程序寫入。詳見 [牌譜保存與匯出](docs/hand-recording.md)。
-介面字型使用系統字型；牌面以本地 SVG 紋理搭配 Three.js 立體牌體繪製，
-四家共用同一相機、實際尺寸與桌面光影。瀏覽器需支援 WebGL。
-
-後續 Web UI 開發統一沿用 `ui/web/` 的桌面設計與 `app/web.py` 入口，
-不再維護其他並行版型。舊版已封存，詳見 [Web UI 封存紀錄](docs/webui-archive.md)。
-
-## 專案結構
-
-```text
-mahjong16/
-├─ domain/
-│  ├─ analysis.py       # 觀察資料分析 helper（剩餘牌數、丟牌模擬）
-│  ├─ gameplay/         # env、摸打回合、反應判定、PlayerState、花牌
-│  ├─ table/            # 座次/圈風初始化 helper
-│  ├─ tiles/            # 牌面常數、牆牌建構、字串轉換
-│  ├─ rules/            # Ruleset 與胡牌/聽牌判斷
-│  └─ scoring/          # 台數管線（engine/state/rules/lookup）
-├─ app/
-│  ├─ web.py            # 青禾網頁牌桌與本地 API
-│  ├─ web_rooms.py      # 朋友房間、座位與同步
-│  ├─ hand_store.py     # 私有 SQLite 牌譜保存
-│  ├─ replay.py         # 離線錄製、重播驗證與匯出 CLI
-│  ├─ training_export.py # 玩家視角 JSONL 決策匯出
-│  ├─ runtime.py        # Demo 主 loop、UI 更新與結算整合
-│  ├─ table.py          # TableManager：圈風、連莊與多局管理
-│  ├─ strategies.py     # Human / Auto / Greedy 策略橋接 bots
-│  └─ logging.py        # 欄位化手局紀錄（CSV）
-├─ ui/
-│  ├─ web/              # 主要 Web UI：HTML、CSS、JS、3D 牌面與素材
-│  ├─ console.py        # Rich 互動介面（提示行動、展示河牌/剩餘張數）
-│  └─ rich_helpers.py   # Rich 組件共用工具
-├─ bots/                # 範例策略（RandomBot、RuleBot、Greedy）
-├─ tests/               # pytest suites（env、scoring、domain helpers）
-├─ scripts/             # 聯賽、效能、戰報分析與 Greedy 調參
-├─ configs/
-│  ├─ rules/profiles/    # 規則開關
-│  └─ scoring/          # 計分 profiles、labels、notes、constraints 與 metadata
-├─ AGENTS.md            # 協作規範與提交建議
-└─ README.md
-```
-
-## CLI 與資料紀錄
-
-### `main.py` 旗標一覽
-
-- `--seed <int>`：指定 RNG 種子，預設為隨機。
-- `--human <0-3|none>`：指定玩家座位；輸入 `none`/`-1`/`no` 表示全 bot，預設無真人。
-- `--bot {auto,greedy,human}`：非真人座位採用的策略，預設 `greedy`。
-- `--hands <int>`：局數上限；`-1` 代表打到有人破產為止，0 或 < -1 會被拒絕。
-- `--jangs <int>`：打指定將數（一將四圈）；0 為停用，不可與有限 `--hands` 同用。
-- `--start-points <int>`：每位玩家的起始分數，須為正整數，預設 1000。
-- `--log-dir <path>`：寫入每局 CSV 摘要的資料夾，headless 且未指定時預設為 `logs/`。
-- `--no-ui`：禁用互動 Rich 介面並改以 headless 流程執行，會自動關閉真人座位。
-- `--sessions <int>`：獨立桌次數量，>1 時改用批次 headless；預設 1。
-- `--cores <int>`：批次 headless 最大工作程序數；省略時根據 CPU 自動判定。
-
-Headless 模式改以進度列呈現；若 `--sessions` > 1 或 `--cores` > 1 亦會自動切至
-`run_demo_headless_batch`，此時 `--no-ui` 旗標可省略。批次模式會禁用真人座位並在
-必要時預設輸出到 `logs/`。
-
-- `app/logging.py` 每局輸出座位、花牌紀錄、台數與輸贏，便於後續統計。
-- 互動介面利用 `ui.console` 與 `domain.analysis` 顯示候選聽牌、剩餘枚數與反應訊息。
-
-## 測試與品質
-
-- 修改核心規則或計分前請執行 `pytest -q`，新增番種時務必補上 regression case。
-- 需要重現隨機流程時，對 `Mahjong16Env` 或 `TableManager` 傳入 `seed`。
-- 測試資料使用 `tests/helpers/tile_pool.py` 產生牆牌，避免手動 hardcode。
-- `AGENTS.md` 紀錄提交與命名規範；撰寫程式時維持 PEP 8 與 4-space 縮排。
-- 前端回歸執行 `node --test tests/web/*.mjs`；實際拖拉、WebGL 與手機觸控仍需
-  [瀏覽器驗收](tests/web/README.md)，不能以 Node 通過代替。
-
-## 自訂規則與計分
-
-使用 `Ruleset` 調整變體，再搭配 scoring 管線產生結算結果：
+用相同的 seed 和場規可以重現同一個開局。
 
 ```python
-from domain import Mahjong16Env, Ruleset
-from domain.scoring.lookup import load_scoring_assets
-from domain.scoring.engine import score_with_breakdown
+from app.episode import HandEpisode
+from domain import Ruleset
 
-rules = Ruleset(
-    rule_profile="common",  # loads configs/rules/profiles/common.json toggles
-)
-env = Mahjong16Env(rules, seed=1234)
-obs = env.reset()
-
-table = load_scoring_assets(rules.scoring_profile, rules.scoring_overrides_path)
+episode = HandEpisode(seed=1234, rules=Ruleset(rule_profile="common"))
+observation = episode.current()
 ```
 
-計分表以 `configs/scoring/profiles/` 內的 per-profile JSON 為基礎，並對應 `domain/scoring/lookup.py` 的 key。
-規則開關（如 `include_flowers`、`dead_wall_mode`、花牌/風位設定）集中於 `configs/rules/profiles/<rule_profile>.json`（預設 `common.json`），由 `Ruleset.rule_profile` 注入。
-若需覆寫計分表，請提供新的 JSON 路徑給 `Ruleset.scoring_overrides_path`（可指向任一 profile 檔案），並新增測試驗證。
+用 `Ruleset.rule_profile` 選擇 `configs/rules/profiles/` 裡的場規，預設是 `common`。
+計分表在 `configs/scoring/profiles/`。要用自己的表，可用 `Ruleset.scoring_overrides_path` 指定。
+修改計分時請補上對應的回歸測試。
 
-## 文件導覽
+```bash
+uv run --locked pytest -q
+node --test tests/web/*.mjs
+```
 
-| 任務 | 文件 |
-| --- | --- |
-| 多人操作、重連與服務限制 | [朋友連線](docs/multiplayer.md) |
-| 牌譜、備份、重播與研究匯出 | [牌譜指南](docs/hand-recording.md) |
-| Docker／Windows 部署與回復 | [Docker 牌桌](docs/docker.md) |
-| Caddy／Authelia 測試與切換前提 | [前置驗證部署](docs/gateway.md) |
-| 聯賽、效能與調參 | [scripts 指南](scripts/README.md) |
-| Web 回歸與人工驗收 | [測試指南](tests/web/README.md) |
-| iPhone 安全區與研究限制 | [安全區筆記](docs/iphone-table-safe-area.md) |
-| 模組依賴 | [架構圖](docs/architecture/diagram.png)（[Graphviz 來源](docs/architecture/diagram.gv)） |
-| 外部場規參考 | [台數整理](docs/台灣麻將台數計算表.md)；以現行 JSON 與引擎為執行依據 |
+實際拖拉、WebGL 與手機觸控驗收見 [Web 測試指南](tests/web/README.md)。
+模擬、效能及對局分析工具見 [scripts 指南](scripts/README.md)。
 
 ## 授權與問題回報
 
-目前 repository 尚未宣告專案原始碼授權；第三方素材授權不代表整個專案的授權。
-Three.js、SortableJS 授權位於 `ui/web/vendor/`；牌面來源與修改見
-[SVG 來源](ui/web/assets/tiles/fonts/README.md)，維基轉載另依其檔案中的 CC BY-SA 標示。
-需要再散布或其他使用授權時，先向維護者確認。
+專案目前尚未宣告原始碼授權。再散布或其他需要授權的用途，請先向維護者確認。
+第三方素材各有自己的授權。Three.js 和 SortableJS 的授權在 `ui/web/vendor/`。
+牌面從哪裡來、改過哪些地方，見 [SVG 來源](ui/web/assets/tiles/fonts/README.md)。
+外部場規的來源與署名見 [台數計算表](docs/台灣麻將台數計算表.md#外部玩法參考與署名)。
 
-回報問題時請附程式版本、重現命令或操作、預期／實際結果；瀏覽器問題另附裝置與版本。
-透過本專案既有協作管道回報，不附通行碼、cookie 或含暗牌的私有牌譜。
-目前未在文件指定公開支援信箱或專用漏洞回報管道。
-
-## 後續方向
-
-- 建立可比較的模擬效能基準；`scripts/bench_sim.py` 與 `scripts/eval_league.py` 已可使用。
-- 擴充更強的策略樣板（MCTS、模擬式搜尋）並串接 `bots/`。
+請透過既有協作管道回報問題，附上程式版本、重現命令或步驟，以及預期和實際的結果。
+如果是瀏覽器問題，也請附上裝置和版本。送出前請移除通行碼、Cookie 和私有牌譜。

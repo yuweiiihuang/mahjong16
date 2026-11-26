@@ -15,7 +15,7 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Installable so ../mahjong16-research can depend on it; editable installs add the repo root.
+# Editable installs make the source checkout available to Python callers.
 [tool.hatch.build.targets.wheel]
 packages = ["app", "bots", "domain", "ui"]
 

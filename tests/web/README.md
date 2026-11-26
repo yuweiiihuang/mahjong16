@@ -135,3 +135,17 @@ Node 的 refresh/context-menu 回歸不代表實機 WebGL／iOS 行為已驗證�
 `checkSettingsSelects(testTab)`，檢查七個選單的欄位對齊、寬度、設定值同步、
 方向鍵／Home／End／Enter，以及 Esc 只收合選單。桌機與手機橫向各執行一次；
 配合 `checkSettingsClose` 驗證草稿、`checkSortDrag` 驗證拖拉後自訂排列。
+
+## iPhone 橫向牌桌驗收
+
+用實機測左右兩個橫向方向。分別確認 Safari 工具列顯示、收起，以及從主畫面開啟時的版面。
+
+- 桌布延伸到螢幕四邊，四家的手牌、副露和牌河一起等比例縮放。用滿副露、滿牌河的牌局
+  確認各區仍可辨識，本人手牌、聽牌提示和吃牌選項避開相機區與底部系統手勢區，
+  靠近底部的手牌和按鈕也能正常點按。
+- 直排工具列隨旋轉方向換邊。紅中首頁圖示維持在左上角，圖示 36 px、點擊區 44 px。
+- 打開結算，確認左右依較大的安全區留出對稱空間，且系統工具列未擋住內容或關閉按鈕。
+
+`viewport-fit=cover` 讓桌布滿版。`env(safe-area-inset-*)` 和 `dvh` 用來保留可操作空間。
+[WebKit 安全區範例](https://webkit.org/blog/7929/designing-websites-for-iphone-x/) ·
+[WebKit 動態 viewport 說明](https://webkit.org/blog/12445/new-webkit-features-in-safari-15-4/)

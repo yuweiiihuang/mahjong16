@@ -1,168 +1,100 @@
-# Docker 牌桌
+# 用 Docker Compose 自架 mahjong16
 
-本文說明以 Docker Desktop（Linux containers）自架牌桌的通用流程：先在 Mac 本地驗證，
-再於 Windows 主機部署指定版本。主機名稱、私有目錄、Compose project 與資料卷名稱
-由各自的部署者決定；下文以 `<deploy-root>`（預設 `C:\ProgramData\mahjong16`，
-可用 `MAHJONG_DEPLOY_ROOT` 覆寫）、`<host>.<tailnet>.ts.net` 等佔位符表示。
-執行換版前，先確認備份與回復入口，說明換版影響並取得切換同意：同引擎版本的牌局
-重啟後可從牌譜續局，跨引擎換版不保證續接。
+先準備 Docker Engine 和 Docker Compose。使用 Docker Desktop 的話，切到 Linux 容器模式。
+Compose 會用專案的 Dockerfile 建置映像，牌譜則存在資料卷裡。
 
-本文的通行碼部署是最簡入口；對外開放給多位朋友時，建議改用
-[Pocket ID／Passkey](pocket-id.md#windows-正式-https-部署)，並沿用同一份牌譜資料卷。
-建置與部署皆為手動，沒有 GitHub Actions、GHCR 或自動更新。
+## 建置與啟動
 
-## Mac 驗證
+下載原始碼。要部署特定版本的話，進入專案目錄後切到對應的提交。
 
-通行碼放在專案外，至少 16 字元，檔案僅允許本人讀取。以下建立獨立測試通行碼：
-
-```bash
-mkdir -p "$HOME/.config/mahjong16"
-chmod 700 "$HOME/.config/mahjong16"
-uv run --locked python - <<'PY'
-import os
-import secrets
-from pathlib import Path
-
-os.umask(0o077)
-path = Path.home() / ".config/mahjong16/docker-test-password.txt"
-with path.open("x", encoding="utf-8") as handle:
-    handle.write(secrets.token_urlsafe(32))
-PY
-export MAHJONG_PASSWORD_FILE="$HOME/.config/mahjong16/docker-test-password.txt"
-export MAHJONG_PORT=8002
-export MAHJONG_IMAGE="mahjong16:$(git rev-parse --short HEAD)"
-docker compose build
-docker compose up -d --no-build --pull never --wait
-uv run --locked python tests/web/container_smoke.py --password-file "$MAHJONG_PASSWORD_FILE"
+```sh
+git clone https://github.com/yuweiiihuang/mahjong16.git
+cd mahjong16
 ```
 
-開啟 `http://127.0.0.1:8002/`，輸入測試通行碼，確認登入、牌桌比例與操作。
-測試結束執行 `docker compose down`，不影響其他連接埠的牌桌。
-生成步驟會以 POSIX 0600 建立檔案；檔案已存在時拒絕覆寫。
-需更換時在停桌後另行生成，不直接覆蓋運行中服務使用的通行碼。
+在專案目錄外建立一個只有授權使用者可讀的通行碼檔，寫入一行至少 16 字元的通行碼。
+接著在 `compose.yaml` 旁建立 `.env`，填入通行碼檔的絕對路徑。通行碼本身留在檔案裡。
 
-## Windows 部署與回復
-
-先安裝 Docker Desktop、完成 WSL 2／Linux containers 設定並啟動 Docker 引擎。
-正式切換前，以不同連接埠測試，保留既有入口供切回。
-通行碼檔案放在 `<deploy-root>\access-password.txt` 之類的私有位置，不複製到 Git。
-
-在所需 Git 版本的專案目錄，用 PowerShell 執行：
-
-```powershell
-$env:MAHJONG_PASSWORD_FILE = '<deploy-root>\access-password.txt'
-$env:MAHJONG_PORT = '8002'
-$env:MAHJONG_IMAGE = 'mahjong16:' + (git rev-parse --short HEAD)
-docker compose build
-docker compose up -d --no-build --pull never --wait
-uv run --locked python tests/web/container_smoke.py --password-file $env:MAHJONG_PASSWORD_FILE
+```dotenv
+MAHJONG_PASSWORD_FILE="/absolute/path/to/access-password.txt"
+MAHJONG_PORT=8000
+MAHJONG_IMAGE=mahjong16:local
 ```
 
-首次啟動 Docker Desktop 必須從 Windows 桌面完成條款確認；若遠端啟動後沒有視窗，
-先關閉該次 Docker 程序，再由桌面開啟。登入後等待 Docker 引擎就緒，再執行建置。
+`MAHJONG_PORT` 設定主機埠，預設是 8000。`MAHJONG_IMAGE` 設定建置和啟動用的映像標籤，
+預設是 `mahjong16:local`。
 
-透過 SSH 建置公開映像時，Windows 憑證庫可能回報
-`A specified logon session does not exist`。使用獨立的命令列配置，不修改桌面登入資料：
+在原生 Linux 上使用一般的 rootful Docker 時，容器以 UID 10001 讀取通行碼檔。
+可以把檔案所有者設為 10001，權限設為 `0600`。若用 rootless Docker 或啟用了 UID 映射，
+按映射後的主機 UID 設定讀取權限。
 
-```powershell
-$dockerRoot = "$env:LOCALAPPDATA\Programs\DockerDesktop"
-$env:DOCKER_CONFIG = '<deploy-root>\docker-cli'
-$env:DOCKER_HOST = 'npipe:////./pipe/dockerDesktopLinuxEngine'
-New-Item -ItemType Directory -Force $env:DOCKER_CONFIG | Out-Null
-$config = @{auths=@{'ghcr.io'=@{}; 'https://index.docker.io/v1/'=@{}}; cliPluginsExtraDirs=@("$dockerRoot\resources\cli-plugins")}
-[IO.File]::WriteAllText("$env:DOCKER_CONFIG\config.json", ($config | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
-& "$dockerRoot\resources\bin\docker.exe" compose build
+```sh
+docker compose build web
+docker compose up -d --no-build --pull never --wait web
 ```
 
-公開 registry 的空白項目可避免 Docker 自動選用 Windows 憑證庫。
-這份匿名配置只適用公開映像。需要私人 registry 時另行設置認證，
-不要覆寫已有認證的配置。`<deploy-root>` 必須維持服務帳號與 SYSTEM 的存取限制。
+在 Docker 主機開啟 [http://localhost:8000](http://localhost:8000) 並輸入通行碼。改過主機埠的話，
+把網址裡的 8000 換掉。用 `docker compose ps` 看容器狀態，啟動失敗時用
+`docker compose logs --tail 100 web` 查原因。
 
-確認測試容器可用並同意切換後，將 Funnel 改指向 Docker 的 8002 埠；
-公開網址保持不變，也不公開主機的 8002 埠。原入口停止後其記憶體牌局即結束，
-能否續接依[網頁續局與重播](hand-recording.md#網頁續局與重播)的條件：
+### 使用既有映像
 
-```powershell
-& 'C:\Program Files\Tailscale\tailscale.exe' funnel --bg http://127.0.0.1:8002
+如果已在自己的 registry 發布映像，把 `MAHJONG_IMAGE` 填成完整的映像名稱，包含版本標籤。
+用原來的 Compose 設定和通行碼檔下載映像並啟動牌桌。
+
+```sh
+docker compose pull web
+docker compose up -d --no-build --pull never --wait web
 ```
 
-需切回時，先確認原入口已啟動並可從 loopback 存取，再把 Funnel 指回該埠。
+需要進階電腦對手時，見 [MeowCaTS 的 Docker 建置](meowcats.md#docker-發布)。
 
-後續更新先記下目前 `MAHJONG_IMAGE`，再建置新版本。需回復時將該變數設成上一個
-仍保留的映像標籤，再執行 `docker compose up -d --no-build --pull never --wait`。
-不要刪除仍可能用到的舊映像，也不要在有人遊玩時換版。
+## 分享牌桌
 
-## 邊界與維護
+Compose 預設只把牌桌開在 Docker 主機的 `127.0.0.1`。要讓朋友從其他裝置連線，在主機上用 HTTPS
+反向代理或隧道轉發到這個埠，並保留存取驗證。需要讓朋友分別登入自己的帳號時，可加上
+[Pocket ID／Passkey](pocket-id.md)。
 
-### Windows 主機端備份
+## 更新與回復版本
 
-`deploy/windows/backup-hands.ps1` 使用目前正式容器的確切映像與資料卷，
-啟動無網路、非管理員身分的短期備份容器。原資料卷以唯讀掛載；
-輸出至主機的 `<deploy-root>\backups`，並執行 SQLite 完整性檢查。
-備份與檢查各有容器內的 240 秒期限；即使排程程序被強制結束，
-容器內的期限仍有效。正常錯誤另外會清理有識別名稱的備份容器。
-只有完整性檢查通過後才改為正式 `.sqlite3` 檔名；被中斷的 `.partial`
-檔案不算成功備份，不應拿來還原。
-正式牌桌容器不掛載此目錄，備份工具也不取得通行碼。
-不需要重啟牌桌；不是直接複製可能正在寫入的 SQLite 檔案。
+換版前先備份，保留目前的映像標籤和 Compose 設定。等玩家打完再更新。取得新版本原始碼後，
+在 `.env` 裡為 `MAHJONG_IMAGE` 設一個新標籤，接著建置映像並啟動牌桌。
+要回到上一版，就用上一版的 Compose 設定，把 `MAHJONG_IMAGE` 改回舊標籤，再執行啟動命令。
 
-在使用 Docker Desktop 的 Windows 帳號下執行
-`deploy/windows/install-backup.ps1 -DeployRoot <deploy-root> -Container <web-container>`
-（預設 `C:\ProgramData\mahjong16` 與 `mahjong16-pocket-web-1`），
-建立 `Mahjong16-HandBackup` 每小時排程，
-並立即執行一次。保留系統原有的 PowerShell 執行原則，不修改為全域放行。
-部署目錄須維持本人與 SYSTEM 的限制；安裝程式會重建備份目錄與既有檔案的
-存取權限，只保留本人與 SYSTEM，遇到連結或 junction 則拒絕安裝。
-安裝程式只限制備份目錄，
-不替任意既有部署目錄重新設定所有權限。
+換容器時，Compose project 名稱相同就會接回原本的 `hand-records` 資料卷。
+`docker compose down` 會保留資料卷。加上 `-v` 就會一起刪除。
+對局能否接續取決於牌譜和引擎版本，見 [網頁續局與重播](hand-recording.md#網頁續局與重播)。
 
-```powershell
-Get-ScheduledTaskInfo -TaskName Mahjong16-HandBackup
-Get-Content <deploy-root>\backup-last-run.log
+## 備份與還原
+
+容器把牌譜寫到 `/var/lib/mahjong16/hands.sqlite3`，牌桌開著也能做一致性備份。
+備份前，先確認容器內和主機上的備份檔名都還沒用過。
+
+下列命令以基本 Compose 部署為例。若使用 Pocket ID 或 Authelia，先確認現行 `web` 容器
+掛載的是要備份的牌譜卷，再讓兩條命令沿用該部署的 Compose project、設定檔和環境設定
+（依實際部署帶上 `-p`、所有 `-f` 及 `--env-file` 或環境變數）。
+
+```sh
+docker compose exec web python -m app.replay backup /var/lib/mahjong16/hands-backup.sqlite3 --db /var/lib/mahjong16/hands.sqlite3
+docker compose cp web:/var/lib/mahjong16/hands-backup.sqlite3 ./hands-backup.sqlite3
 ```
 
-成功的 `LastTaskResult` 為 `0`，日誌包含 `Verified backup`。
-排程需要該帳號已登入且 Docker 引擎運行；它不會將 Windows 設成無人登入伺服器。
-目前 repository 的備份腳本會在新備份通過檢查後自動清理：最近 48 小時全部保留，
-較舊每日保留最新一份，最長 30 天。完整政策見 [牌譜文件](hand-recording.md#網路牌桌自動保存)。
-需保留更久的回復點時另行複製至另一台裝置；仍需檢查磁碟容量。
-安裝程式會複製一份腳本到 `<deploy-root>`；更新 repository 後須重新執行安裝。
-同一台 Windows 上的備份能抵禦牌桌容器直接刪除，但不能抵禦整台主機失守或磁碟故障。
-修正回歸可執行 `tests/web/windows_backup.ps1`，使用隔離的目錄與短期容器，
-確認寬鬆權限會移除、超時會回報失敗且不留下容器；保留清理測試為
-`tests/web/windows_backup_retention.ps1`。兩者不操作正式牌局。
+備份裡有暗牌和牌牆。把檔案存到資料卷之外，只讓有權限的人讀取。
 
-### 容器設定
+還原先用新的 Compose project，讓備份寫進另一個資料卷。這裡用 `mahjong16-recovery`。
+把命令裡的主機路徑換成備份檔的絕對路徑，並確認容器的 UID 讀得到該檔。
 
-- 容器使用 UID 10001、唯讀檔案系統，移除 Linux capabilities，限制 CPU、記憶體與程序數。
-- 對外埠只綁主機 `127.0.0.1`；透過 Funnel 提供 HTTPS，SSH 仍經 Tailscale 管理。
-- 不能直接將牌桌網路改成 `internal: true`：內部網路不提供主機映射埠，需連同閘道部署。
-- Compose 掛載通行碼檔案及私有牌譜 volume；不掛載整個專案、SSH 金鑰或 Docker socket。
-- Mac Docker Desktop 已實測 `0600` 通行碼檔案可由容器 UID 10001 讀取；Windows
-  已實測受限制 ACL 的通行碼檔案可正常登入。原生 Linux 的 bind mount 會保留主機 UID，須另行對齊檔案擁有者，
-  不應將通行碼改成所有人可讀。此文件的部署目標是 Mac／Windows Docker Desktop。
-- 映像依 `uv.lock` 安裝環境，建置內容由 `.dockerignore` 白名單限制。
-- 健康檢查確認登入頁可讀，不建立牌局；登入與多人操作由 smoke check 驗證。
-- `restart: unless-stopped` 需 Docker 引擎先運行；不代表 Windows 未登入就能自動啟動。
-- 執行中的牌桌仍由記憶體服務。新版可從含續局資訊的同引擎版本牌譜恢復；
-  舊部署及跨引擎換版不能保證續接，切換前仍須備份、說明影響並取得同意。
-  健康檢查失敗不會自行重啟容器。
-- SQLite 自動紀錄位於 `/var/lib/mahjong16/hands.sqlite3`，使用 UID 10001 可寫的
-  `hand-records` named volume。替換容器保留紀錄；新版介面的續局條件見
-  [網頁續局與重播](hand-recording.md#網頁續局與重播)，不代表既有映像已更新。
-  沿用相同 Compose project 名稱才能沿用同一資料卷，不要對正式環境執行 `down -v`。
-- 牌譜含暗牌及牌牆；只允許管理者存取。可用下列命令列出與一致性備份，
-  再將備份複製到主機或另一個儲存位置；volume 本身不是備份：
+```sh
+docker compose -p mahjong16-recovery run --rm --no-deps -v "/absolute/path/to/hands-backup.sqlite3:/backup/hands.sqlite3:ro" web python -m app.replay backup /var/lib/mahjong16/hands.sqlite3 --db /backup/hands.sqlite3
+docker compose -p mahjong16-recovery run --rm --no-deps web python -m app.replay list --db /var/lib/mahjong16/hands.sqlite3
+```
 
-  ```bash
-  docker compose exec web python -m app.replay list --db /var/lib/mahjong16/hands.sqlite3
-  docker compose exec web python -m app.replay backup /var/lib/mahjong16/backup.sqlite3 --db /var/lib/mahjong16/hands.sqlite3
-  docker compose cp web:/var/lib/mahjong16/backup.sqlite3 ./hands-backup.sqlite3
-  ```
+若目標資料庫已存在，備份命令會拒絕覆寫。確認牌局列表後，把還原牌桌的 `MAHJONG_PORT`
+設成和正式牌桌不同的值，再用同一個 project 名稱啟動。
 
-  備份檔已存在時請換新檔名，不會自動覆寫。功能與界線見 [牌譜文件](hand-recording.md)。
-- 日誌限制每檔 10 MB、保留三檔。使用 `docker compose logs --tail 100 web` 診斷。
-- Docker 與通行碼減少風險，不能證明主機絕對安全；獨立入口限流與驗證留待下一階段。
+```sh
+docker compose -p mahjong16-recovery up -d --no-build --pull never --wait web
+```
 
-設定依據：[Docker Compose 服務規格](https://docs.docker.com/reference/compose-file/services/)、
-[uv 的 Docker 指南](https://docs.astral.sh/uv/guides/integration/docker/)。
+登入還原的牌桌，確認找得到牌局，也能重播。驗證完再停掉原本的牌桌並切換入口，
+留著舊資料卷供回復。其他牌譜管理命令見 [牌譜指南](hand-recording.md)。
