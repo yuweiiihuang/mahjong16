@@ -243,6 +243,46 @@ test('discard frame and pointer appear only after the flying tile lands', async 
   } finally { globalThis.requestAnimationFrame = original; }
 });
 
+test('discard animation still lands when animation frames never fire (hidden tab)', async t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const original = globalThis.requestAnimationFrame;
+  let pausedFrame;
+  globalThis.requestAnimationFrame = callback => { pausedFrame = callback; return 1; };
+  try {
+    const view = Object.create(MahjongTableView.prototype);
+    const scene = new THREE.Scene(), tiles = new THREE.Group();
+    scene.add(tiles);
+    const river = new THREE.Group(), tile = new THREE.Group();
+    river.userData.riverPid = 0;
+    tile.userData.riverIndex = 0;
+    tile.position.set(2,.235,1.58);
+    const markers = [new THREE.Group()];
+    tile.add(...markers); tile.userData.latestMarkers = markers;
+    river.add(tile); tiles.add(river);
+    Object.assign(view,{scene,tiles,seatPositions:[0,1,2,3],snapshot:{rivers:[[0]]},
+      draw() {}, updateIndicator() {}, addConcealed() {}, addRiver() {}});
+    const destination = tile.position.clone();
+    let landed = false;
+    const motion = view.animateDiscard(0).then(() => { landed = true; });
+    const nextState = {players:[{},{},{},{}],seating_order:[0,1,2,3],rivers:[[0],[],[],[]],
+      last_discard:{pid:0,tile:0},events:[]};
+    view.update(nextState,{tile:5,from:'hand',index:0});
+    assert.notEqual(view.snapshot,nextState, 'updates wait while the tile is in flight');
+    assert.equal(landed,false);
+    t.mock.timers.tick(1000);
+    await Promise.resolve();
+    assert.equal(landed,true, 'the timeout settles the animation without a frame');
+    await motion;
+    assert.equal(view.discardAnimating,false);
+    assert.ok(markers.every(marker => marker.visible));
+    assert.ok(tile.position.distanceTo(destination) < 1e-9);
+    assert.equal(view.snapshot,nextState, 'landing applies the deferred update');
+    assert.equal(view.selection.tile,5);
+    pausedFrame(performance.now() + 1000);
+    assert.equal(view.snapshot,nextState, 'resuming frames keeps the latest table state');
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
 test('discard preview uses the picked tile and never mutates the authoritative hand', async () => {
   const original = globalThis.requestAnimationFrame;
   const callbacks=[];

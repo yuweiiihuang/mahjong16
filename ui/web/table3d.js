@@ -14,6 +14,7 @@ const OWN_HAND_Z = 1.8;
 const ANGLES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
 const SEATS = [[0, 9.1], [11.2, 0], [0, -9.1], [-11.2, 0]];
 const RIVERS = [[0, 3.3], [4.45, 0], [0, -3.3], [-4.45, 0]];
+const DISCARD_FALLBACK_MS = 1000;
 
 export class MahjongTableView {
   constructor(container, onPick, faceFont = DEFAULT_TILE_FONT) {
@@ -448,20 +449,29 @@ export class MahjongTableView {
     this.draw();
     const began = performance.now();
     return new Promise(resolve => {
+      let landed = false;
+      const land = () => {
+        if (landed) return;
+        landed = true;
+        clearTimeout(fallback);
+        tile.position.copy(end);
+        for (const marker of markers) marker.visible = true;
+        this.discardAnimating = false;
+        const pending = this.pendingUpdate;
+        this.pendingUpdate = null;
+        if (pending) this.update(...pending); else this.draw();
+        resolve();
+      };
+      // Background tabs can pause animation frames while room polling awaits landing.
+      const fallback = setTimeout(land, DISCARD_FALLBACK_MS);
       const tick = now => {
+        if (landed) return;
         const progress = Math.min(1,(now-began)/250);
-        tile.position.lerpVectors(start,end,1-(1-progress)**3);
         if (progress < 1) {
+          tile.position.lerpVectors(start,end,1-(1-progress)**3);
           this.draw();
           requestAnimationFrame(tick);
-        } else {
-          for (const marker of markers) marker.visible = true;
-          this.discardAnimating = false;
-          const pending = this.pendingUpdate;
-          this.pendingUpdate = null;
-          if (pending) this.update(...pending); else this.draw();
-          resolve();
-        }
+        } else land();
       };
       requestAnimationFrame(tick);
     });
