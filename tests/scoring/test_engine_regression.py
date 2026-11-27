@@ -95,3 +95,41 @@ def test_peng_peng_hu_breakdown_matches_table():
     assert _points(bd0, "peng_peng_hu") == table.get("peng_peng_hu", 0)
     assert _points(bd0, "ping_hu") == 0
     assert rewards[0] == sum(item["points"] for item in bd0)
+
+
+_RON_TRIPLETS = [Tile.D7] * 3 + [Tile.D8] * 3 + [Tile.D9] * 3
+
+
+@pytest.mark.parametrize("hand,expected_key", [
+    pytest.param(
+        [Tile.W2, Tile.W2, Tile.W3, Tile.W4] + _RON_TRIPLETS + [Tile.E] * 3,
+        "si_an_ke",
+        id="discard-used-in-pair-or-chow",
+    ),
+    pytest.param(
+        [Tile.W2, Tile.W2, Tile.B5, Tile.B5] + _RON_TRIPLETS + [Tile.E] * 3,
+        "si_an_ke",
+        id="discard-completes-triplet-with-four-concealed-triplets",
+    ),
+    pytest.param(
+        [Tile.W2, Tile.W2, Tile.B5, Tile.B5, Tile.B6, Tile.B7, Tile.B8] + _RON_TRIPLETS,
+        "san_an_ke",
+        id="discard-completes-triplet-with-three-concealed-triplets",
+    ),
+])
+def test_ron_tile_only_spoils_a_triplet_it_completes(hand, expected_key):
+    env, table = _prepare_env()
+    env.winner = 0
+    env.win_source = "RON"
+    env.turn_at_win = 1
+    pool = TilePool(include_flowers=False)
+    env.players[0].hand = pool.take(hand)
+    ron_tile = pool.take([Tile.W2])[0]
+    env.last_discard = {"pid": 1, "tile": ron_tile}
+    env.win_tile = ron_tile
+    env.wall = pool.remaining()
+
+    _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+
+    triplet_keys = {"san_an_ke", "si_an_ke", "wu_an_ke"}
+    assert {item["key"] for item in breakdown[0]} & triplet_keys == {expected_key}

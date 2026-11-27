@@ -81,8 +81,15 @@ def can_form_only_chows(state: Tuple[int, ...], need: int, eye_used: bool) -> bo
 
 
 @lru_cache(maxsize=None)
-def max_concealed_triplets(state: Tuple[int, ...], need: int, eye_used: bool) -> int:
-    """Return the maximum number of concealed triplets attainable for the state."""
+def max_concealed_triplets(
+    state: Tuple[int, ...], need: int, eye_used: bool, blocked: int = -1
+) -> int:
+    """Return the maximum number of concealed triplets attainable for the state.
+
+    ``blocked`` is a tile index that may not form a triplet. Scoring uses it to
+    test whether a claimed discard can be used in a pair or chow instead.
+    Return -1 if no decomposition satisfies the remaining meld and pair requirements.
+    """
 
     if need < 0:
         return -1
@@ -100,10 +107,10 @@ def max_concealed_triplets(state: Tuple[int, ...], need: int, eye_used: bool) ->
 
     best = -1
 
-    if state[i] >= 3:
+    if state[i] >= 3 and i != blocked:
         lst = list(state)
         lst[i] -= 3
-        res = max_concealed_triplets(tuple(lst), need - 1, eye_used)
+        res = max_concealed_triplets(tuple(lst), need - 1, eye_used, blocked)
         if res >= 0:
             best = max(best, res + 1)
 
@@ -114,14 +121,14 @@ def max_concealed_triplets(state: Tuple[int, ...], need: int, eye_used: bool) ->
             lst[i] -= 1
             lst[i1] -= 1
             lst[i2] -= 1
-            res = max_concealed_triplets(tuple(lst), need - 1, eye_used)
+            res = max_concealed_triplets(tuple(lst), need - 1, eye_used, blocked)
             if res >= 0:
                 best = max(best, res)
 
     if not eye_used and state[i] >= 2:
         lst = list(state)
         lst[i] -= 2
-        res = max_concealed_triplets(tuple(lst), need, True)
+        res = max_concealed_triplets(tuple(lst), need, True, blocked)
         if res >= 0:
             best = max(best, res)
 
