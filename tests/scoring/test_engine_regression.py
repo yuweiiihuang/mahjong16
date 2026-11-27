@@ -133,3 +133,39 @@ def test_ron_tile_only_spoils_a_triplet_it_completes(hand, expected_key):
 
     triplet_keys = {"san_an_ke", "si_an_ke", "wu_an_ke"}
     assert {item["key"] for item in breakdown[0]} & triplet_keys == {expected_key}
+
+
+# Five chows and a pair once 3B-4B is completed; 2B/5B is a two-sided wait.
+_ALL_CHOWS = [
+    Tile.W1, Tile.W2, Tile.W3, Tile.W4, Tile.W5, Tile.W6,
+    Tile.D1, Tile.D2, Tile.D3, Tile.D4, Tile.D5, Tile.D6,
+    Tile.B7, Tile.B7, Tile.B3, Tile.B4,
+]
+_CHI = ("CHI", [Tile.W1, Tile.W2, Tile.W3])
+
+
+@pytest.mark.parametrize("concealed,melds,expected", [
+    (_ALL_CHOWS, [], True),
+    (_ALL_CHOWS[3:], [_CHI], True),
+    (_ALL_CHOWS[6:], [_CHI, ("ANGANG", [Tile.W9] * 4)], False),
+    (_ALL_CHOWS[6:], [_CHI, ("KAKAN", [Tile.W9] * 4)], False),
+], ids=["concealed", "open-chi", "concealed-kong", "added-kong"])
+def test_ping_hu_needs_no_open_chow_and_counts_every_kong(concealed, melds, expected):
+    env, table = _prepare_env()
+    env.winner = 0
+    env.win_source = "RON"
+    env.turn_at_win = 1
+    pool = TilePool(include_flowers=False)
+    env.players[0].melds = [
+        {"type": kind, "tiles": pool.take(tiles), "from_pid": None if kind == "ANGANG" else 1}
+        for kind, tiles in melds
+    ]
+    env.players[0].hand = pool.take(concealed)
+    ron_tile = pool.take([Tile.B5])[0]
+    env.last_discard = {"pid": 1, "tile": ron_tile}
+    env.win_tile = ron_tile
+    env.wall = pool.remaining()
+
+    _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+
+    assert ("ping_hu" in {item["key"] for item in breakdown[0]}) is expected

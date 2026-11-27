@@ -61,7 +61,6 @@ def apply_waits_rules(
 
     if (
         hand.fixed_melds_pungs == 0
-        and hand.fixed_melds_chis > 0
         and hand.need >= 0
         and hand.required_len is not None
         and ping_hu_two_sided

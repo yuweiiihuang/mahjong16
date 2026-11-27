@@ -138,7 +138,7 @@ def build_state(ctx: ScoringContext) -> DerivedScoringState:
     fixed_melds_chis = 0
     for m in melds:
         mtype = (m.type or "").upper()
-        if mtype in ("PONG", "GANG"):
+        if mtype in ("PONG", "GANG", "ANGANG", "KAKAN"):
             fixed_melds_pungs += 1
         elif mtype == "CHI":
             fixed_melds_chis += 1
