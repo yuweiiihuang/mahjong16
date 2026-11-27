@@ -218,6 +218,7 @@ class ReactionMixin:
         self.phase = "TURN"
         info = {"resolved_claim": {"pid": claimer, "type": "GANG", "tile": tile, "from_pid": discarder}}
         self._draw_to_drawn(self.turn)
+        self._recent_gang_draw_pid = claimer
         if self.players[self.turn].drawn is None:
             self.done = True
             rewards = [0] * self.rules.n_players
