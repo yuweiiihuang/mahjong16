@@ -9,33 +9,22 @@ from ..score_types import ScoringContext
 def _is_two_sided_ping_hu_wait(state: DerivedScoringState) -> bool:
     win_tile = state.win.win_tile_id
     waits_for_du_set = state.win.waits_for_du_set
-    if not isinstance(win_tile, int):
-        return False
-    if win_tile < 0 or win_tile >= 34:
-        return False
-    if win_tile not in waits_for_du_set:
-        return False
-    if win_tile >= 27:
+    if not isinstance(win_tile, int) or not 0 <= win_tile < 27 or win_tile not in waits_for_du_set:
         return False
 
-    counts16 = state.hand.counts16
-    for a in range(33):
-        b = a + 1
-        if b >= 34:
-            break
-        if counts16[a] <= 0 or counts16[b] <= 0:
+    hand = state.hand
+    for step in (1, -1):
+        first, second = win_tile + step, win_tile + 2 * step
+        opposite = win_tile + 3 * step
+        if opposite // 9 != win_tile // 9 or opposite not in waits_for_du_set:
             continue
-        if (a // 9) != (b // 9):
+        if hand.counts16[first] == 0 or hand.counts16[second] == 0:
             continue
-        left = a - 1 if (a % 9) != 0 else None
-        right = b + 1 if (b % 9) != 8 else None
-        if left is None or right is None:
-            continue
-        if (left // 9) != (a // 9) or (right // 9) != (a // 9):
-            continue
-        if win_tile == left and right in waits_for_du_set:
-            return True
-        if win_tile == right and left in waits_for_du_set:
+        # The same remainder must supply every other chow and the pair for either end.
+        remainder = list(hand.counts16)
+        remainder[first] -= 1
+        remainder[second] -= 1
+        if can_form_only_chows(tuple(remainder), hand.need - 1, False):
             return True
     return False
 
@@ -55,23 +44,16 @@ def apply_waits_rules(
         if len(waits_for_du_set) == 1 and win_tile_id in waits_for_du_set:
             acc.add("du_ting")
 
-    ping_hu_two_sided = _is_two_sided_ping_hu_wait(state)
-    tsumo = state.win.tsumo
     hand = state.hand
-
     if (
         hand.fixed_melds_pungs == 0
-        and hand.need >= 0
-        and hand.required_len is not None
-        and ping_hu_two_sided
-        and not tsumo
+        and hand.need > 0
+        and len(hand.concealed_for_patterns) == hand.required_len
+        and not state.has_flowers_total
+        and not state.has_honor_total
+        and not state.win.tsumo
+        and _is_two_sided_ping_hu_wait(state)
     ):
-        concealed_for_patterns = state.hand.concealed_for_patterns
-        if len(concealed_for_patterns) == hand.required_len:
-            if not state.has_flowers_total and not state.has_honor_total:
-                counts34 = tuple(hand.counts34)
-                if sum(hand.counts34) == len(concealed_for_patterns):
-                    if can_form_only_chows(counts34, hand.need, False):
-                        acc.add("ping_hu")
+        acc.add("ping_hu")
 
     return True

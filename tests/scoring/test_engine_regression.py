@@ -171,6 +171,42 @@ def test_ping_hu_needs_no_open_chow_and_counts_every_kong(concealed, melds, expe
     assert ("ping_hu" in {item["key"] for item in breakdown[0]}) is expected
 
 
+@pytest.mark.parametrize("hand,winning_tile,expected", [
+    pytest.param(
+        [
+            Tile.W5, Tile.W6, Tile.W7, Tile.W8,
+            Tile.D1, Tile.D2, Tile.D3, Tile.D4, Tile.D5, Tile.D6,
+            Tile.B1, Tile.B2, Tile.B3, Tile.B4, Tile.B5, Tile.B6,
+        ],
+        Tile.W5, False, id="both-waits-complete-pairs",
+    ),
+    pytest.param(
+        [
+            Tile.D2, Tile.D3, Tile.D4, Tile.D6, Tile.D7, Tile.D8,
+            Tile.B1, Tile.B2, Tile.B3, Tile.B3, Tile.B4,
+            Tile.B4, Tile.B5, Tile.B5, Tile.B6, Tile.B7,
+        ],
+        Tile.B4, False, id="winning-tile-completes-pair-or-middle-of-chow",
+    ),
+    pytest.param(_ALL_CHOWS, Tile.B2, True, id="lower-end-of-two-sided-chow"),
+])
+def test_ping_hu_requires_two_sided_wait_in_chow_only_decomposition(hand, winning_tile, expected):
+    env, table = _prepare_env()
+    env.winner = 0
+    env.win_source = "RON"
+    env.turn_at_win = 1
+    pool = TilePool(include_flowers=False)
+    env.players[0].hand = pool.take(hand)
+    ron_tile = pool.take([winning_tile])[0]
+    env.last_discard = {"pid": 1, "tile": ron_tile}
+    env.win_tile = ron_tile
+    env.wall = pool.remaining()
+
+    _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+
+    assert ("ping_hu" in {item["key"] for item in breakdown[0]}) is expected
+
+
 @pytest.mark.parametrize("ping_hu,triplets,expected_key,expected_total", [
     (2, 2, "san_an_ke", 3),
     (3, 2, "ping_hu", 4),
