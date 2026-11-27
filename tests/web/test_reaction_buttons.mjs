@@ -193,16 +193,20 @@ test('ting offers pass immediately and stays dismissed until the next turn', () 
   assert.deepEqual(buttons.map(b => b.textContent), ['聽','過']);
 });
 
-test('switching between a room and practice clears local ting choices', async () => {
+test('joining clears local ting choices and leaving returns straight to the homepage', async () => {
   const practice = {legal_actions:[{type:'TING',tile:4,from:'hand'}]};
   const room = {...practice,room:{code:'ABCD1234',members:[{name:'玩家'}]}};
+  const requests = [], destinations = [];
   const ctx = appContext({
-    state:practice, selected:null, roomMode:false, busy:false, pollGeneration:0,autoTingDiscard:true,
-    tingPassed:true, tingMode:true, URL, location:{href:'http://localhost/'},
-    sessionStorage:{setItem() {},removeItem() {}}, history:{replaceState() {}},
+    state:practice, selected:null, roomMode:false, busy:false, pollGeneration:0,
+    tingPassed:true, tingMode:true, URL,
+    location:{href:'http://localhost/',replace:path=>destinations.push(path)},
+    history:{replaceState() {}},
     rememberPlayerName() {},pollRoom() {},render() {},toast() {},
-    $:() => ({close() {}}), request:async path => ['/api/state','/api/preferences'].includes(path) ? practice : {},
+    request:async path => { requests.push(path); },
   });
+  vm.runInContext(source.slice(source.indexOf('function setTableUrl('),
+    source.indexOf('const tableReady =')), ctx);
   vm.runInContext(source.slice(source.indexOf('function acceptRoom('),
     source.indexOf('async function pollRoom(')), ctx);
   vm.runInContext(source.slice(source.indexOf('async function leaveRoom('),
@@ -210,11 +214,10 @@ test('switching between a room and practice clears local ting choices', async ()
   ctx.acceptRoom(room);
   assert.equal(ctx.tingPassed, false);
   assert.equal(ctx.tingMode, false);
-  ctx.tingPassed = true; ctx.tingMode = true;
   await ctx.leaveRoom();
-  assert.equal(ctx.state, practice);
-  assert.equal(ctx.tingPassed, false);
-  assert.equal(ctx.tingMode, false);
+  assert.deepEqual(requests, ['/api/room/leave']);
+  assert.deepEqual(destinations, ['/']);
+  assert.equal(ctx.roomMode, false);
 });
 
 test('ting declares a selected or sole tile kind and otherwise offers candidates', () => {

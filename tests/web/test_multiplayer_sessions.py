@@ -11,6 +11,11 @@ def test_both_players_share_room_session_statistics_and_replay(tmp_path):
         host, guest, stranger = cookies
         _, state, _ = call(address, '/api/rooms', host, {'name': '房主'})
         code = state['room']['code']
+        status, home, _ = call(address, '/api/home', host)
+        assert status == 200 and home['room_code'] == code and not home['can_start_practice']
+        assert call(address, '/api/room/state?room=' + code, stranger)[0] == 400
+        assert call(address, '/api/room/state?room=00000000', host)[0] == 400
+        assert call(address, '/api/practice', host, {})[0] == 400
         call(address, '/api/room/join', guest, {'code': code, 'name': '朋友'})
         call(address, '/api/room/start', host, {})
         room = handler.rooms.rooms[code]

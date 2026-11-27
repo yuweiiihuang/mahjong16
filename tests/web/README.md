@@ -37,6 +37,7 @@ node --test tests/web/test_table_layout.mjs
 
 真實拖拉（Codex CUA REPL；先啟動 `python -m app.web --port 8000`）。
 已有使用中的牌桌時，另選測試埠與獨立 `--record-db`，並替換下列 URL。
+先在首頁點「建立新對局」進到可調整設定的待開局牌桌。
 
 ```javascript
 let testTab = await cua.createBrowserTab('iab', 'http://localhost:8000/', {visible: false});

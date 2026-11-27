@@ -2,9 +2,47 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
+import pytest
+
 from app.hand_store import stored_hands
+from app.web import WebTable
 from domain.gameplay.recording import private_state
 from tests.web.test_record_api import call, server
+
+
+def test_home_is_read_only_and_explicit_table_reload_preserves_the_deal(tmp_path):
+    with server(tmp_path / 'hands.sqlite3', waiting=True) as (address, handler, store):
+        status, home, cookie = call(address, '/api/home')
+        assert status == 200 and home['can_start_practice'] and home['practice'] is None
+        cookie = cookie.split(';')[0]
+        sid = cookie.partition('=')[2]
+        assert handler.sessions[sid] is None and not stored_hands(store.path)
+        status, waiting, _ = call(address, '/api/practice', cookie, {})
+        assert status == 200 and waiting['waiting'] and not stored_hands(store.path)
+        table_id = waiting['session_id']
+        path = f'/api/state?table={table_id}'
+        assert call(address, path, cookie)[1]['session_id'] == table_id
+        assert call(address, '/api/practice', cookie, {})[1]['session_id'] == table_id
+        handler.sessions.clear()  # A setup page can stay open through a process restart.
+        handler.session_seen.clear()
+        status, started, _ = call(address, '/api/start', cookie, {},
+                                  {'X-Qinghe-Session': table_id})
+        assert status == 200 and started['session_id'] == table_id
+        deal = private_state(handler.sessions[sid].env)
+        handler.sessions.clear()
+        handler.session_seen.clear()
+        status, home, _ = call(address, '/api/home', cookie)
+        assert status == 200 and not home['can_start_practice']
+        assert home['practice']['id'] == table_id and 'hand' not in home['practice']
+        assert handler.sessions[sid] is None
+        assert call(address, '/api/practice', cookie, {})[0] == 400
+        assert call(address, '/api/state?table=invalid', cookie)[0] == 400
+        assert call(address, '/api/preferences', cookie, {'auto_ting_discard': False},
+                    {'X-Qinghe-Session': 'invalid'})[0] == 400
+        assert handler.sessions[sid] is None
+        assert call(address, path, cookie)[1]['session_id'] == table_id
+        assert private_state(handler.sessions[sid].env) == deal
+        assert len(stored_hands(store.path)) == 1
 
 
 def finish(table):
@@ -176,3 +214,48 @@ def test_unknown_recovery_version_cannot_silently_replace_a_saved_deal(tmp_path)
         handler.session_seen.clear()
         assert call(address, '/api/state', cookie)[0] == 400
         assert len(stored_hands(store.path)) == 1
+
+
+@pytest.mark.parametrize('other_unfinished', [False, True])
+def test_incompatible_selected_practice_can_explicitly_open_a_new_table(
+        tmp_path, other_unfinished):
+    with server(tmp_path / 'hands.sqlite3', waiting=True) as (address, handler, store):
+        _, initial, cookie = call(address, '/api/state')
+        cookie = cookie.split(';')[0]
+        sid = cookie.partition('=')[2]
+        assert call(address, '/api/start', cookie, {})[0] == 200
+        table = handler.sessions[sid]
+        document = table.env.recorder.document()
+        metadata = deepcopy(table.env.recorder.metadata)
+        player_id = metadata['players'][0]['player_id']
+        document['engine_version'] = 'previous-engine-version'
+        store.save(document, metadata)
+        original = store.player_records(player_id, hand_id=document['hand_id'])[0]
+        handler.sessions.clear()
+        handler.session_seen.clear()
+
+        status, error, _ = call(address, '/api/state', cookie)
+        assert status == 400 and error['code'] == 'practice_recovery_blocked'
+        assert call(address, '/api/start', cookie, {})[0] == 400
+        status, history, _ = call(address, '/api/sessions', cookie)
+        assert status == 200 and history['sessions'][0]['id'] == initial['session_id']
+        assert history['sessions'][0]['has_recovery']
+        assert not history['sessions'][0]['resumable']
+        status, home, _ = call(address, '/api/home', cookie)
+        assert status == 200 and home['can_start_practice'] and home['practice'] is None
+
+        if other_unfinished:
+            other = WebTable(seed=11, record_store=store, player_id=player_id)
+            status, error, _ = call(address, '/api/new', cookie, {})
+            assert status == 400 and '尚未打完' in error['error']
+            assert call(address, '/api/practice', cookie, {})[0] == 400
+            assert len(stored_hands(store.path)) == 2
+            finish(other)
+
+        status, current, _ = call(address, '/api/practice', cookie, {})
+        assert status == 200 and current['waiting']
+        assert current['session_id'] != initial['session_id']
+        assert current['totals'] == [1000] * 4
+        assert call(address, '/api/start', cookie, {})[0] == 200
+        assert store.player_records(player_id, hand_id=document['hand_id'])[0] == original
+        assert len(stored_hands(store.path)) == 2 + other_unfinished
