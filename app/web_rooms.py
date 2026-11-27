@@ -425,7 +425,8 @@ class RoomRegistry:
                     if room.owner == sid:
                         room.owner = next((s for s in room.seats if s), '')
                     room.publish()
-                    room.record_seat(pid)
+                    if not room.table.recording_error:
+                        room.record_seat(pid)
 
     def run(self, stop: threading.Event) -> None:
         """Schedule bot turns and expire empty or idle rooms until shutdown."""
