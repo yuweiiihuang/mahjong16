@@ -78,12 +78,14 @@ def apply_patterns_rules(
     concealed_triplets += sum(
         1 for m in state.melds if (m.type or "").upper() == "ANGANG"
     )
+    # Ping hu requires a triplet-free decomposition. Keep the better award,
+    # preferring the concealed-triplet award on ties.
     if concealed_triplets >= 5:
-        acc.add("wu_an_ke")
+        acc.add_alternative("wu_an_ke", to="ping_hu")
     elif concealed_triplets >= 4:
-        acc.add("si_an_ke")
+        acc.add_alternative("si_an_ke", to="ping_hu")
     elif concealed_triplets >= 3:
-        acc.add("san_an_ke")
+        acc.add_alternative("san_an_ke", to="ping_hu")
 
     if not state.win.tsumo:
         open_from_others = [

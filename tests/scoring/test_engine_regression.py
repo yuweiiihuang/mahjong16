@@ -169,3 +169,36 @@ def test_ping_hu_needs_no_open_chow_and_counts_every_kong(concealed, melds, expe
     _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
 
     assert ("ping_hu" in {item["key"] for item in breakdown[0]}) is expected
+
+
+@pytest.mark.parametrize("ping_hu,triplets,expected_key,expected_total", [
+    (2, 2, "san_an_ke", 3),
+    (3, 2, "ping_hu", 4),
+    (2, 3, "san_an_ke", 4),
+], ids=["tie-keeps-triplets", "ping-hu-higher", "triplets-higher"])
+def test_ping_hu_and_concealed_triplets_use_one_decomposition(
+    ping_hu, triplets, expected_key, expected_total,
+):
+    env, table = _prepare_env()
+    table = ScoringTable(
+        values={**table.values, "ping_hu": ping_hu, "san_an_ke": triplets}, labels=table.labels,
+    )
+    env.winner = 0
+    env.win_source = "RON"
+    env.turn_at_win = 1
+    env.discard_count = 6
+    pool = TilePool(include_flowers=False)
+    # 111222333W can be three triplets or three copies of the 123W chow.
+    env.players[0].hand = pool.take(
+        [Tile.W1] * 3 + [Tile.W2] * 3 + [Tile.W3] * 3
+        + [Tile.D4, Tile.D5, Tile.D6, Tile.D8, Tile.D8, Tile.B6, Tile.B7]
+    )
+    ron_tile = pool.take([Tile.B8])[0]
+    env.last_discard = {"pid": 1, "tile": ron_tile}
+    env.win_tile = ron_tile
+    env.wall = pool.remaining()
+
+    rewards, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+
+    assert {item["key"] for item in breakdown[0]} == {"menqing", expected_key}
+    assert rewards[0] == expected_total

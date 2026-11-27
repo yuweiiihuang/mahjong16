@@ -94,6 +94,19 @@ class ScoreAccumulator:
             self._items_by_key[key] = new_item
         return points
 
+    def add_alternative(self, key: str, *, to: str) -> None:
+        """Add a mutually exclusive score if it pays at least as much as the existing one."""
+        points = self._table.get(key)
+        if points == 0:
+            return
+        existing = self._items_by_key.get(to)
+        if existing is not None:
+            if points < existing.points:
+                return
+            self._items.remove(existing)
+            del self._items_by_key[to]
+        self.add(key, base=points)
+
     def extend(self, items: Iterable[ScoreItem | Dict[str, Any]]) -> None:
         for item in items:
             if isinstance(item, ScoreItem):
