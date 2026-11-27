@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from copy import deepcopy
+import logging
 import secrets
 import threading
 import time
@@ -424,7 +425,8 @@ class RoomRegistry:
                     if room.owner == sid:
                         room.owner = next((s for s in room.seats if s), '')
                     room.publish()
-                    room.record_seat(pid)
+                    if not room.table.recording_error:
+                        room.record_seat(pid)
 
     def run(self, stop: threading.Event) -> None:
         """Schedule bot turns and expire empty or idle rooms until shutdown."""
@@ -449,3 +451,7 @@ class RoomRegistry:
                             room.tick(now)
                         except RecordingError:
                             pass  # Failed room already wakes clients; other rooms keep running.
+                        except Exception:
+                            logging.exception('Room tick failed room=%s', code)
+                            room.table.recording_error = True
+                            room.publish()

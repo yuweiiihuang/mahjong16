@@ -494,6 +494,8 @@ class WebTable:
         self.check_recording()
         env = self.env
         result = deepcopy(env._obs(viewer))
+        # Engine aggregate counts include concealed kongs.
+        result.pop('live_public', None)
         result.update({
             'auto_ting_discard': self.auto_ting_discard[viewer],
             'waiting': self.waiting,

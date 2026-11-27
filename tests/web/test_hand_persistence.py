@@ -177,6 +177,47 @@ def test_terminal_write_failure_keeps_an_unfinished_prefix(store, monkeypatch):
     assert room.table.recording_error
 
 
+def test_leaving_paused_room_preserves_last_saved_hand(store, monkeypatch):
+    now = 100.0
+    monkeypatch.setattr('app.web_rooms.time.monotonic', lambda: now)
+    registry = RoomRegistry()
+
+    def make_table(**kwargs):
+        return WebTable(7, **kwargs, record_store=store, defer_recording=True)
+
+    room = registry.create('host', make_table)
+    registry.join('guest', room.code)
+    with room.changed:
+        room.start('host')
+
+    def fail_settlement():
+        raise RuntimeError('unexpected settlement failure')
+
+    monkeypatch.setattr(room.table, 'settle', fail_settlement)
+    stop = threading.Event()
+    ticks = iter(range(191, 1191))
+
+    def wait_for_tick(_timeout):
+        nonlocal now
+        next_tick = next(ticks, None)
+        if next_tick is None or room.table.recording_error:
+            return True
+        now = next_tick
+        return False
+
+    monkeypatch.setattr(stop, 'wait', wait_for_tick)
+    registry.run(stop)
+
+    assert room.table.recording_error and room.table.env.done
+    prefix = _document(store, room.table)
+    assert prefix['status'] == 'incomplete'
+    registry.leave('host')
+    with pytest.raises(ValueError, match='尚未加入房間'):
+        registry.get('host')
+    assert registry.get('guest').owner == 'guest'
+    assert _document(store, room.table) == prefix
+
+
 def test_initial_flower_win_commits_once_with_table_totals(store, monkeypatch):
     full_wall = deal.full_wall
     monkeypatch.setattr(deal, 'full_wall', lambda include, rng: sorted(

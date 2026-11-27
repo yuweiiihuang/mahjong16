@@ -219,6 +219,47 @@ def test_registry_room_capacity_join_lock_and_host_transfer():
         registry.get('a')
 
 
+def test_scheduler_pauses_a_failing_room_and_keeps_serving_others(monkeypatch, caplog):
+    now = 100.0
+    monkeypatch.setattr('app.web_rooms.time.monotonic', lambda: now)
+    registry = RoomRegistry()
+
+    def make_table(**kwargs):
+        return WebTable(42, **kwargs)
+
+    bad = registry.create('a', make_table)
+    good = registry.create('b', make_table)
+    for member, room in [('a', bad), ('b', good)]:
+        with room.changed:
+            room.start(member)
+    failed_versions = []
+
+    def fail_bot(_pid):
+        failed_versions.append(bad.version)
+        raise RuntimeError('unexpected bot failure')
+
+    monkeypatch.setattr(bad.table, 'choose_bot', fail_bot)
+    stop = threading.Event()
+    ticks = iter((191.0, 192.0))  # Both hosts are disconnected beyond the reconnect grace.
+
+    def wait_for_tick(_timeout):
+        nonlocal now
+        next_tick = next(ticks, None)
+        if next_tick is None:
+            return True
+        now = next_tick
+        return False
+
+    monkeypatch.setattr(stop, 'wait', wait_for_tick)
+    registry.run(stop)
+
+    assert bad.table.recording_error
+    assert failed_versions == [bad.version - 1]
+    assert not bad.table.events
+    assert good.table.events
+    assert caplog.text.count('Room tick failed') == 1
+
+
 @pytest.mark.parametrize('stage', ['turn', 'thinking', 'reaction'])
 def test_midgame_guest_takes_bot_seat_without_resetting_game(monkeypatch, stage):
     clock = [100.0]
