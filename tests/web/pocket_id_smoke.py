@@ -75,10 +75,11 @@ def main() -> None:
             return cookie_from(headers)
 
         def sign_in(cookie: str, *, csrf_cookies: dict | None = None,
-                    overlap: bool = False) -> str:
+                    overlap: bool = False, target: str = '/') -> str:
             csrf_cookies = {} if csrf_cookies is None else csrf_cookies
-            status, headers, _ = request(table_port, '/oauth2/start?rd=/', headers={
-                'Cookie': '; '.join(f'{k}={v}' for k, v in csrf_cookies.items())})
+            status, headers, _ = request(table_port, target, headers={
+                'Cookie': '; '.join(f'{k}={v}' for k, v in csrf_cookies.items()),
+                'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document'})
             assert status == 302, ('OIDC start', status)
             csrf_name, csrf_value = cookie_from(headers).split('=', 1)
             csrf_cookies[csrf_name] = csrf_value
@@ -112,6 +113,7 @@ def main() -> None:
             assert request(table_port, callback)[0] == 403
             status, headers, _ = request(table_port, callback, headers={'Cookie': csrf})
             assert status == 302, ('OIDC callback', status)
+            assert headers['location'] == target, 'OIDC must return to the requested table URL'
             csrf_cookies.pop(csrf_name, None)
             return cookie_from(headers)
 
@@ -132,6 +134,15 @@ def main() -> None:
                     '--format', '{{json .NetworkSettings.Ports}}'], encoding='utf-8')
                 assert not any(json.loads(bindings).values()), (service, 'has a host port')
             probe = '/api/state?pocket_probe=' + secrets.token_hex(8)
+            for resource in ('/favicon.ico', '/app.js', probe, '/'):
+                status, headers, _ = request(table_port, resource, headers={
+                    'Sec-Fetch-Mode': 'same-origin', 'Sec-Fetch-Dest': 'empty'})
+                assert status == 401, ('background request started another login', resource, status)
+                assert 'location' not in headers and 'set-cookie' not in headers
+            assert request(table_port, '/?room=12345678')[0] == 401
+            status, headers, _ = request(table_port, '/', headers={'Accept': 'text/html'})
+            assert status == 302 and cookie_from(headers), 'legacy HTML navigation can sign in'
+            print('PASS: anonymous background requests create no login redirects or CSRF cookies')
             backend_auth = (private / 'gateway.env').read_text(encoding='utf-8').split('=', 1)[1].strip()
             forged = {'Remote-User': 'owner', 'X-Auth-Request-User': 'owner',
                       'X-Qinghe-Subject': 'owner',
@@ -139,7 +150,7 @@ def main() -> None:
                       'Authorization': backend_auth}
             for headers in ({}, forged):
                 status = request(table_port, probe, headers=headers)[0]
-                assert status == 302, ('anonymous access', status)
+                assert status == 401, ('anonymous access', status)
             assert probe not in command('logs', '--no-color', 'web')
             print('PASS: anonymous and forged credentials do not reach the private game')
 
@@ -192,7 +203,8 @@ def main() -> None:
 
             sessions = []
             for user_id, cookie in users:
-                session = sign_in(cookie, overlap=True)
+                session = sign_in(cookie, overlap=True,
+                                  target='/?room=12345678&note=%E4%B8%AD%26%2F')
                 assert session and 'mahjong_stage_session=' in session
                 status, _, page = request(table_port, '/', headers={'Cookie': session})
                 assert status == 200 and b'/access/login' not in page
@@ -243,7 +255,7 @@ def main() -> None:
             assert status in (200, 302) and 'mahjong_stage_session=;' in headers['set-cookie']
             assert headers['location'] == '/oauth2/signed-out'
             assert request(table_port, headers['location'])[0] == 200
-            assert request(table_port, '/api/state')[0] == 302
+            assert request(table_port, '/api/state')[0] == 401
             replay_status = request(table_port, '/api/state',
                                     headers={'Cookie': sessions[0]})[0]
             active_session = sign_in(login_code('friend-one'))
@@ -259,7 +271,7 @@ def main() -> None:
                 time.sleep(.1)
                 disabled_status = request(table_port, '/api/state',
                                           headers={'Cookie': active_session})[0]
-            assert (replay_status, disabled_status) == (302, 302), (
+            assert replay_status == 401 and disabled_status in (401, 302), (
                 'logout replay / disabled account must be denied', replay_status, disabled_status)
             assert request(table_port, '/api/state', headers={'Cookie': sessions[1]})[0] == 200
             print('PASS: logout revokes copied cookies; disabled accounts lose access within 3s')
@@ -346,13 +358,31 @@ def main() -> None:
                            headers={'Cookie': restored_session})[0] in (502, 503)
             assert probe not in command('logs', '--no-color', 'web')
             print('PASS: verification-proxy outage fails closed even with an existing cookie')
+            command('up', '-d', '--wait', 'proxy')
+            live_session = sign_in(restored_identity_session)
+            command('stop', 'identity')
+            status = request(table_port, probe, headers={'Cookie': live_session})[0]
+            # A failed token refresh may reject the session before the userinfo check runs.
+            assert status in (401, 502, 503), ('identity outage must deny access', status)
+            assert probe not in command('logs', '--no-color', 'web')
+            command('up', '-d', '--wait', 'identity')
+            live_session = sign_in(restored_identity_session)
+            assert request(table_port, '/api/state', headers={'Cookie': live_session})[0] == 200
+            command('stop', 'sessions')
+            status = request(table_port, probe, headers={'Cookie': live_session})[0]
+            assert status in (401, 500, 502, 503), ('session store outage must deny access', status)
+            assert probe not in command('logs', '--no-color', 'web')
+            command('up', '-d', '--wait', 'sessions')
+            assert request(table_port, '/api/state', headers={'Cookie': live_session})[0] == 401
+            print('PASS: identity/Redis outages fail closed; lost sessions require login again')
+
             # A short lifetime exercises real expiry without waiting for the configured 12 hours.
             proxy_config = backup / 'config' / 'proxy.cfg'
             proxy_config.write_text(proxy_config.read_text(encoding='utf-8').replace(
                 'cookie_expire = "12h"', 'cookie_expire = "5s"'), encoding='utf-8')
             command('up', '-d', '--no-deps', '--force-recreate', 'proxy')
             for _ in range(30):
-                if request(table_port, '/')[0] == 302:
+                if request(table_port, '/', headers={'Accept': 'text/html'})[0] == 302:
                     break
                 time.sleep(1)
             else:
@@ -362,22 +392,8 @@ def main() -> None:
                            headers={'Cookie': expiring_session})[0] == 200
             time.sleep(6)
             assert request(table_port, '/api/state',
-                           headers={'Cookie': expiring_session})[0] == 302
+                           headers={'Cookie': expiring_session})[0] == 401
             print('PASS: an expired game cookie requires authentication again')
-            live_session = sign_in(restored_identity_session)
-            command('stop', 'identity')
-            assert request(table_port, probe, headers={'Cookie': live_session})[0] in (502, 503)
-            assert probe not in command('logs', '--no-color', 'web')
-            command('up', '-d', '--wait', 'identity')
-            live_session = sign_in(restored_identity_session)
-            assert request(table_port, '/api/state', headers={'Cookie': live_session})[0] == 200
-            command('stop', 'sessions')
-            assert request(table_port, probe,
-                           headers={'Cookie': live_session})[0] in (302, 500, 502, 503)
-            assert probe not in command('logs', '--no-color', 'web')
-            command('up', '-d', '--wait', 'sessions')
-            assert request(table_port, '/api/state', headers={'Cookie': live_session})[0] == 302
-            print('PASS: identity/Redis outages fail closed; lost sessions require login again')
             print('NOT CHECKED: native passkey enrollment, biometrics, iPhone or Windows')
         finally:
             # Only the two randomly named projects' disposable data is removed.
