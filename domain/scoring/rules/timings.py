@@ -22,11 +22,15 @@ def apply_timings_rules(
     win_src = state.win.win_source
     discards = max(0, int(getattr(ctx, "discard_count", 0) or 0))
     open_melds = max(0, int(getattr(ctx, "open_meld_count", 0) or 0))
-    if win_src in ("TSUMO", "ZIMO") and discards == 0:
+    tsumo = win_src in ("TSUMO", "ZIMO")
+    ron = win_src == "RON"
+    # Before any open meld is claimed, the winner's discards are still in the river.
+    first_go_around = open_melds == 0 and not player.river
+    if tsumo and discards == 0:
         acc.add("tian_hu")
-    elif discards == 1 and win_src in ("RON", "TSUMO", "ZIMO"):
+    elif first_go_around and (tsumo or (ron and discards == 1)):
         acc.add("di_hu")
-    elif discards > 1 and discards <= ctx.rules.n_players and open_melds == 0:
+    elif first_go_around and ron and discards > 1:
         acc.add("ren_hu")
 
     return True

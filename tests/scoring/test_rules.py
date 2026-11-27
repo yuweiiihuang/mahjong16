@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
+import pytest
+
 from domain.rules import Ruleset
 from domain.scoring.breakdown import ScoreAccumulator
 from domain.scoring.common import is_honor
@@ -526,3 +528,25 @@ def test_apply_timings_rules_cover_tian_di_ren():
     apply_timings_rules(ctx, state, acc)
     breakdown = acc.to_breakdown()[ctx.winner]
     assert _points(breakdown, "ren_hu") == SCORING_VALUES["ren_hu"]
+
+
+@pytest.mark.parametrize("source,discards,river,open_melds,expected", [
+    ("TSUMO", 2, [], 0, "di_hu"),
+    ("RON", 3, ["9W"], 0, None),
+    ("RON", 2, [], 0, "ren_hu"),
+    ("RON", 2, [], 1, None),
+    ("TSUMO", 2, [], 1, None),
+])
+def test_di_and_ren_hu_require_winner_before_first_discard_without_claims(
+    source, discards, river, open_melds, expected,
+):
+    ctx = _make_context(win_source=source, discard_count=discards, open_meld_count=open_melds)
+    ctx.players[ctx.winner].river = [_tid(label) for label in river]
+    win = _win_state(tsumo=source == "TSUMO", win_source=source)
+    state = _state(ctx, hand=_hand_state(), win=win)
+    acc = _acc(ctx)
+
+    apply_timings_rules(ctx, state, acc)
+
+    keys = {item["key"] for item in acc.to_breakdown()[ctx.winner]}
+    assert keys & {"tian_hu", "di_hu", "ren_hu"} == ({expected} if expected else set())

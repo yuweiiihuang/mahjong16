@@ -56,14 +56,21 @@ def apply_patterns_rules(
             ron_tile_idx = state.win.ron_tile_idx
             counts34 = hand.counts34
             counts34_concealed = hand.counts34_concealed
-            if ron_tile_idx is not None and max_triplets > 0:
-                if (
-                    counts34[ron_tile_idx] >= 3
-                    and counts34_concealed[ron_tile_idx] < 3
-                    and counts34[ron_tile_idx]
-                    == counts34_concealed[ron_tile_idx] + 1
-                ):
-                    max_triplets = max(max_triplets - 1, 0)
+            if (
+                ron_tile_idx is not None
+                and counts34[ron_tile_idx] >= 3
+                and counts34_concealed[ron_tile_idx] < 3
+                and counts34[ron_tile_idx] == counts34_concealed[ron_tile_idx] + 1
+            ):
+                # Compare using the discard in a pair or chow with using it in a triplet.
+                # The triplet completed by the discard does not count as concealed.
+                without_ron_set = list(counts34)
+                without_ron_set[ron_tile_idx] -= 3
+                max_triplets = max(
+                    max_concealed_triplets(tuple(counts34), hand.need, False, ron_tile_idx),
+                    max_concealed_triplets(tuple(without_ron_set), hand.need - 1, False),
+                    0,
+                )
             if max_triplets > 0:
                 concealed_triplets += max_triplets
             elif max_triplets == 0:
@@ -71,12 +78,14 @@ def apply_patterns_rules(
     concealed_triplets += sum(
         1 for m in state.melds if (m.type or "").upper() == "ANGANG"
     )
+    # Ping hu requires a triplet-free decomposition. Keep the better award,
+    # preferring the concealed-triplet award on ties.
     if concealed_triplets >= 5:
-        acc.add("wu_an_ke")
+        acc.add_alternative("wu_an_ke", to="ping_hu")
     elif concealed_triplets >= 4:
-        acc.add("si_an_ke")
+        acc.add_alternative("si_an_ke", to="ping_hu")
     elif concealed_triplets >= 3:
-        acc.add("san_an_ke")
+        acc.add_alternative("san_an_ke", to="ping_hu")
 
     if not state.win.tsumo:
         open_from_others = [

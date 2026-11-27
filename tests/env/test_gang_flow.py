@@ -214,3 +214,39 @@ def test_scoring_flags_qiang_gang_and_gang_shang():
     assert "gang_shang" in keys
     # 槓上自摸含自摸：不得同時加『自摸』；門清仍可加，但不可使用『門清自摸』
     assert ("menqing" in keys) and ("zimo" not in keys) and ("menqing_zimo" not in keys)
+
+
+def test_claimed_kong_replacement_win_is_scored_as_gang_shang():
+    env = force_reset_env(include_flowers=False)
+    pool = TilePool(include_flowers=False)
+    p0, p2 = env.players[0], env.players[2]
+    p0.hand = pool.take([
+        Tile.W5, Tile.B1, Tile.B2, Tile.B3, Tile.B4, Tile.B5, Tile.B6, Tile.B7,
+        Tile.B8, Tile.B9, Tile.E, Tile.S, Tile.W, Tile.N, Tile.C, Tile.F,
+    ])
+    p0.drawn = pool.take([Tile.P])[0]
+    # P2 holds three 5W; after the kong it waits on 6D or 9D.
+    p2.hand = pool.take([
+        Tile.W5, Tile.W5, Tile.W5,
+        Tile.W1, Tile.W2, Tile.W3, Tile.D1, Tile.D2, Tile.D3,
+        Tile.D4, Tile.D5, Tile.D6, Tile.D7, Tile.D8, Tile.E, Tile.E,
+    ])
+    env.wall = pool.remaining()
+    move_tile_to_tail(env.wall, Tile.D9)
+
+    env.step({"type": "DISCARD", "tile": int(Tile.W5), "from": "hand"})
+    env.step({"type": "PASS"})  # P1
+    _, _, done, info = env.step({"type": "GANG"})  # P2 claims the discard
+    assert not done and info["resolved_claim"]["type"] == "GANG"
+    assert env.players[2].drawn == int(Tile.D9)
+    assert any(action["type"] == "HU" for action in env.legal_actions())
+    _, _, done, _ = env.step({"type": "HU"})
+
+    assert done and env.winner == 2 and env.win_source == "TSUMO"
+    assert env.win_by_gang_draw is True
+    table = load_scoring_assets(env.rules.scoring_profile, env.rules.scoring_overrides_path)
+    _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
+    keys = {item["key"] for item in breakdown[2]}
+    assert "gang_shang" in keys and "zimo" not in keys
+    # Claiming the first discard as a kong also disqualifies 地胡 and 人胡.
+    assert keys.isdisjoint({"di_hu", "ren_hu"})
