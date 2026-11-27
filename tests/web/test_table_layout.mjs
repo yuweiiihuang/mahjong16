@@ -243,6 +243,36 @@ test('discard frame and pointer appear only after the flying tile lands', async 
   } finally { globalThis.requestAnimationFrame = original; }
 });
 
+test('discard animation still lands when animation frames never fire (hidden tab)', async t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const original = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = () => 1;
+  try {
+    const view = Object.create(MahjongTableView.prototype);
+    const scene = new THREE.Scene(), tiles = new THREE.Group();
+    scene.add(tiles);
+    const river = new THREE.Group(), tile = new THREE.Group();
+    river.userData.riverPid = 0;
+    tile.userData.riverIndex = 0;
+    tile.position.set(2,.235,1.58);
+    const markers = [new THREE.Group()];
+    tile.add(...markers); tile.userData.latestMarkers = markers;
+    river.add(tile); tiles.add(river);
+    Object.assign(view,{scene,tiles,seatPositions:[0,1,2,3],snapshot:{rivers:[[0]]},
+      draw() {}});
+    const destination = tile.position.clone();
+    let landed = false;
+    const motion = view.animateDiscard(0).then(() => { landed = true; });
+    await Promise.resolve();
+    assert.equal(landed,false);
+    t.mock.timers.tick(1000);
+    await motion;
+    assert.equal(view.discardAnimating,false);
+    assert.ok(markers.every(marker => marker.visible));
+    assert.ok(tile.position.distanceTo(destination) < 1e-9);
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
 test('discard preview uses the picked tile and never mutates the authoritative hand', async () => {
   const original = globalThis.requestAnimationFrame;
   const callbacks=[];
