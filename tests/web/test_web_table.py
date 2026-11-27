@@ -75,7 +75,7 @@ def test_playback_is_ordered_immutable_and_does_not_change_gameplay():
             action = table.bot.choose(table.env._obs(0))
 
 
-def test_playback_redacts_concealed_kongs_and_bot_waits_without_mutating_engine():
+def test_practice_redacts_concealed_kongs_and_bot_waits_without_mutating_engine():
     table = WebTable(42)
     table.env.players[1].melds = [{'type': 'ANGANG', 'tiles': [0] * 4}]
     table.events = [{'pid': 1, 'type': 'ANGANG', 'tile': 0},
@@ -83,6 +83,9 @@ def test_playback_redacts_concealed_kongs_and_bot_waits_without_mutating_engine(
     frames = []
     table.record_frame(frames, 1, 'THINK')
     state = frames[0]['state']
+    assert 'live_public' not in table.snapshot()
+    assert 'live_public' not in state
+    assert 'live_public' in table.env._obs(0)
     assert state['players'][1]['melds'][0]['tiles'] == [None] * 4
     assert state['melds_all'][1][0]['tiles'] == [None] * 4
     assert 'tile' not in state['events'][0]
