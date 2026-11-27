@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from copy import deepcopy
+import logging
 import secrets
 import threading
 import time
@@ -449,3 +450,7 @@ class RoomRegistry:
                             room.tick(now)
                         except RecordingError:
                             pass  # Failed room already wakes clients; other rooms keep running.
+                        except Exception:
+                            logging.exception('Room tick failed room=%s', code)
+                            room.table.recording_error = True
+                            room.publish()
