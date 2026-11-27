@@ -130,10 +130,21 @@ test('failed exit keeps replay read-only and allows retry',async()=>{
   assert.equal(nodes['replay-next'].disabled,false);
 });
 
+test('a stale table during replay exit returns to the homepage',async()=>{
+  const {ctx} = fixture();
+  const destinations = [];
+  ctx.pollGeneration = 0;
+  ctx.roomMode = false;
+  ctx.location = {replace:path=>destinations.push(path)};
+  ctx.request = async () => { throw Object.assign(new Error('牌桌已切換'), {status:400}); };
+  await ctx.exitReplay();
+  assert.deepEqual(destinations, ['/']);
+});
+
 test('an older replay API fails visibly without locking the live table',async()=>{
   const messages=[];
   const ctx=appContext({busy:false,tableView:{},request:async()=>({frames:[{state:{}}]}),
-    toast:message=>messages.push(message)});
+    requireTableView:async()=>{},toast:message=>messages.push(message)});
   vm.runInContext(helpers,ctx);
   await ctx.showReplay('old-record');
   assert.equal(ctx.replay,null);

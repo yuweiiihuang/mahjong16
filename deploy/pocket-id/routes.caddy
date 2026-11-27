@@ -2,6 +2,12 @@ request_body {
     max_size 128KB
 }
 header Cache-Control no-store
+# Limit automatic OIDC starts to the table document. Older clients must ask for HTML.
+@table_navigation {
+    method GET
+    path / /index.html
+    expression `({http.request.header.Sec-Fetch-Mode} == 'navigate' && {http.request.header.Sec-Fetch-Dest} in ['', 'document']) || ({http.request.header.Sec-Fetch-Mode} == '' && {http.request.header.Sec-Fetch-Dest} == '' && {http.request.header.Accept}.contains('text/html'))`
+}
 handle /oauth2/signed-out {
     respond "已登出牌桌。重新開牌桌時可再次登入；共用裝置請另外登出 Pocket ID。" 200
 }
@@ -35,7 +41,23 @@ handle {
             header_up -X-Auth-Request-User
             @unauthorized status 401
             handle_response @unauthorized {
-                redir * /oauth2/start 302
+                handle @table_navigation {
+                    reverse_proxy proxy:4180 {
+                        # Pass the original table URL as the return target, including room links.
+                        # Clear the upstream query so OAuth options come only from proxy settings.
+                        rewrite /oauth2/start?
+                        header_up X-Auth-Request-Redirect {http.request.orig_uri}
+                        header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+                        header_up -Authorization
+                        header_up -X-Forwarded-For
+                        header_up -X-Real-IP
+                        header_down -X-Auth-Request-Access-Token
+                    }
+                }
+                handle {
+                    header Content-Type application/json
+                    respond `{"error":"請重新開啟牌桌登入。"}` 401
+                }
             }
         }
         forward_auth identity:1411 {

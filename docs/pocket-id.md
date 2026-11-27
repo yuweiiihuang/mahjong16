@@ -54,6 +54,14 @@ docker compose --env-file "$MAHJONG_POCKET_CONFIG/stage.env" \
 牌桌的登出只會撤銷目前的牌桌 session。共用裝置也要從 Pocket ID 帳號頁登出。
 Redis 的登入 session 只存在記憶體，重啟後使用者需重新登入。帳號與牌譜各有持久化資料卷。
 
+## 登入回呼出現 403
+
+開啟牌桌首頁或房間邀請連結會啟動登入，成功後回到原網址。沒有有效 OAuth2 Proxy
+工作階段的 API 或資源請求會收到 401，避免背景請求各自開始登入並占用 CSRF cookie 名額。
+
+若 `/oauth2/callback` 仍出現 403，先展開 **More Info** 確認是哪一項驗證失敗。回報時只需
+提供時間和錯誤文字。可從原牌桌或房間邀請連結重新開始登入。
+
 ## Windows 與 Tailscale Funnel 範例
 
 以下範例使用 Windows 的 Docker Desktop Linux 容器與 PowerShell。Funnel 在外側提供 HTTPS，

@@ -46,24 +46,34 @@ def _player_names(players: list[dict]) -> list[str]:
             zip(players, ['電腦玩家', '陳予安', '林小滿', '周子墨'])]
 
 
+def head_is_resumable(head: dict, version: str) -> bool:
+    """Check the saved summary before offering to load its full record."""
+    reasons = (None, 'server_restart')
+    if head['source'] == 'practice':
+        reasons += ('replaced_by_resume', 'session_expired')
+    return (head['current_participant'] and head['recovery_version'] == 1
+            and head['engine_version'] == version and head['reason'] in reasons)
+
+
 def session_summary(head: dict) -> dict:
     """Describe one durable session without disclosing any concealed game state."""
     names = _player_names(head['current_players'] or head['players'])
+    version = engine_version()
     return {
         'id': head['table_id'], 'hand_id': head['hand_id'], 'players': names,
         'source': head['source'], 'room_code': head['room_code'],
         'ai': seat_ai_history(head),
         'started_at': head['session_started'], 'round': head['round'],
         'completed_hands': head['completed_hands'],
+        'has_recovery': head['recovery_version'] is not None,
+        'incompatible': (head['recovery_version'] is not None and
+                         (head['recovery_version'] != 1 or head['engine_version'] != version)),
         'established': head['completed_hands'] > 0,
         'done': head['status'] == 'completed',
         'totals': head['totals_after'] or head['totals_before'],
         'quan_feng': head['quan_feng'], 'dealer': head['dealer'],
         'seat_winds': head['seat_winds'],
-        'resumable': head['current_participant'] and head['recovery_version'] == 1 and
-                     head['engine_version'] == engine_version() and head['reason'] in
-                     ((None, 'server_restart', 'replaced_by_resume', 'session_expired')
-                      if head['source'] == 'practice' else (None, 'server_restart')),
+        'resumable': head_is_resumable(head, version),
     }
 
 

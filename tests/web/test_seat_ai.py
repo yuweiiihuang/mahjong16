@@ -619,8 +619,8 @@ def test_practice_get_and_resume_serialize_old_table_results(tmp_path, monkeypat
         original_table = handler.table
         original_post = handler.do_POST
 
-        def capture(request):
-            result = original_table(request)
+        def capture(request, expected=None):
+            result = original_table(request, expected)
             captured.set()
             assert release.wait(5)
             return result
@@ -632,7 +632,7 @@ def test_practice_get_and_resume_serialize_old_table_results(tmp_path, monkeypat
         monkeypatch.setattr(handler, 'table', capture)
         monkeypatch.setattr(handler, 'do_POST', post)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            get = pool.submit(call, address, '/api/state', cookie)
+            get = pool.submit(call, address, f'/api/state?table={old.table_id}', cookie)
             try:
                 assert captured.wait(5)
                 resume = pool.submit(call, address, '/api/resume', cookie,

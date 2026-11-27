@@ -477,6 +477,8 @@ function renderTing() {
 }
 function render(){
   const state = displayedState();
+  $('home-panel').hidden = true;
+  $('settings').hidden = false;
   const cue = $('meld-cue');
   if (cue.dataset.hand !== `${state.session_id || state.room?.code || ''}:${state.round}`) {
     cue.hidden = true;
@@ -543,13 +545,26 @@ function setTableStatus(message) {
 }
 async function request(path,body){
   if (replay && body !== undefined) throw new Error('重播中不能操作牌局，請先離開重播。');
+  if (path === '/api/state' && state?.room) {
+    path = `/api/room/state?room=${encodeURIComponent(state.room.code)}`;
+  } else if (path === '/api/state' && state?.session_id) {
+    path += `?table=${encodeURIComponent(state.session_id)}`;
+  }
   const headers = {'Content-Type':'application/json'};
-  if (state?.session_id && ['/api/action','/api/next','/api/new','/api/start','/api/ai'].includes(path)) {
+  const writesPlayerSettings = ['/api/player/name', '/api/preferences'].includes(path);
+  if (writesPlayerSettings && state?.room) {
+    headers['X-Qinghe-Room'] = state.room.code;
+  } else if (!state?.room && state?.session_id && (writesPlayerSettings ||
+      ['/api/action','/api/next','/api/new','/api/start','/api/ai'].includes(path))) {
     headers['X-Qinghe-Session'] = state.session_id;
   }
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers,body:JSON.stringify(body)});
   const data=await response.json();
-  if(!response.ok){const error=new Error(data.error||'連線失敗');error.status=response.status;throw error;}
+  if (!response.ok) {
+    const error = new Error(data.error || '連線失敗');
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 async function present(result, previewedAction = null) {
@@ -640,9 +655,24 @@ async function perform(action){
 async function newGame(next = false){
   tingPassed = false;
   if (roomMode) return roomCommand('/api/room/next');
-  if(busy)return;busy=true;$('new-game').disabled=true;
-  try{const result=await request(next ? '/api/next' : '/api/new',{});$('modal').close();await present(result);if(!state.done && !next)toast('新牌桌開始，每位玩家 1,000 點。');}
-  catch(e){toast(e.message);}finally{busy=false;$('new-game').disabled=false;if(state)render();}
+  if (busy) return;
+  busy = true;
+  const button = $(next ? 'result-new' : 'confirm-new');
+  if (button) button.disabled = true;
+  $('new-game').disabled = true;
+  try {
+    const result = await request(next ? '/api/next' : '/api/new', {});
+    $('modal').close();
+    if (!next) setTableUrl({table:result.session_id});
+    await present(result);
+    if (!state.done && !next) toast('新牌桌已建立，每位玩家 1,000 點。');
+  } catch (error) { toast(error.message); }
+  finally {
+    busy = false;
+    if (button) button.disabled = false;
+    $('new-game').disabled = false;
+    if (state) render();
+  }
 }
 function modal(title, content, className = '', show = true){
   settingsSelectCleanup?.();
@@ -849,6 +879,7 @@ $('modal').addEventListener('close', () => {
 });
 
 $('settings').onclick=()=>{
+  if (!state) return;
   settingsOrder = [...sortOrder];
   modal('牌桌設定',`
     <div id="settings-header" class="settings-header"></div>
@@ -1055,7 +1086,19 @@ $('settings').onclick=()=>{
     return true;
   };
 };
-$('new-game').onclick=()=>requestModalClose(()=>{if(!state)return;if(roomMode){modal('離開房間？','<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');$('confirm-leave').onclick=leaveRoom;return;}if(!state.done)return;modal('建立新對局？','<p>原對局的分數、紀錄與接續入口都會保留。新對局每位玩家從 1,000 點、東風圈開始。所有單人桌的最新一局都須先打完。</p><button class="modal-primary" id="confirm-new">建立新對局</button>');$('confirm-new').onclick=()=>newGame();});
+$('new-game').onclick = () => requestModalClose(() => {
+  if (roomMode) {
+    modal('離開房間？', '<p>離開後將由電腦接手；若仍有電腦空位，可再加入並接替該座位。</p><button class="modal-primary" id="confirm-leave">離開房間</button>');
+    $('confirm-leave').onclick = leaveRoom;
+  } else if (state?.done) {
+    confirmNewPractice();
+  }
+});
+function confirmNewPractice() {
+  if (busy) return;
+  modal('建立新對局？', '<p>原對局仍保留在對局紀錄。新對局每位玩家從 1,000 點、東風圈開始。</p><button class="modal-primary" id="confirm-new">建立新對局</button>');
+  $('confirm-new').onclick = () => newGame();
+}
 function refreshSessionHeaders() {
   const list = $('session-list');
   if (!list) return;
@@ -1101,16 +1144,16 @@ async function showHistoricalResult(id, returnButton) {
   } catch (error) { toast(error.message); }
   finally { busy = false; }
 }
-async function showHistory(openSessionId = null) {
-  const opener = $('hand-history');
+async function showHistory(openSessionId = null, opener = $('hand-history')) {
   if (opener.disabled) return;
   opener.disabled = true;
   try {
     const result = await request('/api/sessions');
-    const sessions = result.sessions.filter(session => session.completed_hands > 0 || session.resumable);
+    const sessions = result.sessions.filter(session => session.source === 'practice' ||
+      session.completed_hands > 0 || session.resumable);
     let currentReady = false;
     if (sessions.some(session => session.id === state?.session_id)) {
-      try { await request(state?.room ? '/api/room/state' : '/api/state'); currentReady = true; } catch {}
+      try { await request('/api/state'); currentReady = true; } catch {}
     }
     openSessionId ??= sessions[0]?.id;
     modal('對局紀錄', '<details class="session-help"><summary aria-label="對局與統計說明" title="對局與統計說明"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></summary><div><ul><li>單人與多人牌桌各自記錄對局；能否接續依目前座位與牌桌狀態決定。</li><li>首局未完也會保存原牌；完成第一局後正式成立。多人桌須開始對局後才會出現在紀錄。</li><li>和牌包含自摸；各項比率以已結算局數為分母，含流局。</li><li>分數與統計按座位累計，包含中途接替該座位的玩家；配色依最新保存門風。</li><li>僅自己參與過且引擎相容的已完成局可查看暗牌結算與重播。</li></ul></div></details><div id="session-list" role="region" aria-label="對局清單" tabindex="0"></div>', 'session-dialog', false);
@@ -1146,7 +1189,9 @@ async function showHistory(openSessionId = null) {
         resume.onclick = event => { event.stopPropagation(); resumeHand(session.hand_id); };
         summary.append(resume);
       } else {
-        const warning = document.createElement('span'); warning.textContent = '僅供查閱';
+        const warning = document.createElement('span');
+        warning.textContent = session.incompatible ? '版本不相容・僅供查閱'
+          : session.has_recovery ? '僅供查閱' : '無續局資訊・僅供查閱';
         summary.append(warning);
       }
       const content = document.createElement('div'); content.className = 'session-detail';
@@ -1287,12 +1332,18 @@ async function resumeHand(id) {
   if (busy) return;
   busy = true;
   try {
+    await requireTableView();
     const result = await request('/api/resume', {hand_id:id});
     selected = null; tingPassed = false; tingMode = false;
     if (result.room) {
       if (!roomMode) acceptRoom(result); else state = result;
-    } else state = result;
+    } else {
+      state = result;
+      setTableUrl({table:state.session_id});
+    }
     $('modal').close(); render();
+    try { await syncAutoTingPreference(); }
+    catch (error) { toast(error.message); }
     if (state.done) showResult();
   } catch (error) { toast(error.message); }
   finally { busy = false; if (state) render(); }
@@ -1389,9 +1440,10 @@ function lockReplaySurface(locked) {
   }
 }
 async function showReplay(id) {
-  if (busy || replay || !tableView) return;
+  if (busy || replay) return;
   busy = true;
   try {
+    await requireTableView();
     const {frames} = await request(`/api/replay?hand_id=${encodeURIComponent(id)}`);
     if (!Array.isArray(frames) || !frames.length || !frames[0].state?.replay_seats) {
       throw new Error('重播需要更新伺服器，請重新啟動服務後再試。');
@@ -1440,6 +1492,10 @@ async function changeReplayView(viewer) {
 async function exitReplay() {
   if (!replay || replay.exiting) return;
   stopReplay();
+  if (!state) {
+    location.reload();
+    return;
+  }
   // Replacing the object also invalidates a still-loading perspective response.
   replay = {...replay,loading:true,exiting:true}; renderReplayControls();
   // Invalidate any long poll that began before refreshing the live table.
@@ -1451,11 +1507,14 @@ async function exitReplay() {
     lockReplaySurface(false);
     roomMode = false;
     if (result.room) acceptRoom(result);
-    else sessionStorage.removeItem('qinghe-room');
     $('toast').classList.remove('visible');
     render();
     if (state.done) showResult();
   } catch (error) {
+    if (error.status === 400) {
+      location.replace('/');
+      return;
+    }
     replay.loading = false; replay.exiting = false; renderReplayControls();
     toast(`無法返回目前牌桌：${error.message}，請再按「離開重播」重試。`);
     if (roomMode) pollRoom(pollGeneration);
@@ -1465,9 +1524,7 @@ function acceptRoom(result) {
   roomMode = true; state = result; selected = null;
   tingPassed = false; tingMode = false;
   rememberPlayerName(result.room.members[0].name);
-  sessionStorage.setItem('qinghe-room', result.room.code);
-  const url = new URL(location.href); url.searchParams.set('room', result.room.code);
-  history.replaceState(null, '', url);
+  setTableUrl({room:result.room.code});
   const generation = ++pollGeneration;
   pollRoom(generation);
 }
@@ -1475,7 +1532,8 @@ async function pollRoom(generation) {
   while (roomMode && generation === pollGeneration) {
     if (busy) { await new Promise(resolve => setTimeout(resolve, 100)); continue; }
     try {
-      const result = await request(`/api/room/state?after=${state.version}`);
+      const path = `/api/room/state?after=${state.version}`;
+      const result = await request(state.room ? `${path}&room=${state.room.code}` : path);
       if (generation !== pollGeneration || !roomMode) return;
       if (!busy && result.version >= state.version) {
         const old = state; state = result;
@@ -1504,7 +1562,7 @@ async function pollRoom(generation) {
       if (!roomMode || generation !== pollGeneration) return;
       if (error.status === 400) {
         if (replay) { roomMode = false; ++pollGeneration; continue; }
-        toast(error.message); await leaveRoom(); return;
+        location.replace('/'); return;
       }
       $('connection-status').textContent = '重新連線中…';
       $('connection-status').parentElement.hidden = false;
@@ -1513,17 +1571,15 @@ async function pollRoom(generation) {
   }
 }
 async function roomCommand(path, body = {}) {
-  if (busy || !tableView) return;
+  if (busy) return;
   busy = true;
   try {
-    let result = await request(path, body);
-    if (result.auto_ting_discard !== undefined && (path === '/api/rooms' || path === '/api/room/join')) {
-      result = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
-    }
+    await requireTableView();
+    const result = await request(path, body);
     $('modal').close();
     if (!roomMode) acceptRoom(result);
     else state = result;
-    rememberPlayerName(result.room.members[0].name);
+    if (path === '/api/rooms' || path === '/api/room/join') await syncAutoTingPreference();
     selected = null; render();
   } catch (error) { toast(error.message); }
   finally { busy = false; if (state) render(); }
@@ -1584,16 +1640,9 @@ async function leaveRoom() {
   try {
     await request('/api/room/leave', {});
     roomMode = false; ++pollGeneration;
-    sessionStorage.removeItem('qinghe-room');
-    const url = new URL(location.href); url.searchParams.delete('room');
-    history.replaceState(null, '', url);
-    state = await request('/api/state'); selected = null; tingPassed = false; tingMode = false;
-    if (state.auto_ting_discard !== undefined) {
-      state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
-    }
-    $('modal').close(); render();
+    location.replace('/');
   } catch (error) { toast(error.message); }
-  finally { busy = false; if (state) render(); }
+  finally { busy = false; }
 }
 $('multiplayer').onclick = () => {
   if (roomMode) {
@@ -1628,33 +1677,154 @@ $('multiplayer').onclick = () => {
     };
   }
 };
-(async()=>{
+function setTableUrl({table, room} = {}) {
+  const url = new URL(location.href);
+  url.searchParams.delete('table');
+  url.searchParams.delete('room');
+  if (table) url.searchParams.set('table', table);
+  if (room) url.searchParams.set('room', room);
+  history.replaceState(null, '', url);
+}
+
+const tableReady = (async () => {
   try {
     const { MahjongTableView } = await import('./table3d.js?v=font-tokens-1');
-    tableView = new MahjongTableView(document.querySelector('.table'),undefined,tileFont);
+    tableView = new MahjongTableView(document.querySelector('.table'), undefined, tileFont);
     tableView.onProject = syncProjection;
-    tableView.renderer.shadowMap.enabled=!compact;
-    setTableStatus('正在載入牌面…');
+    tableView.renderer.shadowMap.enabled = !compact;
     await tableView.ready;
-    setTableStatus('正在連線…');
-    const code = new URL(location.href).searchParams.get('room');
-    state = await request('/api/state');
-    if (!state.room && playerName && state.player_name === '玩家') {
+    return true;
+  } catch (error) {
+    console.error(error);
+    return false;
+  }
+})();
+
+async function requireTableView() {
+  if (!await tableReady) throw new Error('無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
+}
+
+async function syncAutoTingPreference() {
+  if (state.auto_ting_discard !== undefined && state.auto_ting_discard !== autoTingDiscard) {
+    state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
+  }
+}
+
+async function openPractice() {
+  if (busy) return;
+  busy = true;
+  const button = $('home-start');
+  button.disabled = true;
+  try {
+    await requireTableView();
+    state = await request('/api/practice', {});
+    setTableUrl({table:state.session_id});
+    if (playerName && state.player_name === '玩家') {
       state = await request('/api/player/name', {name:playerName});
     }
-    if (state.auto_ting_discard !== undefined) {
-      state = await request('/api/preferences', {auto_ting_discard:autoTingDiscard});
+    await syncAutoTingPreference();
+  } catch (error) {
+    if (state) toast(error.message);
+    else await showHome(error.message);
+  } finally {
+    busy = false;
+    if (state) render();
+  }
+}
+
+async function openCurrentRoom(code) {
+  await requireTableView();
+  state = await request(`/api/room/state?room=${encodeURIComponent(code)}`);
+  try { await syncAutoTingPreference(); }
+  catch (error) { toast(error.message); }
+  acceptRoom(state);
+  render();
+  if (state.done) showResult();
+}
+
+async function showHome(message = '', entry = null) {
+  setTableStatus('');
+  $('home-panel').hidden = false;
+  $('settings').hidden = true;
+  const start = $('home-start');
+  const resume = $('home-resume');
+  const room = $('home-room');
+  const status = $('home-status');
+  start.disabled = true;
+  resume.hidden = true;
+  room.hidden = true;
+  status.textContent = message || '正在載入…';
+  try {
+    entry ??= await request('/api/home');
+    start.hidden = !entry.can_start_practice;
+    start.disabled = !entry.can_start_practice;
+    $('home-multiplayer').hidden = Boolean(entry.room_code);
+    const practice = entry.practice;
+    if (practice && !entry.room_code) {
+      resume.hidden = false;
+      resume.classList.toggle('home-main', !entry.can_start_practice);
+      $('home-round').textContent = `第 ${practice.round} 局`;
+      resume.onclick = () => practice.hand_id ? resumeHand(practice.hand_id)
+        : location.assign(`/?table=${encodeURIComponent(practice.id)}`);
     }
-    if (!state.room) sessionStorage.removeItem('qinghe-room');
-    if (state.room && !roomMode) acceptRoom(state);
-    render();
-    if (code && (!state.room || state.room.code !== code.toUpperCase())) showJoinRoom(code);
-    else if (state.done) showResult();
-  } catch (e) {
-    setTableStatus(e.status ? `${e.message}\n可從房間資訊開啟「牌局紀錄／續局」。`
-      : '牌桌載入失敗，請重新整理重試。');
-    toast(e.status ? e.message : '無法載入 3D 牌桌，請重新整理或使用支援 WebGL 的瀏覽器。');
-    console.error(e);
+    if (entry.room_code) {
+      room.hidden = false;
+      room.onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try { await openCurrentRoom(entry.room_code); }
+        catch (error) { await showHome(error.message); }
+        finally { busy = false; if (state) render(); }
+      };
+    }
+    status.textContent = message || (!entry.can_start_practice && !entry.room_code
+      ? '請先打完目前的單人牌局。' : '');
+    return entry;
+  } catch (error) {
+    status.textContent = error.message;
+    return null;
+  }
+}
+
+$('home-start').onclick = openPractice;
+$('home-multiplayer').onclick = () => $('multiplayer').click();
+$('home-history').onclick = async ({currentTarget:opener}) => {
+  await showHistory(null, opener);
+  const dialog = $('modal');
+  if (dialog.open && $('session-list')) {
+    dialog.addEventListener('close', () => {
+      if (!$('home-panel').hidden) opener.focus({preventScroll:true});
+    }, {once:true});
+  }
+};
+
+(async () => {
+  const parameters = new URL(location.href).searchParams;
+  const table = parameters.get('table');
+  const code = parameters.get('room')?.toUpperCase();
+  try {
+    if (table && !code) {
+      await requireTableView();
+      state = await request(`/api/state?table=${encodeURIComponent(table)}`);
+      try { await syncAutoTingPreference(); }
+      catch (error) { toast(error.message); }
+      render();
+      if (state.done) showResult();
+      return;
+    }
+    if (code) {
+      const entry = await request('/api/home');
+      if (entry.room_code === code) await openCurrentRoom(code);
+      else {
+        await showHome('', entry);
+        showJoinRoom(code);
+      }
+    } else {
+      await showHome();
+    }
+  } catch (error) {
+    setTableUrl();
+    await showHome(error.message);
   }
 })();
 

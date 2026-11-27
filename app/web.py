@@ -20,12 +20,12 @@ from uuid import uuid4
 
 from app.web_ai import NativeSearches
 from app.training_export import player_observation
-from app.web_rooms import RoomRegistry, player_name
+from app.web_rooms import RoomRegistry, WebRoom, player_name
 from app.hand_store import HandStore, PersistentHandRecorder, RecordingError, _now
 from app.ai_history import public_ai_failure
 
 from domain.gameplay.game_env import Mahjong16Env
-from domain.gameplay.recording import replay_hand
+from domain.gameplay.recording import engine_version, replay_hand
 from domain.rules.ruleset import Ruleset
 from bots.greedy import GreedyBotStrategy
 from app.table import TableManager, TableState
@@ -36,6 +36,13 @@ from domain.scoring.lookup import load_scoring_assets
 from domain.scoring.score_types import ScoringContext, ScoringTable
 
 WEB_ROOT = Path(__file__).resolve().parents[1] / 'ui' / 'web'
+
+
+class PracticeRecoveryBlocked(ValueError):
+    """The selected practice table cannot be restored from its saved head."""
+
+    def __init__(self) -> None:
+        super().__init__('原對局與目前版本不相容，請先查看牌局紀錄。')
 
 
 class WebTable:
@@ -771,33 +778,109 @@ class WebHandler(SimpleHTTPRequestHandler):
         self.sid = sid
         return sid
 
-    def table(self) -> tuple[str, WebTable]:
+    def practice_heads(self) -> list[dict]:
+        """List the newest saved hand for each of this player's practice tables."""
+        if self.record_store is None or self.player_id is None:
+            return []
+        return self.record_store.session_hands(self.player_id, heads=True, practice_only=True)
+
+    def table(self, expected: str | None = None) -> tuple[str, WebTable]:
+        """Resolve the current practice table or restore the specified current table."""
         sid = self.identity()
         with self.session_lock:
-            if self.sessions[sid] is None:
-                heads = (self.record_store.session_hands(
-                    self.player_id, heads=True, practice_only=True)
-                    if self.record_store and self.player_id else [])
+            current = self.sessions[sid]
+            if current is None:
+                selected = (self.record_store.selected_practice(self.player_id)
+                            if self.record_store and self.player_id else None)
+                if expected is not None and expected != selected:
+                    raise ValueError('這張牌桌已切換或結束，可從首頁重新選擇。')
                 # Legacy records remain history, not abandoned resumable deals.
-                heads = [head for head in heads if head['recovery_version'] is not None]
-                if heads:
-                    selected = self.record_store.selected_practice(self.player_id)
-                    head = next((item for item in heads if item['table_id'] == selected), heads[-1])
+                heads = [item for item in self.practice_heads()
+                         if item['recovery_version'] is not None]
+                head = next((item for item in heads if item['table_id'] == selected), None)
+                if head is None and heads and expected is None:
+                    head = heads[-1]
+                if head is not None:
                     documents = self.record_store.player_records(
                         self.player_id, hand_id=head['hand_id'])
                     from app.web_records import can_resume
 
-                    if not can_resume(documents[0], self.record_store, self.player_id):
-                        raise ValueError('原對局與目前版本不相容，請先查看牌局紀錄。')
-                    self.sessions[sid] = WebTable.restore(documents[0], self.record_store,
-                                                           ai_service=self.ai_service)
+                    if not documents or not can_resume(
+                            documents[0], self.record_store, self.player_id):
+                        raise PracticeRecoveryBlocked()
+                    current = WebTable.restore(documents[0], self.record_store,
+                                               ai_service=self.ai_service)
                 else:
-                    self.sessions[sid] = WebTable(record_store=self.record_store,
-                                                  player_id=self.player_id, waiting=True,
-                                                  ai_service=self.ai_service)
+                    current = WebTable(record_store=self.record_store,
+                                       player_id=self.player_id, waiting=True,
+                                       ai_service=self.ai_service)
+                    if expected is not None:
+                        current.table_id = expected  # An explicitly selected, undealt table.
                 if self.record_store and self.player_id:
-                    self.record_store.select_practice(self.player_id, self.sessions[sid].table_id)
-            return sid, self.sessions[sid]
+                    self.record_store.select_practice(self.player_id, current.table_id)
+                self.sessions[sid] = current
+            elif expected is not None and current.table_id != expected:
+                raise ValueError('這張牌桌已切換或結束，可從首頁重新選擇。')
+            return sid, current
+
+    def resumable_practice_heads(self) -> list[dict]:
+        """Offer only compatible heads with a retained practice seat."""
+        from app.web_records import head_is_resumable
+
+        heads = self.practice_heads()
+        version = engine_version()
+        return [head for head in reversed(heads) if head_is_resumable(head, version)]
+
+    def home(self, sid: str) -> dict:
+        """Read entry choices without restoring a game or touching a room seat."""
+        try:
+            room_code = self.rooms.get(sid).code
+        except ValueError:
+            room_code = None
+        with self.session_lock:
+            heads = self.resumable_practice_heads()
+            pending = next((head for head in heads if head['status'] != 'completed'), None)
+            current = self.sessions.get(sid)
+            selected = (self.record_store.selected_practice(self.player_id)
+                        if self.record_store and self.player_id else None)
+            head = pending or next((head for head in heads if head['table_id'] == selected),
+                                   heads[0] if heads else None)
+            practice = None
+            if head is not None:
+                practice = {'id': head['table_id'], 'hand_id': head['hand_id'],
+                            'round': head['round']}
+            elif current is not None and not current.waiting:
+                practice = {'id': current.table_id, 'hand_id': None, 'round': current.round}
+            live_unfinished = current is not None and not current.waiting and not current.env.done
+        return {'room_code': room_code, 'practice': practice,
+                'can_start_practice': not (room_code or pending or live_unfinished)}
+
+    def new_practice(self, sid: str, table: WebTable | None) -> dict:
+        """Open a new table explicitly, retaining all saved deals and their original IDs."""
+        if any(head['status'] != 'completed' for head in self.resumable_practice_heads()):
+            raise ValueError('另有尚未打完的單人牌局，請從紀錄返回完成。')
+        if table is None:
+            table = WebTable(record_store=self.record_store, player_id=self.player_id,
+                             waiting=True, ai_service=self.ai_service)
+        else:
+            table.new_table(waiting=True)
+        if self.record_store and self.player_id:
+            self.record_store.select_practice(self.player_id, table.table_id)
+        self.sessions[sid] = table
+        return table.snapshot()
+
+    def room_for_table_write(self, sid: str) -> WebRoom | None:
+        """Reject delayed preference or name writes aimed at a previous table."""
+        expected_room = self.headers.get('X-Qinghe-Room')
+        expected_practice = self.headers.get('X-Qinghe-Session')
+        try:
+            room = self.rooms.get(sid)
+        except ValueError:
+            room = None
+        if ((expected_room and (room is None or room.code != expected_room))
+                or (expected_practice and room is not None)):
+            raise ValueError('牌桌已在其他分頁切換，請重新整理後操作。')
+        return room
 
     def respond(self, data: dict, sid: str, status: int = 200) -> None:
         payload = json.dumps(data, ensure_ascii=False).encode()
@@ -819,12 +902,15 @@ class WebHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlsplit(self.path)
         if path.path not in ('/api/state', '/api/room/state', '/api/history', '/api/replay',
-                             '/api/sessions', '/api/session'):
+                             '/api/sessions', '/api/session', '/api/home'):
             super().do_GET()
             return
         sid = ''
         try:
-            if path.path in ('/api/history', '/api/replay', '/api/sessions', '/api/session'):
+            if path.path == '/api/home':
+                sid = self.identity()
+                self.respond(self.home(sid), sid)
+            elif path.path in ('/api/history', '/api/replay', '/api/sessions', '/api/session'):
                 from app.web_records import (
                     history, replay_frames, session_summary, session_statistics,
                 )
@@ -851,16 +937,19 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.respond(data, sid)
             elif path.path == '/api/state':
                 sid = self.identity()
+                expected = parse_qs(path.query).get('table', [None])[0]
                 try:
                     room = self.rooms.get(sid)
                 except ValueError:
                     with self.session_lock:
-                        sid, table = self.table()
+                        sid, table = self.table(expected)
                         with table.lock:
                             playback = []
                             table.advance(playback)
                             data = {**table.snapshot(), 'playback': playback}
                 else:
+                    if expected is not None:
+                        raise ValueError('請先離開目前房間。')
                     with room.changed:
                         room.touch(sid)
                         data = room.snapshot(sid)
@@ -868,7 +957,11 @@ class WebHandler(SimpleHTTPRequestHandler):
             else:
                 sid = self.identity()
                 room = self.rooms.get(sid)
-                after = int(parse_qs(path.query).get('after', ['-1'])[0])
+                parameters = parse_qs(path.query)
+                expected = parameters.get('room', [None])[0]
+                if expected is not None and expected != room.code:
+                    raise ValueError('目前未在指定的房間。')
+                after = int(parameters.get('after', ['-1'])[0])
                 with room.changed:
                     room.touch(sid)
                     if after == room.version:
@@ -876,6 +969,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     room.touch(sid)
                     data = room.snapshot(sid)
                 self.respond(data, sid)
+        except PracticeRecoveryBlocked as error:
+            self.respond({'error': str(error), 'code': 'practice_recovery_blocked'}, sid, 400)
         except (RecordingError, sqlite3.Error, OSError) as error:
             self.respond({'error': str(error)}, sid, 503)
         except (ValueError, TypeError) as error:
@@ -885,7 +980,8 @@ class WebHandler(SimpleHTTPRequestHandler):
         if self.path not in ('/api/action', '/api/new', '/api/next', '/api/rooms',
                              '/api/room/join', '/api/room/start', '/api/room/action',
                              '/api/room/next', '/api/room/leave', '/api/preferences',
-                             '/api/player/name', '/api/resume', '/api/start', '/api/ai'):
+                             '/api/player/name', '/api/resume', '/api/start', '/api/ai',
+                             '/api/practice'):
             self.send_error(404)
             return
         sid = ''
@@ -900,6 +996,24 @@ class WebHandler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('無效請求')
+            if self.path == '/api/practice':
+                sid = self.identity()
+                try:
+                    self.rooms.get(sid)
+                except ValueError:
+                    pass
+                else:
+                    raise ValueError('請先離開目前房間。')
+                with self.session_lock:
+                    current = self.sessions[sid]
+                    if current is not None and current.waiting:
+                        data = current.snapshot()
+                    else:
+                        if current is not None and not current.env.done:
+                            raise ValueError('尚有未打完的單人牌局，請先繼續對局。')
+                        data = self.new_practice(sid, current)
+                self.respond(data, sid)
+                return
             if self.path == '/api/resume':
                 from app.web_records import can_resume, viewer_seat
 
@@ -955,11 +1069,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if not name:
                     raise ValueError('請輸入顯示名稱。')
                 sid = self.identity()
-                try:
-                    room = self.rooms.get(sid)
-                except ValueError:
+                room = self.room_for_table_write(sid)
+                if room is None:
                     with self.session_lock:
-                        sid, table = self.table()
+                        sid, table = self.table(self.headers.get('X-Qinghe-Session') or None)
                         with table.lock:
                             table.check_recording()
                             table.record_seat(0, {**table.record_players[0], 'name': name})
@@ -976,11 +1089,8 @@ class WebHandler(SimpleHTTPRequestHandler):
                     room = self.rooms.get(sid)
                 except ValueError:
                     with self.session_lock:
-                        sid, table = self.table()
+                        sid, table = self.table(self.headers.get('X-Qinghe-Session') or None)
                         with table.lock:
-                            expected = self.headers.get('X-Qinghe-Session')
-                            if expected and expected != table.table_id:
-                                raise ValueError('牌桌已在其他分頁切換，請重新整理後操作。')
                             table.set_ai_levels(body.get('levels'))
                             data = table.snapshot()
                 else:
@@ -994,11 +1104,10 @@ class WebHandler(SimpleHTTPRequestHandler):
                 if type(enabled) is not bool:
                     raise ValueError('聽牌自動出牌設定必須為開啟或關閉。')
                 sid = self.identity()
-                try:
-                    room = self.rooms.get(sid)
-                except ValueError:
+                room = self.room_for_table_write(sid)
+                if room is None:
                     with self.session_lock:
-                        sid, table = self.table()
+                        sid, table = self.table(self.headers.get('X-Qinghe-Session') or None)
                         with table.lock:
                             table.auto_ting_discard[0] = enabled
                             playback = []
@@ -1044,24 +1153,20 @@ class WebHandler(SimpleHTTPRequestHandler):
                 self.respond(data, sid)
                 return
             with self.session_lock:
-                sid, table = self.table()
+                sid = self.identity()
+                expected = self.headers.get('X-Qinghe-Session') or None
+                try:
+                    _, table = self.table(expected)
+                except PracticeRecoveryBlocked:
+                    if self.path != '/api/new' or expected:
+                        raise
+                    self.respond(self.new_practice(sid, None), sid)
+                    return
                 with table.lock:
-                    expected = self.headers.get('X-Qinghe-Session')
-                    if expected and expected != table.table_id:
-                        raise ValueError('牌桌已在其他分頁切換，請重新整理後操作。')
                     if self.path == '/api/new':
                         if not table.env.done:
                             raise ValueError('本局尚未結束，請先打完再開新對局。')
-                        if self.record_store and self.player_id:
-                            heads = self.record_store.session_hands(
-                                self.player_id, heads=True, practice_only=True)
-                            if any(head['recovery_version'] is not None and
-                                   head['status'] != 'completed' for head in heads):
-                                raise ValueError('另有尚未打完的單人牌局，請從紀錄返回完成。')
-                        table.new_table(waiting=True)
-                        if self.record_store and self.player_id:
-                            self.record_store.select_practice(self.player_id, table.table_id)
-                        data = table.snapshot()
+                        data = self.new_practice(sid, table)
                     elif self.path == '/api/start':
                         if not table.waiting:
                             raise ValueError('本桌已開局。')
