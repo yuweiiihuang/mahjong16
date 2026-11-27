@@ -248,3 +248,5 @@ def test_claimed_kong_replacement_win_is_scored_as_gang_shang():
     _, breakdown = score_with_breakdown(ScoringContext.from_env(env, table))
     keys = {item["key"] for item in breakdown[2]}
     assert "gang_shang" in keys and "zimo" not in keys
+    # Claiming the first discard as a kong also disqualifies 地胡 and 人胡.
+    assert keys.isdisjoint({"di_hu", "ren_hu"})
